@@ -1155,7 +1155,7 @@
 			AppState.controls.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
 			AppState.controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
 			AppState.controls.touches.ONE = isPanActive ? THREE.TOUCH.PAN : THREE.TOUCH.ROTATE;
-			AppState.controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
+			AppState.controls.touches.TWO = isPanActive ? THREE.TOUCH.DOLLY_ROTATE : THREE.TOUCH.DOLLY_PAN;
 		} else {
 			// --- CẤU HÌNH TRÊN PC ---
 			// Chuột trái ngoài model: Mặc định là XOAY, khi giữ Shift/Space hoặc bật nút Pan thì thành PAN
@@ -1349,6 +1349,36 @@
         dom.addEventListener('pointermove', onPointerMove, { passive: false });
         window.addEventListener('pointerup', onPointerUp);
         window.addEventListener('pointercancel', onPointerUp);
+		
+		// Bắt trực tiếp sự kiện Touch của iOS / iPadOS và Android để ưu tiên cử chỉ 2 ngón tay
+        dom.addEventListener('touchstart', (e) => {
+            touchCount = e.touches.length;
+            if (touchCount >= 2) {
+                isTwoFingerGesture = true;
+                cancelActiveVoxelAction();
+                if (AppState.controls) AppState.controls.enabled = true;
+            }
+        }, { passive: false });
+
+        dom.addEventListener('touchend', (e) => {
+            touchCount = e.touches.length;
+            if (touchCount === 0) {
+                isTwoFingerGesture = false;
+                activePointers.clear();
+                if (AppState.controls) AppState.controls.enabled = true;
+            }
+        }, { passive: false });
+
+        dom.addEventListener('touchcancel', (e) => {
+            touchCount = e.touches.length;
+            if (touchCount === 0) {
+                isTwoFingerGesture = false;
+                activePointers.clear();
+                if (AppState.controls) AppState.controls.enabled = true;
+            }
+        }, { passive: false });
+		
+		
         window.addEventListener('keydown', onKeyDown);
         window.addEventListener('keyup', onKeyUp);
 
@@ -3446,9 +3476,35 @@
     }
 
     const activePointers = new Map();
+    let isTwoFingerGesture = false; // Cờ khóa mọi tương tác vẽ khi đang dùng 2 ngón tay
+    let touchCount = 0;             // Đếm số điểm chạm thực tế trên màn hình cảm ứng
     let boxDragStart = null;
     let boxDragNormal = null;
-    let boxDragCurrent = null; // Thêm biến lưu tọa độ đích hiện tại của box
+    let boxDragCurrent = null;
+
+    // Hủy bỏ toàn bộ tương tác voxel (Select, Attach, Paint, Erase, Pick) và hoàn tác về trạng thái trước đó
+    function cancelActiveVoxelAction() {
+        stopContinuousFaceAction();
+        if (strokeSnapshot) {
+            restoreStateFromSnapshot(strokeSnapshot);
+            strokeSnapshot = null;
+        }
+        AppState.faceExtrudeActive = false;
+        AppState.faceBaseVoxels = [];
+        AppState.faceBaseSnapshot = [];
+        AppState.faceExtrudeNormal = null;
+        AppState.faceExtrudeVoxelDir = null;
+        AppState.faceExtrudeOrigin = null;
+        AppState.faceExtrudePlane = null;
+        AppState.faceExtrudeSteps = 0;
+        boxDragStart = null;
+        boxDragCurrent = null;
+        boxDragNormal = null;
+        if (AppState.ghostBoxMesh) AppState.ghostBoxMesh.visible = false;
+        AppState.isInteracting = false;
+        strokeDidModify = false;
+        if (AppState.controls) AppState.controls.enabled = true;
+    }
 
     function getVoxelMap() {
         const map = new Map();
@@ -3956,26 +4012,43 @@
 	function onPointerDownCapture(event) {
     if (!AppState.model) return;
 
-   // Chuột phải (button 2) hoặc Chuột giữa (button 1): Luôn mở khóa camera để Pan tự do
+    if (event.pointerId !== undefined) {
+        activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    }
+
+    // Khi phát hiện từ 2 ngón tay trở lên: Ngừng toàn bộ thao tác vẽ, chuyển 100% sang Camera
+    const isMultiTouch = (activePointers.size >= 2) || (event.touches && event.touches.length >= 2) || isTwoFingerGesture || (touchCount >= 2);
+    if (isMultiTouch) {
+        isTwoFingerGesture = true;
+        cancelActiveVoxelAction();
+        if (AppState.controls) AppState.controls.enabled = true;
+        return;
+    }
+
+    // Chuột phải (button 2) hoặc Chuột giữa (button 1) trên PC: Mở khóa camera để Pan tự do
     if (event.pointerType === 'mouse' && (event.button === 1 || event.button === 2)) {
         if (AppState.controls) AppState.controls.enabled = true;
         return;
     }
 
-    // Ưu tiên Pick Color: khóa camera nếu chạm trúng voxel
+    // Ưu tiên Pick Color
     const isPick = (AppState.action === 'pick') || event.altKey || AppState.isAltDown;
-    if (isPick && (event.button === 0 || event.pointerType !== 'mouse')) {
-        const ray = getRaycastIntersection(event);
-        if (ray && (ray.voxel || ray.colorIndex)) {
-            if (AppState.controls) AppState.controls.enabled = false;
+    if (isPick) {
+        if (event.pointerType === 'mouse' && event.button === 0) {
+            const ray = getRaycastIntersection(event);
+            if (ray && (ray.voxel || ray.colorIndex)) {
+                if (AppState.controls) AppState.controls.enabled = false;
+            }
+        } else if (event.pointerType !== 'mouse') {
+            if (AppState.controls) AppState.controls.enabled = true;
         }
         return;
     }
 
-    // Các chế độ vẽ khác (Attach, Paint, Erase...)
+    // Các chế độ vẽ (Attach, Paint, Erase, Select...)
     if (AppState.action !== 'select' || AppState.selectionMode !== 'transform') {
         AppState.isTransformingGizmo = false;
-        if (event.button === 0 || event.pointerType !== 'mouse') {
+        if (event.button === 0 && event.pointerType === 'mouse') {
             const ray = getRaycastIntersection(event);
             const gridHit = (AppState.action === 'attach') ? getGridPlaneIntersection(event) : null;
             if ((ray && ray.voxel) || (gridHit && gridHit.isInsideBase)) {
@@ -3983,6 +4056,10 @@
             } else {
                 if (AppState.controls) AppState.controls.enabled = true;
             }
+        } else if (event.pointerType !== 'mouse') {
+            // Trên Mobile / iPad: Luôn để OrbitControls nhận sự kiện ngón tay đầu tiên
+            // để khi có ngón thứ 2 chạm vào sẽ tự động kích hoạt xoay/zoom/pan ngay
+            if (AppState.controls) AppState.controls.enabled = true;
         }
         return;
     }
@@ -4010,6 +4087,20 @@
 
 		// Nếu đang giữ Shift hoặc Space để Pan: Bỏ qua vẽ voxel, kích hoạt điều khiển camera
 		if (AppState.isSpaceDown || AppState.isShiftDown) {
+			if (AppState.controls) AppState.controls.enabled = true;
+			return;
+		}
+		
+		if (event.pointerId !== undefined) {
+			activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+		}
+		AppState.lastInteractionPointerPos.set(event.clientX, event.clientY);
+
+		// Nếu phát hiện 2 ngón tay: Lập tức hủy mọi tác vụ vẽ và nhường cho OrbitControls
+		const isMultiTouch = (activePointers.size >= 2) || (event.touches && event.touches.length >= 2) || isTwoFingerGesture || (touchCount >= 2);
+		if (isMultiTouch) {
+			isTwoFingerGesture = true;
+			cancelActiveVoxelAction();
 			if (AppState.controls) AppState.controls.enabled = true;
 			return;
 		}
@@ -4087,18 +4178,9 @@
 			  AppState.isTransformingGizmo = false;
 		  }
 
-        activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-        AppState.lastInteractionPointerPos.set(event.clientX, event.clientY);
-
-        if (activePointers.size > 1) {
-            stopContinuousFaceAction();
-            AppState.isInteracting = false;
-            strokeSnapshot = null;
-			boxDragCurrent = null;
-            strokeDidModify = false;
-            boxDragStart = null;
-            if (AppState.ghostBoxMesh) AppState.ghostBoxMesh.visible = false;
-            if (AppState.controls) AppState.controls.enabled = true;
+        if (activePointers.size > 1 || isTwoFingerGesture) {
+            isTwoFingerGesture = true;
+            cancelActiveVoxelAction();
             return;
         }
 
@@ -4191,7 +4273,7 @@
 		// 4. CÁC TÁC VỤ VẼ MÔ HÌNH (FACE / BOX KHI Ở ATTACH / ERASE / PAINT)
        if (AppState.brushShape === 'face') {
             if (ray && ray.voxel) {
-                event.stopImmediatePropagation();
+                if (event.pointerType === 'mouse') event.stopImmediatePropagation();
                 if (AppState.controls) AppState.controls.enabled = false;
 
                 AppState.isInteracting = true;
@@ -4277,7 +4359,7 @@
         }
 
 		if (ray) {
-            event.stopImmediatePropagation();
+            if (event.pointerType === 'mouse') event.stopImmediatePropagation();
             if (AppState.controls) AppState.controls.enabled = false;
 
             AppState.isInteracting = true;
@@ -4303,7 +4385,7 @@
 
 		const gridHit = getGridPlaneIntersection(event);
         if (gridHit && gridHit.isInsideBase) {
-            event.stopImmediatePropagation();
+            if (event.pointerType === 'mouse') event.stopImmediatePropagation();
             if (AppState.controls) AppState.controls.enabled = false;
 
             AppState.isInteracting = true;
@@ -4463,13 +4545,17 @@
         }
         AppState.lastInteractionPointerPos.set(event.clientX, event.clientY);
 
-        if (activePointers.size > 1) {
-            stopContinuousFaceAction();
-            AppState.isInteracting = false;
-			boxDragCurrent = null;
-            if (AppState.ghostBoxMesh) AppState.ghostBoxMesh.visible = false;
+        const isMultiTouch = (activePointers.size >= 2) || (event.touches && event.touches.length >= 2) || isTwoFingerGesture || (touchCount >= 2);
+        if (isMultiTouch) {
+            isTwoFingerGesture = true;
+            cancelActiveVoxelAction();
             if (AppState.controls) AppState.controls.enabled = true;
             return;
+        }
+
+        // Khi dùng 1 ngón tay vẽ trên màn hình cảm ứng: Tạm khóa OrbitControls để không bị giật camera
+        if (event.pointerType !== 'mouse' && AppState.isInteracting) {
+            if (AppState.controls) AppState.controls.enabled = false;
         }
 
         if (!AppState.isInteracting || !AppState.model) return;
@@ -4551,6 +4637,8 @@
     }
 
     function onPointerUp(event) {
+	
+		
         stopContinuousFaceAction();
 		
 		// Reset trạng thái Extrude Face
@@ -4574,6 +4662,18 @@
             activePointers.delete(event.pointerId);
         } else {
             activePointers.clear();
+        }
+
+        // Khi đã nhấc tất cả ngón tay ra khỏi màn hình
+        if (activePointers.size === 0) {
+            isTwoFingerGesture = false;
+        }
+
+        // Nếu vừa kết thúc cử chỉ 2 ngón tay: Hủy mọi tác vụ vẽ dở dang và mở lại Camera
+        if (isTwoFingerGesture) {
+            cancelActiveVoxelAction();
+            if (AppState.controls) AppState.controls.enabled = true;
+            return;
         }
 
 		if (boxDragStart && AppState.isInteracting && AppState.brushShape === 'box') {
