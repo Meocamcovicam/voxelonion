@@ -4969,54 +4969,68 @@
                 traverse(rootId, identityMatrix, { x: 0, y: 0, z: 0 });
 
                 if (combinedVoxels.length > 0) {
-                    let minX = Infinity, maxX = -Infinity;
-                    let minY = Infinity, maxY = -Infinity;
-                    let minZ = Infinity, maxZ = -Infinity;
-                    for (const v of combinedVoxels) {
-                        if (v.x < minX) minX = v.x;
-                        if (v.x > maxX) maxX = v.x;
-                        if (v.y < minY) minY = v.y;
-                        if (v.y > maxY) maxY = v.y;
-                        if (v.z < minZ) minZ = v.z;
-                        if (v.z > maxZ) maxZ = v.z;
-                    }
-
-                    // Tịnh tiến chuẩn xác về tọa độ dương và khử trùng lặp voxel
-                    const vMap = new Map();
-                    for (const v of combinedVoxels) {
-                        const x = v.x - minX;
-                        const y = v.y - minY;
-                        const z = v.z - minZ;
-                        vMap.set(`${x},${y},${z}`, { x, y, z, i: v.i });
-                    }
-                    combinedVoxels = Array.from(vMap.values());
-
-                    finalSize = {
-                        x: Math.max(1, maxX - minX + 1),
-                        y: Math.max(1, maxY - minY + 1),
-                        z: Math.max(1, maxZ - minZ + 1)
-                    };
+                let minX = Infinity, maxX = -Infinity;
+                let minY = Infinity, maxY = -Infinity;
+                let minZ = Infinity, maxZ = -Infinity;
+                for (const v of combinedVoxels) {
+                    if (v.x < minX) minX = v.x;
+                    if (v.x > maxX) maxX = v.x;
+                    if (v.y < minY) minY = v.y;
+                    if (v.y > maxY) maxY = v.y;
+                    if (v.z < minZ) minZ = v.z;
+                    if (v.z > maxZ) maxZ = v.z;
                 }
-            } else if (models.length > 0) {
-                for (const m of models) {
-                    if (m && m.voxels) {
-                        for (const v of m.voxels) {
-                            combinedVoxels.push({ x: v.x, y: v.y, z: v.z, i: v.i });
-                        }
-                    }
+
+                // Tịnh tiến chuẩn xác về tọa độ dương và khử trùng lặp voxel
+                const vMap = new Map();
+                for (const v of combinedVoxels) {
+                    const x = v.x - minX;
+                    const y = v.y - minY;
+                    const z = v.z - minZ;
+                    vMap.set(`${x},${y},${z}`, { x, y, z, i: v.i });
                 }
-                finalSize = models[0].size || { x: 40, y: 40, z: 40 };
+                combinedVoxels = Array.from(vMap.values());
+
+                finalSize = {
+                    x: Math.max(1, maxX - minX + 1),
+                    y: Math.max(1, maxY - minY + 1),
+                    z: Math.max(1, maxZ - minZ + 1)
+                };
             }
-
-            return {
-                size: finalSize,
-                voxels: combinedVoxels,
-                palette: rawPalette,
-                materials: materials,
-                customSettings: customSettings
-            };
+        } else if (models.length > 0) {
+            for (const m of models) {
+                if (m && m.voxels) {
+                    for (const v of m.voxels) {
+                        combinedVoxels.push({ x: v.x, y: v.y, z: v.z, i: v.i });
+                    }
+                }
+            }
+            finalSize = models[0].size || { x: 40, y: 40, z: 40 };
         }
+
+        // KHẮC PHỤC LỖI IMPORT BỊ NGƯỢC (MIRROR) TỪ MAGICAVOXEL:
+        // Hoán đổi trục X và Y của MagicaVoxel sang VoxWeb để khớp hướng nhìn và chiều đọc chữ
+        const correctedVoxels = combinedVoxels.map(v => ({
+            x: v.y,
+            y: v.x,
+            z: v.z,
+            i: v.i
+        }));
+        const correctedSize = {
+            x: finalSize.y,
+            y: finalSize.x,
+            z: finalSize.z
+        };
+
+        return {
+            size: correctedSize,
+            voxels: correctedVoxels,
+            palette: rawPalette,
+            materials: materials,
+            customSettings: customSettings
+        };
     }
+}
 
 	function createMaterialConfig(idx) {
         const props = AppState.materialProps[idx] || {
@@ -7310,11 +7324,15 @@
         writeStr('MAIN'); writeU32(0); writeU32(mainChildrenSize);
         
         writeStr('SIZE'); writeU32(12); writeU32(0);
-        writeU32(AppState.model.size.x); writeU32(AppState.model.size.y); writeU32(AppState.model.size.z);
+        // Đổi lại vị trí X và Y tương thích chuẩn MagicaVoxel
+        writeU32(AppState.model.size.y); writeU32(AppState.model.size.x); writeU32(AppState.model.size.z);
         
         writeStr('XYZI'); writeU32(4 + numVoxels * 4); writeU32(0); writeU32(numVoxels);
         for (const v of validVoxels) {
-            view.setUint8(offset++, v.x); view.setUint8(offset++, v.y); view.setUint8(offset++, v.z); view.setUint8(offset++, v.i);
+            view.setUint8(offset++, v.y); // Trả lại X của MagicaVoxel
+            view.setUint8(offset++, v.x); // Trả lại Y của MagicaVoxel
+            view.setUint8(offset++, v.z);
+            view.setUint8(offset++, v.i);
         }
         
         // GHI BẢNG MÀU CHUẨN sRGB CHO MAGICAVOXEL VÀ VOXIGEN
