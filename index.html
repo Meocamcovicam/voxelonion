@@ -383,14 +383,70 @@
 
         <div id="right-side-panel" class="right-panel panel bg-[#1e1e24] ml-auto">
             <div class="flex border-b border-gray-700 shrink-0 bg-[#16161c] rounded-t-lg items-center pr-2">
+                <!-- Tab Layer nằm cạnh, ngay trước tab Material -->
+                <button class="tab-btn flex-1 py-2 text-[11px] uppercase tracking-wider font-bold text-gray-500 border-b-2 border-transparent hover:text-gray-300" data-tab="layer">Layer</button>
                 <button class="tab-btn flex-1 py-2 text-[11px] uppercase tracking-wider font-bold text-blue-400 border-b-2 border-blue-500 bg-[#1e1e24]" data-tab="material">Material</button>
-                <button class="tab-btn flex-1 py-2 text-[11px] uppercase tracking-wider font-bold text-gray-500 border-b-2 border-transparent hover:text-gray-300" data-tab="light">Light & Sky</button>
+                <button class="tab-btn flex-1 py-2 text-[11px] uppercase tracking-wider font-bold text-gray-500 border-b-2 border-transparent hover:text-gray-300" data-tab="light">Lighting</button>
                 <button class="tab-btn flex-1 py-2 text-[11px] uppercase tracking-wider font-bold text-gray-500 border-b-2 border-transparent hover:text-gray-300" data-tab="render">Render</button>
                 <button id="btn-close-right-panel" class="text-gray-400 hover:text-white p-1 ml-1 text-xs font-bold hover:bg-gray-800 rounded transition-colors" title="Close Panel">✕</button>
             </div>
             
             <div class="flex-1 overflow-y-auto p-3.5 custom-scrollbar">
+				<!-- NỘI DUNG TAB LAYER THEO ĐÚNG ẢNH GỬI KÈM -->
+                <div id="tab-layer" class="tab-content hidden flex flex-col gap-2.5">
+                    <div class="bg-[#16161c] rounded-lg border border-gray-700 p-2.5 flex flex-col gap-2.5 shadow-md">
+                        <!-- Header panel: Icon + Layers Title + Chevron -->
+                        <div class="flex items-center justify-between border-b border-gray-700/60 pb-1.5">
+                            <span class="text-xs font-bold text-gray-200 flex items-center gap-1.5">
+                                <svg class="w-4 h-4 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                                    <polyline points="2 17 12 22 22 17"></polyline>
+                                    <polyline points="2 12 12 17 22 12"></polyline>
+                                </svg>
+                                <span>Layers</span>
+                            </span>
+                            <span class="text-gray-400 text-xs">⌄</span>
+                        </div>
+
+                        <!-- 4 Nút thao tác: Add (+), Clone, Merge Down, Delete -->
+                        <div class="grid grid-cols-6 gap-1 bg-[#121216] p-1 rounded-md border border-gray-700/60">
+						<button id="btn-layer-add" class="py-1 flex items-center justify-center rounded hover:bg-gray-700 text-gray-300 hover:text-white transition-colors" title="Add Layer">
+							<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+						</button>
+						<button id="btn-layer-clone" class="py-1 flex items-center justify-center rounded hover:bg-gray-700 text-gray-300 hover:text-white transition-colors" title="Clone Layer">
+							<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+						</button>
+						<button id="btn-layer-merge" class="py-1 flex items-center justify-center rounded hover:bg-gray-700 text-gray-300 hover:text-white transition-colors" title="Merge Down">
+							<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line><line x1="4" y1="21" x2="20" y2="21"></line></svg>
+						</button>
+						<button id="btn-layer-delete" class="py-1 flex items-center justify-center rounded hover:bg-rose-900/40 text-gray-300 hover:text-rose-400 transition-colors" title="Delete Layer">
+							<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+						</button>
+						<button id="btn-layer-move-up" class="py-1 flex items-center justify-center rounded hover:bg-gray-700 text-gray-300 hover:text-white transition-colors" title="Move Layer Up">
+							<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"></polyline></svg>
+						</button>
+						<button id="btn-layer-move-down" class="py-1 flex items-center justify-center rounded hover:bg-gray-700 text-gray-300 hover:text-white transition-colors" title="Move Layer Down">
+							<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+						</button>
+					</div>
+
+                        <!-- Auto-select layer switch -->
+                        <div class="flex items-center justify-between px-0.5 pt-0.5">
+                            <span class="text-[11px] font-bold text-gray-300">Auto-select layer</span>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="layer-auto-select-toggle" class="sr-only peer">
+                                <div class="w-8 h-4 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
+                            </label>
+                        </div>
+
+                        <!-- Danh sách Layer (hỗ trợ kéo thả sort, click chọn, ẩn, khóa, đổi tên) -->
+                        <div id="layer-list-container" class="flex flex-col gap-1.5 mt-1 max-h-[380px] overflow-y-auto custom-scrollbar pr-0.5">
+                            <!-- Render tự động bởi JS -->
+                        </div>
+                    </div>
+                </div>
                 <div id="tab-material" class="tab-content">
+				
                     <div class="grid grid-cols-3 gap-1 mb-3 bg-[#141418] p-1 rounded-lg border border-gray-700">
                         <button class="mat-type-btn text-[10px] font-bold py-1.5 rounded bg-blue-600 text-white shadow" data-type="diffuse">Diffuse</button>
                         <button class="mat-type-btn text-[10px] font-bold py-1.5 rounded text-gray-400 hover:text-white" data-type="metal">Metal</button>
@@ -716,10 +772,18 @@
         model: null,
         fileHandle: null,
         currentFileName: 'project.vox',
+		
         materials: {},
         materialProps: {},
         usedIndices: new Set(),
         selectedColorIndex: 1,
+		
+		// --- BỔ SUNG CÁC TRƯỜNG LAYER ---
+        layers: [
+            { id: 1, name: 'Default', visible: true, locked: false }
+        ],
+        activeLayerId: 1,
+        autoSelectLayer: false,
 
         action: 'attach',
         brushShape: 'face',
@@ -1182,7 +1246,10 @@
         AppState.controls = new OrbitControls(AppState.camera, AppState.renderer.domElement);
         AppState.controls.enableDamping = true;
         AppState.controls.dampingFactor = 0.08;
-		AppState.controls.screenSpacePanning = true; // Bắt buộc: Giúp Pan trượt tự nhiên theo mặt phẳng màn hình
+		AppState.controls.screenSpacePanning = true;
+        AppState.controls.minPolarAngle = 0;
+        AppState.controls.maxPolarAngle = Math.PI; // Mở khóa hoàn toàn 180 độ tự do
+
 
         AppState.selectionPivotGroup = new THREE.Group();
         AppState.scene.add(AppState.selectionPivotGroup);
@@ -1300,6 +1367,7 @@
         setupSelectionActions();
         setupBrushShapeButtons();
 		setupResolutionControls();
+		setupLayerSystem();
 		
         setMagicaAction('attach');
         setBrushShape('face');
@@ -1309,6 +1377,434 @@
         animate();
 
         loadProjectFromCache();
+    }
+	
+	function renderLayerUI() {
+        const container = document.getElementById('layer-list-container');
+        if (!container) return;
+        container.innerHTML = '';
+
+        // Đếm số voxel trên từng layer
+        const countMap = {};
+        if (AppState.model && AppState.model.voxels) {
+            for (const v of AppState.model.voxels) {
+                const lid = (v.l !== undefined) ? v.l : AppState.layers[0]?.id;
+                countMap[lid] = (countMap[lid] || 0) + 1;
+            }
+        }
+
+        let draggedIndex = null;
+
+        AppState.layers.forEach((layer, index) => {
+            const isSelected = layer.id === AppState.activeLayerId;
+            const row = document.createElement('div');
+            row.className = `flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-all border ${
+                isSelected ? 'border-blue-500 bg-[#1e2333]' : 'border-gray-700/60 bg-[#1a1a22] hover:bg-[#22222d]'
+            }`;
+            row.draggable = true;
+            row.dataset.index = index; // Gán chỉ số để Touch Drag dò tìm chính xác
+
+            // 1. Drag handle (Thêm touch-none và padding để ngón tay dễ chạm)
+            const dragIcon = document.createElement('span');
+            dragIcon.className = "text-gray-400 hover:text-white cursor-grab text-xs select-none touch-none px-1.5 py-0.5 -ml-1 flex items-center justify-center shrink-0";
+            dragIcon.title = "Kéo để đổi thứ tự";
+            dragIcon.innerHTML = `&#10247;`; // ⠿ dots
+
+            // 2. Eye button (Visibility)
+            const btnEye = document.createElement('button');
+            btnEye.className = `p-0.5 rounded hover:bg-gray-700 transition-colors ${layer.visible ? 'text-gray-300' : 'text-gray-500 opacity-40'}`;
+            btnEye.title = layer.visible ? "Ẩn layer" : "Hiện layer";
+            btnEye.innerHTML = layer.visible 
+                ? `<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`
+                : `<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>`;
+            btnEye.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleLayerVisibility(layer.id);
+            });
+
+            // 3. Lock button
+            const btnLock = document.createElement('button');
+            btnLock.className = `p-0.5 rounded hover:bg-gray-700 transition-colors ${layer.locked ? 'text-amber-400' : 'text-gray-400'}`;
+            btnLock.title = layer.locked ? "Mở khóa layer" : "Khóa layer";
+            btnLock.innerHTML = layer.locked 
+                ? `<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>`
+                : `<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>`;
+            btnLock.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleLayerLock(layer.id);
+            });
+
+            // 4. Cube icon
+            const cubeIcon = document.createElement('span');
+            cubeIcon.className = "text-gray-400 text-xs";
+            cubeIcon.innerHTML = `<svg class="w-3.5 h-3.5 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>`;
+
+            // 5. Name text & Rename (Tối ưu cho cả Mobile Touch và PC Mouse)
+            const nameEl = document.createElement('span');
+            nameEl.className = "text-xs font-semibold text-gray-200 flex-1 truncate select-none cursor-pointer hover:text-blue-300 py-0.5 px-1 rounded transition-colors";
+            nameEl.textContent = layer.name;
+            nameEl.title = "Click khi đang chọn (hoặc click đúp) để đổi tên";
+            nameEl.draggable = false; // Ngăn kéo rê nhầm text thay vì click
+
+            const triggerRename = (e) => {
+                if (e) e.stopPropagation();
+                startRenameLayer(layer.id, nameEl);
+            };
+
+            // Hỗ trợ Double Click trên PC
+            nameEl.addEventListener('dblclick', triggerRename);
+
+            // Hỗ trợ Click / Touch trên cả Mobile và PC
+            let lastTapTime = 0;
+            nameEl.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const now = Date.now();
+                const isDoubleTap = (now - lastTapTime < 350);
+                lastTapTime = now;
+
+                if (isSelected || isDoubleTap) {
+                    // Nếu Layer ĐANG ĐƯỢC CHỌN sẵn hoặc Chạm đúp -> Mở ô nhập tên ngay
+                    triggerRename(e);
+                } else {
+                    // Nếu Layer chưa được chọn -> Click để kích hoạt layer
+                    AppState.activeLayerId = layer.id;
+                    renderLayerUI();
+                }
+            });
+
+            // Nút bút chì nhỏ gọn (Giúp người dùng Mobile chạm 1 chạm là đổi tên được ngay)
+            const btnEdit = document.createElement('button');
+            btnEdit.className = `p-1 rounded text-gray-400 hover:text-blue-400 hover:bg-gray-700/60 transition-colors shrink-0 ${isSelected ? 'opacity-80' : 'opacity-0 hover:opacity-100'}`;
+            btnEdit.title = "Đổi tên layer";
+            btnEdit.innerHTML = `<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>`;
+            btnEdit.addEventListener('click', triggerRename);
+
+            // 6. Voxel count badge
+            const countEl = document.createElement('span');
+            countEl.className = "text-[10px] font-mono px-2 py-0.2 rounded-full bg-[#121218] border border-gray-700/60 text-gray-300";
+            countEl.textContent = countMap[layer.id] || 0;
+
+            row.appendChild(dragIcon);
+            row.appendChild(btnEye);
+            row.appendChild(btnLock);
+            row.appendChild(cubeIcon);
+            row.appendChild(nameEl);
+            row.appendChild(btnEdit); // Thêm nút bút chì vào hàng
+            row.appendChild(countEl);
+
+            row.addEventListener('click', () => {
+                // Chỉ re-render khi chuyển sang Layer KHÁC, tránh hủy DOM khi đang chọn Layer hiện tại
+                if (AppState.activeLayerId !== layer.id) {
+                    AppState.activeLayerId = layer.id;
+                    renderLayerUI();
+                }
+            });
+
+            // Kéo thả sắp xếp Layer (Sort layer)
+            row.addEventListener('dragstart', (e) => {
+                draggedIndex = index;
+                e.dataTransfer.effectAllowed = 'move';
+                row.classList.add('opacity-40');
+            });
+            row.addEventListener('dragend', () => {
+                row.classList.remove('opacity-40');
+            });
+            row.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+            });
+            row.addEventListener('drop', (e) => {
+                e.preventDefault();
+                if (draggedIndex !== null && draggedIndex !== index) {
+                    const snap = captureStateSnapshot();
+                    const item = AppState.layers.splice(draggedIndex, 1)[0];
+                    AppState.layers.splice(index, 0, item);
+                    recordUndoStep(snap);
+                    renderLayerUI();
+                }
+            });
+			
+			// --- HỖ TRỢ KÉO THẢ BẰNG TOUCH TRÊN THIẾT BỊ DI ĐỘNG ---
+            let touchMoved = false;
+
+            dragIcon.addEventListener('touchstart', (e) => {
+                e.stopPropagation();
+                draggedIndex = index;
+                touchMoved = false;
+                row.classList.add('opacity-50', 'bg-[#252538]', 'border-blue-400');
+            }, { passive: false });
+
+            dragIcon.addEventListener('touchmove', (e) => {
+                e.preventDefault(); // Chặn cuộn khung để ưu tiên thao tác kéo thả
+                touchMoved = true;
+                const touch = e.touches[0];
+                const targetEl = document.elementFromPoint(touch.clientX, touch.clientY);
+                if (!targetEl) return;
+
+                const targetRow = targetEl.closest('#layer-list-container > div');
+
+                // Dọn viền chỉ báo ở các hàng khác
+                container.querySelectorAll('#layer-list-container > div').forEach(r => {
+                    r.classList.remove('border-t-2', 'border-b-2', 'border-blue-500');
+                });
+
+                if (targetRow && targetRow !== row) {
+                    const rect = targetRow.getBoundingClientRect();
+                    const midY = rect.top + rect.height / 2;
+                    if (touch.clientY < midY) {
+                        targetRow.classList.add('border-t-2', 'border-blue-500');
+                    } else {
+                        targetRow.classList.add('border-b-2', 'border-blue-500');
+                    }
+                }
+            }, { passive: false });
+
+            dragIcon.addEventListener('touchend', (e) => {
+                row.classList.remove('opacity-50', 'bg-[#252538]', 'border-blue-400');
+                container.querySelectorAll('#layer-list-container > div').forEach(r => {
+                    r.classList.remove('border-t-2', 'border-b-2', 'border-blue-500');
+                });
+
+                if (touchMoved && draggedIndex !== null) {
+                    const touch = e.changedTouches[0];
+                    const targetEl = document.elementFromPoint(touch.clientX, touch.clientY);
+                    const targetRow = targetEl ? targetEl.closest('#layer-list-container > div') : null;
+
+                    if (targetRow && targetRow !== row) {
+                        const hoverIndex = parseInt(targetRow.dataset.index, 10);
+                        const rect = targetRow.getBoundingClientRect();
+                        const midY = rect.top + rect.height / 2;
+                        const isLowerHalf = (touch.clientY > midY);
+
+                        let targetIndex = hoverIndex;
+                        if (draggedIndex < hoverIndex) {
+                            targetIndex = isLowerHalf ? hoverIndex : hoverIndex - 1;
+                        } else if (draggedIndex > hoverIndex) {
+                            targetIndex = isLowerHalf ? hoverIndex + 1 : hoverIndex;
+                        }
+                        targetIndex = Math.max(0, Math.min(AppState.layers.length - 1, targetIndex));
+
+                        if (draggedIndex !== targetIndex) {
+                            const snap = captureStateSnapshot();
+                            const item = AppState.layers.splice(draggedIndex, 1)[0];
+                            AppState.layers.splice(targetIndex, 0, item);
+                            recordUndoStep(snap);
+                            rebuildMesh();
+                            renderLayerUI();
+                            showToast(`Đã chuyển "${item.name}" sang vị trí mới`, "success");
+                        }
+                    }
+                }
+                draggedIndex = null;
+                touchMoved = false;
+            });
+
+            container.appendChild(row);
+        });
+    }
+
+    function setupLayerSystem() {
+        // Toggle auto select layer
+        const toggleAuto = document.getElementById('layer-auto-select-toggle');
+        if (toggleAuto) {
+            toggleAuto.checked = AppState.autoSelectLayer;
+            toggleAuto.addEventListener('change', (e) => {
+                AppState.autoSelectLayer = e.target.checked;
+                showToast(AppState.autoSelectLayer ? "Đã bật Auto-select layer" : "Đã tắt Auto-select layer", "success");
+            });
+        }
+
+        // Add Layer
+        document.getElementById('btn-layer-add')?.addEventListener('click', () => {
+            const snap = captureStateSnapshot();
+            const newId = Date.now();
+            const newLayer = {
+                id: newId,
+                name: `Layer ${AppState.layers.length + 1}`,
+                visible: true,
+                locked: false
+            };
+            AppState.layers.push(newLayer);
+            AppState.activeLayerId = newId;
+            recordUndoStep(snap);
+            renderLayerUI();
+            showToast(`Đã thêm "${newLayer.name}"`, "success");
+        });
+
+        // Clone Layer
+        document.getElementById('btn-layer-clone')?.addEventListener('click', () => {
+            if (!AppState.model) return;
+            const cur = getActiveLayer();
+            const snap = captureStateSnapshot();
+            const newId = Date.now();
+            const newLayer = {
+                id: newId,
+                name: `${cur.name} (Copy)`,
+                visible: true,
+                locked: false
+            };
+            AppState.layers.push(newLayer);
+
+            // Nhân bản toàn bộ voxel thuộc active layer
+            const currentVoxels = AppState.model.voxels.filter(v => (v.l !== undefined ? v.l : AppState.layers[0].id) === cur.id);
+            for (const cv of currentVoxels) {
+                AppState.model.voxels.push({ x: cv.x, y: cv.y, z: cv.z, i: cv.i, l: newId });
+            }
+
+            AppState.activeLayerId = newId;
+            recordUndoStep(snap);
+            rebuildMesh();
+            renderLayerUI();
+            showToast(`Đã nhân bản "${cur.name}"`, "success");
+        });
+
+        // Merge Layer Down
+        document.getElementById('btn-layer-merge')?.addEventListener('click', () => {
+            if (!AppState.model) return;
+            const curIdx = AppState.layers.findIndex(l => l.id === AppState.activeLayerId);
+            if (curIdx < 0 || curIdx >= AppState.layers.length - 1) {
+                showToast("Không có layer bên dưới để gộp!", "error");
+                return;
+            }
+            const snap = captureStateSnapshot();
+            const curLayer = AppState.layers[curIdx];
+            const targetLayer = AppState.layers[curIdx + 1];
+
+            // Chuyển toàn bộ voxel của layer hiện tại sang targetLayer
+            for (const v of AppState.model.voxels) {
+                const lid = (v.l !== undefined) ? v.l : AppState.layers[0].id;
+                if (lid === curLayer.id) {
+                    v.l = targetLayer.id;
+                }
+            }
+
+            AppState.layers.splice(curIdx, 1);
+            AppState.activeLayerId = targetLayer.id;
+            recordUndoStep(snap);
+            rebuildMesh();
+            renderLayerUI();
+            showToast(`Đã gộp "${curLayer.name}" vào "${targetLayer.name}"`, "success");
+        });
+
+        // Delete Layer
+        document.getElementById('btn-layer-delete')?.addEventListener('click', () => {
+            if (!AppState.model) return;
+            if (AppState.layers.length <= 1) {
+                showToast("Không thể xóa layer duy nhất!", "error");
+                return;
+            }
+            const snap = captureStateSnapshot();
+            const cur = getActiveLayer();
+            const curIdx = AppState.layers.findIndex(l => l.id === cur.id);
+
+            // Xóa toàn bộ voxel thuộc layer này
+            AppState.model.voxels = AppState.model.voxels.filter(v => (v.l !== undefined ? v.l : AppState.layers[0].id) !== cur.id);
+            AppState.layers.splice(curIdx, 1);
+            AppState.activeLayerId = AppState.layers[Math.max(0, curIdx - 1)].id;
+
+            recordUndoStep(snap);
+            rebuildMesh();
+            renderLayerUI();
+            showToast(`Đã xóa layer "${cur.name}"`, "success");
+        });
+		
+		
+		function moveActiveLayer(offset) {
+            if (!AppState.layers || AppState.layers.length <= 1) return;
+            const curIdx = AppState.layers.findIndex(l => l.id === AppState.activeLayerId);
+            if (curIdx < 0) return;
+
+            const targetIdx = curIdx + offset;
+            if (targetIdx < 0 || targetIdx >= AppState.layers.length) return;
+
+            const snap = captureStateSnapshot();
+            const item = AppState.layers.splice(curIdx, 1)[0];
+            AppState.layers.splice(targetIdx, 0, item);
+            recordUndoStep(snap);
+            rebuildMesh();
+            renderLayerUI();
+        }
+
+        document.getElementById('btn-layer-move-up')?.addEventListener('click', () => moveActiveLayer(-1));
+        document.getElementById('btn-layer-move-down')?.addEventListener('click', () => moveActiveLayer(1));
+		
+        renderLayerUI();
+    }
+
+    function toggleLayerVisibility(layerId) {
+        const snap = captureStateSnapshot();
+        const layer = AppState.layers.find(l => l.id === layerId);
+        if (!layer) return;
+        layer.visible = !layer.visible;
+        recordUndoStep(snap);
+        rebuildMesh();
+        renderLayerUI();
+    }
+
+    function toggleLayerLock(layerId) {
+        const snap = captureStateSnapshot();
+        const layer = AppState.layers.find(l => l.id === layerId);
+        if (!layer) return;
+        layer.locked = !layer.locked;
+        recordUndoStep(snap);
+        renderLayerUI();
+        showToast(layer.locked ? `Đã khóa "${layer.name}"` : `Đã mở khóa "${layer.name}"`, "success");
+    }
+
+    function startRenameLayer(layerId, nameEl) {
+        const layer = AppState.layers.find(l => l.id === layerId);
+        if (!layer) return;
+
+        const row = nameEl.closest('.flex');
+        if (row) row.draggable = false; // Tạm tắt drag khi đang gõ chữ
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = layer.name;
+        // flex-1 min-w-0 đảm bảo ô input co giãn vừa vặn, không đẩy nút badge ra ngoài
+        input.className = 'flex-1 min-w-0 bg-[#101014] text-white border border-blue-500 rounded px-1.5 py-0.5 text-xs outline-none shadow-inner';
+        
+        let isFinished = false;
+        const finish = () => {
+            if (isFinished) return;
+            isFinished = true;
+            const newName = input.value.trim();
+            if (newName && newName !== layer.name) {
+                const snap = captureStateSnapshot();
+                layer.name = newName;
+                recordUndoStep(snap);
+            }
+            renderLayerUI();
+        };
+
+        // Chặn nổi bọt tuyệt đối để thao tác chạm/click trên Mobile không làm tắt input
+        const stopProp = (e) => e.stopPropagation();
+        input.addEventListener('click', stopProp);
+        input.addEventListener('pointerdown', stopProp);
+        input.addEventListener('mousedown', stopProp);
+        input.addEventListener('touchstart', stopProp, { passive: true });
+        input.addEventListener('touchend', stopProp);
+
+        input.addEventListener('keydown', (e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter') {
+                finish();
+            } else if (e.key === 'Escape') {
+                isFinished = true;
+                renderLayerUI();
+            }
+        });
+        
+        // Khi bấm ra ngoài hoặc bấm "Done" trên bàn phím điện thoại sẽ tự lưu tên mới
+        input.addEventListener('blur', finish);
+
+        nameEl.replaceWith(input);
+
+        // Đặt timeout 40ms để bàn phím ảo của iOS Safari và Android Chrome tự bật lên 100%
+        setTimeout(() => {
+            input.focus();
+            input.select();
+        }, 40);
     }
 
     function setupSampleOptionControls() {
@@ -1530,8 +2026,8 @@
         const cy = sy / 2;
 
         const emitVoxels = AppState.model.voxels.filter(v => {
+            if (!isVoxelVisible(v)) return false; // Không tính nguồn sáng emit nếu layer bị ẩn
             const p = AppState.materialProps[v.i];
-            // Chỉ coi là đèn khi thanh Emission thực sự lớn hơn 0
             return p && p.type === 'emit' && ((p.emission || 0) > 0.05);
         });
 
@@ -1761,7 +2257,7 @@
                         const newKey = `${nx},${ny},${nz}`;
                         if (nx >= 0 && nx < sx && ny >= 0 && ny < sy && nz >= 0 && nz < sz) {
                             if (!vMap.has(newKey)) {
-                                const newVox = { x: nx, y: ny, z: nz, i: origV.i };
+                                const newVox = { x: nx, y: ny, z: nz, i: origV.i, l: AppState.activeLayerId };
                                 newVoxelsToAdd.push(newVox);
                                 vMap.set(newKey, newVox);
                                 newSelectedKeys.add(newKey);
@@ -1891,13 +2387,17 @@
 
 		if (btnDelete) {
             btnDelete.addEventListener('click', () => {
-                if (!AppState.model || AppState.selectedVoxels.size === 0) return;
-                const snapshotBefore = captureStateSnapshot(); // Chụp snapshot trước khi xóa
+             if (!AppState.model || AppState.selectedVoxels.size === 0) return;
+             const snapshotBefore = captureStateSnapshot();
 
-                const toDel = AppState.selectedVoxels;
-                const initialLen = AppState.model.voxels.length;
-                AppState.model.voxels = AppState.model.voxels.filter(v => !toDel.has(`${v.x},${v.y},${v.z}`));
-                const deleted = initialLen - AppState.model.voxels.length;
+             const toDel = AppState.selectedVoxels;
+             const initialLen = AppState.model.voxels.length;
+             AppState.model.voxels = AppState.model.voxels.filter(v => {
+                 const inSel = toDel.has(`${v.x},${v.y},${v.z}`);
+                 if (inSel && isVoxelLocked(v)) return true; // KHÔNG xóa khối ở layer bị khóa
+                 return !inSel;
+             });
+             const deleted = initialLen - AppState.model.voxels.length;
 
                 clearSelection();
                 AppState.usedIndices.clear();
@@ -1912,17 +2412,18 @@
 
         if (btnPaint) {
             btnPaint.addEventListener('click', () => {
-                if (!AppState.model || AppState.selectedVoxels.size === 0) return;
-                const snapshotBefore = captureStateSnapshot(); // Chụp snapshot trước khi đổi màu vùng chọn
+             if (!AppState.model || AppState.selectedVoxels.size === 0) return;
+             const snapshotBefore = captureStateSnapshot();
 
-                const toPaint = AppState.selectedVoxels;
-                let count = 0;
-                for (const v of AppState.model.voxels) {
-                    if (toPaint.has(`${v.x},${v.y},${v.z}`)) {
-                        v.i = AppState.selectedColorIndex;
-                        count++;
-                    }
-                }
+             const toPaint = AppState.selectedVoxels;
+             let count = 0;
+             for (const v of AppState.model.voxels) {
+                 if (toPaint.has(`${v.x},${v.y},${v.z}`)) {
+                     if (isVoxelLocked(v)) continue; // Bỏ qua khối bị khóa
+                     v.i = AppState.selectedColorIndex;
+                     count++;
+                 }
+             }
                 AppState.usedIndices.add(AppState.selectedColorIndex);
 
                 recordUndoStep(snapshotBefore); // Lưu vào Undo
@@ -1933,11 +2434,11 @@
         }
 
         if (btnFill) {
-            btnFill.addEventListener('click', () => {
-                if (!AppState.model || !AppState.selectionBounds) {
-                    showToast("Please drag a selection box first.");
-                    return;
-                }
+           btnFill.addEventListener('click', () => {
+             if (getActiveLayer().locked) {
+                 showToast(`Layer "${getActiveLayer().name}" đang bị khóa, không thể Fill!`, "error");
+                 return;
+             }
                 const snapshotBefore = captureStateSnapshot(); // Chụp snapshot trước khi Fill
 
                 const b = AppState.selectionBounds;
@@ -1948,7 +2449,7 @@
                         for (let z = b.minZ; z <= b.maxZ; z++) {
                             const key = `${x},${y},${z}`;
                             if (!vMap.has(key)) {
-                                const newVox = { x, y, z, i: AppState.selectedColorIndex };
+                                const newVox = { x, y, z, i: AppState.selectedColorIndex, l: AppState.activeLayerId };
                                 AppState.model.voxels.push(newVox);
                                 vMap.set(key, newVox);
                             } else {
@@ -2296,7 +2797,7 @@
         for (let x = 0; x < sx; x++) {
             for (let y = 0; y < sy; y++) {
                 for (let z = 0; z < sz; z++) {
-                    AppState.model.voxels.push({ x, y, z, i: colorIdx });
+                    AppState.model.voxels.push({ x, y, z, i: colorIdx , l: AppState.activeLayerId});
                 }
             }
         }
@@ -2346,6 +2847,12 @@
                 btnFloorPlane.classList.toggle('active', AppState.showFloorPlane);
                 if (AppState.groundPlane) {
                     AppState.groundPlane.visible = AppState.showFloorPlane;
+                }
+                if (pathTraceMaterial && pathTraceMaterial.uniforms && pathTraceMaterial.uniforms.uShowFloorPlane) {
+                    pathTraceMaterial.uniforms.uShowFloorPlane.value = AppState.showFloorPlane ? 1.0 : 0.0;
+                }
+                if (AppState.renderMode === 'pathtrace') {
+                    AppState.needsAccumulationReset = true;
                 }
             });
         }
@@ -2506,7 +3013,7 @@
 
         if (mode === 'persp' || mode === 'free') {
             AppState.controls.minPolarAngle = 0;
-            AppState.controls.maxPolarAngle = Math.PI;
+            AppState.controls.maxPolarAngle = Math.PI; // Mở khóa tự do
 
             AppState.camera = AppState.cameraPersp;
             AppState.controls.object = AppState.camera;
@@ -2542,7 +3049,7 @@
             updateOrthoFrustum(isoDist);
         } else if (mode === 'ortho') {
             AppState.controls.minPolarAngle = 0;
-            AppState.controls.maxPolarAngle = Math.PI;
+            AppState.controls.maxPolarAngle = Math.PI; // Mở khóa tự do
 
             AppState.camera = AppState.cameraOrtho;
             AppState.controls.object = AppState.camera;
@@ -2804,9 +3311,11 @@
 
         return {
             size: { ...AppState.model.size },
-            voxels: AppState.model.voxels.map(v => ({ x: v.x, y: v.y, z: v.z, i: v.i })),
+            voxels: AppState.model.voxels.map(v => ({ x: v.x, y: v.y, z: v.z, i: v.i, l: v.l })),
             selectedVoxels: Array.from(AppState.selectedVoxels || []),
-            materialProps: matPropsCopy
+            materialProps: matPropsCopy,
+            layers: JSON.parse(JSON.stringify(AppState.layers)),
+            activeLayerId: AppState.activeLayerId
         };
     }
 
@@ -2845,7 +3354,13 @@
 
 	function restoreStateFromSnapshot(snapshot) {
         if (!snapshot) return;
-
+        
+		if (snapshot.layers) {
+            AppState.layers = JSON.parse(JSON.stringify(snapshot.layers));
+            AppState.activeLayerId = snapshot.activeLayerId || AppState.layers[0]?.id;
+            renderLayerUI();
+        }
+		
         // 1. Khôi phục kích thước khung Model
         if (snapshot.size) {
             AppState.model.size = { ...snapshot.size };
@@ -2857,7 +3372,7 @@
         }
 
         // 2. Khôi phục Voxel & Vùng chọn
-        AppState.model.voxels = snapshot.voxels.map(v => ({ x: v.x, y: v.y, z: v.z, i: v.i }));
+        AppState.model.voxels = snapshot.voxels.map(v => ({ x: v.x, y: v.y, z: v.z, i: v.i, l: v.l }));
         AppState.selectedVoxels = new Set(snapshot.selectedVoxels || []);
 
         // 3. Khôi phục bảng màu Palette & Thuộc tính vật liệu
@@ -2947,11 +3462,19 @@
 	function executeFaceErase(targetVoxel, normalVec) {
         if (!AppState.model || !targetVoxel || !normalVec) return false;
 
-        // Quét toàn bộ voxel trên cùng mặt phẳng lộ ra ngoài (không phân biệt màu)
+        // KIỂM TRA KHÓA LAYER:
+        if (isVoxelLocked(targetVoxel)) {
+            showToast(`Khối thuộc layer "${getLayerOfVoxel(targetVoxel).name}" đang bị khóa!`, "error");
+            return false;
+        }
+
         const faceVoxels = getCoplanarFaceVoxels(targetVoxel, normalVec, false);
         if (faceVoxels.length === 0) return false;
 
-        const delSet = new Set(faceVoxels.map(v => `${v.x},${v.y},${v.z}`));
+        // Chỉ xóa những khối không bị khóa
+        const delSet = new Set(faceVoxels.filter(v => !isVoxelLocked(v)).map(v => `${v.x},${v.y},${v.z}`));
+        if (delSet.size === 0) return false;
+
         AppState.model.voxels = AppState.model.voxels.filter(v => !delSet.has(`${v.x},${v.y},${v.z}`));
 
         AppState.usedIndices.clear();
@@ -2962,7 +3485,7 @@
         strokeDidModify = true;
         rebuildMesh();
         buildPaletteUI();
-        showToast(`Face Erase: Đã xóa ${faceVoxels.length} voxel trên mặt phẳng!`, "success");
+        showToast(`Face Erase: Đã xóa ${delSet.size} voxel!`, "success");
         return true;
     }
 
@@ -3033,7 +3556,7 @@
                 for (let y = 0; y < sy; y++) {
                     const key = `${x},${y},${z}`;
                     if (!vMap.has(key)) {
-                        const newV = { x, y, z, i: AppState.selectedColorIndex };
+                        const newV = { x, y, z, i: AppState.selectedColorIndex, l: AppState.activeLayerId };
                         AppState.model.voxels.push(newV);
                         vMap.set(key, newV);
                         modified = true;
@@ -3046,7 +3569,7 @@
                 for (let z = 0; z < sz; z++) {
                     const key = `${x},${y},${z}`;
                     if (!vMap.has(key)) {
-                        const newV = { x, y, z, i: AppState.selectedColorIndex };
+                        const newV = { x, y, z, i: AppState.selectedColorIndex, l: AppState.activeLayerId };
                         AppState.model.voxels.push(newV);
                         vMap.set(key, newV);
                         modified = true;
@@ -3059,7 +3582,7 @@
                 for (let z = 0; z < sz; z++) {
                     const key = `${x},${y},${z}`;
                     if (!vMap.has(key)) {
-                        const newV = { x, y, z, i: AppState.selectedColorIndex };
+                        const newV = { x, y, z, i: AppState.selectedColorIndex , l: AppState.activeLayerId};
                         AppState.model.voxels.push(newV);
                         vMap.set(key, newV);
                         modified = true;
@@ -3102,7 +3625,7 @@
                 if (vx >= 0 && vx < sx && vy >= 0 && vy < sy && vz >= 0 && vz < sz) {
                     const key = `${vx},${vy},${vz}`;
                     if (!vMap.has(key)) {
-                        const newV = { x: vx, y: vy, z: vz, i: colorIdx };
+                        const newV = { x: vx, y: vy, z: vz, i: colorIdx, l: AppState.activeLayerId };
                         AppState.model.voxels.push(newV);
                         vMap.set(key, newV);
                     } else {
@@ -3121,19 +3644,24 @@
 	
 	
 	function executeGlobalBucketPaint(targetVoxel) {
-        if (!AppState.model || !targetVoxel) return;
+       if (!AppState.model || !targetVoxel) return;
+
+        // KIỂM TRA KHÓA:
+        if (isVoxelLocked(targetVoxel)) {
+            showToast(`Khối thuộc layer "${getLayerOfVoxel(targetVoxel).name}" đang bị khóa!`, "error");
+            return;
+        }
 
         const targetColor = targetVoxel.i;
         const newColor = AppState.selectedColorIndex;
-
         if (targetColor === newColor) return;
 
-        // Chụp lại trạng thái trước khi đổ màu
         const snapshotBefore = captureStateSnapshot();
 
         let count = 0;
         for (const v of AppState.model.voxels) {
             if (v.i === targetColor) {
+                if (isVoxelLocked(v)) continue; // Bỏ qua các khối nằm trong layer bị khóa
                 v.i = newColor;
                 count++;
             }
@@ -3271,12 +3799,16 @@
         }
 
         if (AppState.action === 'attach') {
+			if (getActiveLayer().locked) {
+             showToast(`Layer "${getActiveLayer().name}" đang bị khóa!`, "error");
+             return false;
+         }
             for (let x = minX; x <= maxX; x++) {
                 for (let y = minY; y <= maxY; y++) {
                     for (let z = minZ; z <= maxZ; z++) {
                         const key = `${x},${y},${z}`;
                         if (!vMap.has(key)) {
-                            const newVox = { x, y, z, i: AppState.selectedColorIndex };
+                            const newVox = { x, y, z, i: AppState.selectedColorIndex, l: AppState.activeLayerId };
                             AppState.model.voxels.push(newVox);
                             vMap.set(key, newVox);
                             modified = true;
@@ -3286,24 +3818,29 @@
             }
             if (modified) AppState.usedIndices.add(AppState.selectedColorIndex);
         } else if (AppState.action === 'erase') {
-            AppState.model.voxels = AppState.model.voxels.filter(v => {
-                const inBox = (v.x >= minX && v.x <= maxX && v.y >= minY && v.y <= maxY && v.z >= minZ && v.z <= maxZ);
-                if (inBox) modified = true;
-                return !inBox;
-            });
+			   AppState.model.voxels = AppState.model.voxels.filter(v => {
+				 const inBox = (v.x >= minX && v.x <= maxX && v.y >= minY && v.y <= maxY && v.z >= minZ && v.z <= maxZ);
+				 if (inBox) {
+					 if (isVoxelLocked(v)) return true; // Giữ lại khối nếu thuộc layer bị khóa
+					 modified = true;
+					 return false;
+				 }
+				 return true;
+			 });
+			
         } else if (AppState.action === 'paint') {
-            for (let x = minX; x <= maxX; x++) {
-                for (let y = minY; y <= maxY; y++) {
-                    for (let z = minZ; z <= maxZ; z++) {
-                        const v = vMap.get(`${x},${y},${z}`);
-                        if (v && v.i !== AppState.selectedColorIndex) {
-                            v.i = AppState.selectedColorIndex;
-                            modified = true;
-                        }
-                    }
-                }
-            }
-            if (modified) AppState.usedIndices.add(AppState.selectedColorIndex);
+				for (let x = minX; x <= maxX; x++) {
+				 for (let y = minY; y <= maxY; y++) {
+					 for (let z = minZ; z <= maxZ; z++) {
+						 const v = vMap.get(`${x},${y},${z}`);
+						 if (v && !isVoxelLocked(v) && v.i !== AppState.selectedColorIndex) { // Bỏ qua khối bị khóa
+							 v.i = AppState.selectedColorIndex;
+							 modified = true;
+						 }
+					 }
+				 }
+			 }
+			 if (modified) AppState.usedIndices.add(AppState.selectedColorIndex);
         }
 
         if (modified) {
@@ -3329,6 +3866,9 @@
 
         // 1. Nếu trỏ vào voxel có sẵn
         const ray = getRaycastIntersection(event);
+		
+		
+		
         if (ray && ray.voxel) {
             if (AppState.action === 'attach') {
                 const nx = Math.round(ray.normal.x);
@@ -3480,6 +4020,31 @@
 		const isPick = (AppState.action === 'pick') || event.altKey || AppState.isAltDown;
 		if (isPick && (event.button === 0 || event.pointerType !== 'mouse')) {
 			const ray = getRaycastIntersection(event);
+			
+			// 1. Tự động chuyển Layer khi click vào khối (Auto-select layer)
+			 if (AppState.autoSelectLayer && ray && ray.voxel) {
+				 const hitLayer = getLayerOfVoxel(ray.voxel);
+				 if (hitLayer && hitLayer.id !== AppState.activeLayerId) {
+					 AppState.activeLayerId = hitLayer.id;
+					 renderLayerUI();
+				 }
+			 }
+
+			 // 2. Chặn tương tác nếu Layer bị khóa
+			 const curActiveLayer = getActiveLayer();
+			 // A. Nếu vẽ thêm khối (Attach) nhưng layer hiện tại đang bị khóa -> Chặn
+			 if (AppState.action === 'attach' && curActiveLayer && curActiveLayer.locked) {
+				 showToast(`Layer "${curActiveLayer.name}" đang bị khóa, không thể vẽ thêm!`, "error");
+				 return;
+			 }
+			 // B. Nếu Xóa hoặc Tô màu (Erase/Paint) mà khối được click thuộc layer bị khóa -> Chặn
+			 if ((AppState.action === 'erase' || AppState.action === 'paint') && ray && ray.voxel) {
+				 if (isVoxelLocked(ray.voxel)) {
+					 showToast(`Khối thuộc layer "${getLayerOfVoxel(ray.voxel).name}" đang bị khóa!`, "error");
+					 return;
+				 }
+			 }
+			
 			if (ray && (ray.voxel || ray.colorIndex)) {
 				event.stopImmediatePropagation();
 				if (AppState.controls) AppState.controls.enabled = false;
@@ -3802,6 +4367,10 @@
 
       // 2. ATTACH FACE
       if (AppState.action === 'attach') {
+	  if (getActiveLayer().locked) {
+           showToast(`Layer "${getActiveLayer().name}" đang bị khóa!`, "error");
+           return false;
+       }
           const vMap = getVoxelMap();
           const sx = AppState.model.size.x;
           const sy = AppState.model.size.y;
@@ -3816,7 +4385,7 @@
               if (exX >= 0 && exX < sx && exY >= 0 && exY < sy && exZ >= 0 && exZ < sz) {
                   const key = `${exX},${exY},${exZ}`;
                   if (!vMap.has(key)) {
-                      const newV = { x: exX, y: exY, z: exZ, i: AppState.selectedColorIndex };
+                      const newV = { x: exX, y: exY, z: exZ, i: AppState.selectedColorIndex, l: AppState.activeLayerId };
                       AppState.model.voxels.push(newV);
                       vMap.set(key, newV);
                       newlyAddedVoxel = newV;
@@ -3833,9 +4402,12 @@
       } 
       // 3. ERASE FACE
       else if (AppState.action === 'erase') {
-          const delSet = new Set(faceVoxels.map(v => `${v.x},${v.y},${v.z}`));
-          AppState.model.voxels = AppState.model.voxels.filter(v => !delSet.has(`${v.x},${v.y},${v.z}`));
-          modified = true;
+			if (isVoxelLocked(startVoxel)) return false;
+
+		   const delSet = new Set(faceVoxels.filter(v => !isVoxelLocked(v)).map(v => `${v.x},${v.y},${v.z}`));
+		   if (delSet.size === 0) return false;
+		   AppState.model.voxels = AppState.model.voxels.filter(v => !delSet.has(`${v.x},${v.y},${v.z}`));
+		   modified = true;
 
           const vMap = getVoxelMap();
           const deeperKey = `${startVoxel.x - nx},${startVoxel.y - ny},${startVoxel.z - nz}`;
@@ -3847,13 +4419,16 @@
       } 
       // 4. PAINT FACE
       else if (AppState.action === 'paint') {
-          for (const fv of faceVoxels) {
-              if (fv.i !== AppState.selectedColorIndex) {
-                  fv.i = AppState.selectedColorIndex;
-                  modified = true;
-              }
-          }
-          if (modified) AppState.usedIndices.add(AppState.selectedColorIndex);
+          if (isVoxelLocked(startVoxel)) return false;
+
+		   for (const fv of faceVoxels) {
+			   if (isVoxelLocked(fv)) continue; // Bỏ qua khối thuộc layer bị khóa
+			   if (fv.i !== AppState.selectedColorIndex) {
+				   fv.i = AppState.selectedColorIndex;
+				   modified = true;
+			   }
+		   }
+		   if (modified) AppState.usedIndices.add(AppState.selectedColorIndex);
       }
 
       if (modified) {
@@ -4625,8 +5200,10 @@
         }
 
         AppState.voxelMesh = new THREE.Group();
+		
         const voxelsByColor = {};
         for (const v of AppState.model.voxels) {
+            if (!isVoxelVisible(v)) continue; // Ẩn voxel nếu layer của nó đang bị tắt
             if (!voxelsByColor[v.i]) voxelsByColor[v.i] = [];
             voxelsByColor[v.i].push(v);
         }
@@ -4707,12 +5284,21 @@
             initDefaultProject();
             return;
         }
+		
+		
 
         if (!voxData.voxels) voxData.voxels = [];
         if (!voxData.size) voxData.size = { x: 40, y: 40, z: 40 };
 
         AppState.model = voxData;
         AppState.usedIndices.clear();
+		
+		AppState.layers = [
+            { id: 1, name: 'Imported (.vox)', visible: true, locked: false }
+        ];
+        AppState.activeLayerId = 1;
+        renderLayerUI();
+		
 
 		voxData.voxels.forEach(v => {
 			  if (v.i > 0) AppState.usedIndices.add(v.i);
@@ -4819,7 +5405,11 @@
 
     function applyLoadedSettings(settings) {
         if (!settings) return;
-
+		if (settings.layers) {
+			AppState.layers = JSON.parse(JSON.stringify(settings.layers));
+			AppState.activeLayerId = settings.activeLayerId || AppState.layers[0]?.id;
+			renderLayerUI();
+		}
         // Khôi phục kích thước khung làm việc
         if (settings.size && AppState.model) {
             AppState.model.size = { ...settings.size };
@@ -5159,7 +5749,7 @@
 				if (AppState.voxelMesh) AppState.voxelMesh.visible = true;
 				if (AppState.wallGridGroup) AppState.wallGridGroup.visible = false;
 				if (AppState.boxFrameHelper) AppState.boxFrameHelper.visible = false;
-				if (AppState.groundPlane) AppState.groundPlane.visible = true;
+				if (AppState.groundPlane) AppState.groundPlane.visible = AppState.showFloorPlane;
 				if (AppState.skyMesh) AppState.skyMesh.visible = AppState.sky.enabled;
 				
 				// 1. Cập nhật viewport và kích thước render chuẩn của màn hình trước
@@ -5281,6 +5871,26 @@
         }
     }
 	
+	
+	function getActiveLayer() {
+        return AppState.layers.find(l => l.id === AppState.activeLayerId) || AppState.layers[0];
+    }
+
+    function getLayerOfVoxel(v) {
+        const lId = (v && v.l !== undefined) ? v.l : AppState.layers[0]?.id;
+        return AppState.layers.find(l => l.id === lId) || AppState.layers[0];
+    }
+
+    function isVoxelVisible(v) {
+        const layer = getLayerOfVoxel(v);
+        return layer ? layer.visible !== false : true;
+    }
+
+    function isVoxelLocked(v) {
+        const layer = getLayerOfVoxel(v);
+        return layer ? !!layer.locked : false;
+    }
+	
 	function setupResolutionControls() {
 		  const inputW = document.getElementById('render-width');
 		  const inputH = document.getElementById('render-height');
@@ -5370,6 +5980,7 @@
 
         for (const v of AppState.model.voxels) {
             if (v.x >= 0 && v.x < sx && v.y >= 0 && v.y < sy && v.z >= 0 && v.z < sz) {
+				if (!isVoxelVisible(v)) continue; // Không đưa vào texture 3D nếu layer bị ẩn
                 const idx = (v.x + v.y * sx + v.z * sx * sy) * 4;
                 const p = AppState.materialProps[v.i];
                 if (p) {
@@ -5472,6 +6083,7 @@
                 uSkyGround: { value: new THREE.Vector3(0.2, 0.2, 0.2) },
                 uSkyAmbientInt: { value: 1.2 },
 				uSkyEnabled: { value: 1.0 }, // <-- THÊM DÒNG NÀY
+				uShowFloorPlane: { value: AppState.showFloorPlane ? 1.0 : 0.0 }, // <-- THÊM DÒNG NÀY
                 uResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
                 uNumEmitLights: { value: 0 },
                 uEmitMin: { value: uEmitMin },
@@ -5515,6 +6127,7 @@
                 uniform vec3 uSkyGround;
                 uniform float uSkyAmbientInt;
 				uniform float uSkyEnabled;
+				uniform float uShowFloorPlane; // <-- THÊM DÒNG NÀY
                 uniform vec2 uResolution;
 				uniform float uGlassIOR;
 			    uniform float uGlassRoughness;
@@ -5591,12 +6204,12 @@
                     vec3 boxNormNear;
                     bool hitBox = intersectBoxExt(ro, rd, boxMin, boxMax, tNear, tFar, boxNormNear);
 
-                    if (rd.y < -0.0001) {
-                        float tFloor = -ro.y / rd.y;
-                        if (tFloor > 0.001 && tFloor < maxDist) {
-                            return vec3(0.0);
-                        }
-                    }
+                    if (uShowFloorPlane > 0.5 && rd.y < -0.0001) {
+						float tFloor = -ro.y / rd.y;
+						if (tFloor > 0.001 && tFloor < maxDist) {
+							return vec3(0.0);
+						}
+					}
 
                     if (!hitBox || tNear >= maxDist) return vec3(1.0);
 
@@ -5676,17 +6289,40 @@
                     float tNear, tFar;
                     vec3 boxNormNear;
                     bool hitBox = intersectBoxExt(ro, rd, boxMin, boxMax, tNear, tFar, boxNormNear);
-                    float tFloor = (rd.y < -0.0001) ? (-ro.y / rd.y) : -1.0;
 
-                    if (tFloor > 0.001 && (!hitBox || tFloor < tNear)) {
+                    // XỬ LÝ MẶT SÀN:
+                    bool canHitFloor = false;
+                    float tFloor = -1.0;
+                    if (uShowFloorPlane > 0.5 && rd.y < -0.0001) {
+                        bool isOrtho = (uProjInverse[3][3] > 0.5);
+                        // Ở Ortho: tia hướng xuống luôn cắt sàn y=0 mà không bị lỗi clipping plane
+                        // Ở Persp/Free: camera ở trên mặt đất thì cắt sàn
+                        if (isOrtho || ro.y > 0.001) {
+                            tFloor = -ro.y / rd.y;
+                            canHitFloor = true;
+                        }
+                    }
+
+                    // Nếu tia hướng xuống cắt sàn trước khi chạm hộp voxel:
+                    if (canHitFloor && (!hitBox || tFloor < tNear)) {
                         hitNormal = vec3(0.0, 1.0, 0.0);
-                        hitColor = vec4(uSkyGround, 0.04);
+                        hitColor = vec4(uSkyGround, 0.04); // Chuẩn màu Ground nguyên bản, KHÔNG bị hòa màu Cyan của Sky
                         hitPos = ro + rd * tFloor;
                         isVolume = false;
                         return true;
                     }
 
-                    if (!hitBox) return false;
+                    // Nếu tia hoàn toàn không chạm hộp voxel:
+                    if (!hitBox) {
+                        if (canHitFloor) {
+                            hitNormal = vec3(0.0, 1.0, 0.0);
+                            hitColor = vec4(uSkyGround, 0.04);
+                            hitPos = ro + rd * tFloor;
+                            isVolume = false;
+                            return true;
+                        }
+                        return false;
+                    }
 
                     float tBox = max(0.0, tNear);
                     float tStart = tBox;
@@ -5707,7 +6343,6 @@
 						mask = abs(vec3(boxNormNear.x, boxNormNear.z, boxNormNear.y));
 					}
 
-					// Tính số bước tối đa động theo kích thước thực tế của mô hình (tránh cắt hình ở mô hình lớn)
 					int maxSteps = int(uGridSize.x + uGridSize.y + uGridSize.z);
 					for (int i = 0; i < 768; i++) {
 						if (i >= maxSteps) break;
@@ -5716,8 +6351,6 @@
 						float tNext = tBox + minSide;
 
 						vec3 uv3 = (vec3(mapPos) + 0.5) / uGridSize;
-						
-						
                         vec4 voxel = texture(tVoxelGrid, uv3);
 
                         if (voxel.a > 0.01) {
@@ -5765,15 +6398,13 @@
                         }
                     }
 
-                    if (rd.y < -0.00001 && ro.y > 0.0) {
-                        float tf = -ro.y / rd.y;
-                        if (tf > 0.0) {
-                            hitNormal = vec3(0.0, 1.0, 0.0);
-                            hitColor = vec4(uSkyGround, 0.04);
-                            hitPos = ro + rd * tf;
-                            isVolume = false;
-                            return true;
-                        }
+                    // Xuyên qua hết hộp voxel mà không trúng gì, nếu tia nhìn xuống sàn thì chạm sàn:
+                    if (canHitFloor) {
+                        hitNormal = vec3(0.0, 1.0, 0.0);
+                        hitColor = vec4(uSkyGround, 0.04);
+                        hitPos = ro + rd * tFloor;
+                        isVolume = false;
+                        return true;
                     }
                     return false;
                 }
@@ -5798,7 +6429,14 @@
                     vec3 ro = (uCamWorld * viewNear).xyz;
                     vec3 rd = normalize((uCamWorld * viewFar).xyz - ro);
 
+                    // KHẮC PHỤC LỖI SKY BỊ LỘN XUỐNG ĐÁY KHI ZOOM XA:
+                    // Ở camera Ortho, nếu tia đang hướng xuống sàn mà ro.y lại chìm dưới mặt đất (ro.y < 0)
+                    // thì kéo ro ngược lại lên cao trên mô hình dọc theo -rd để không bao giờ bị đứt sàn ở nửa dưới
+                    
+
                     vec3 radiance = vec3(0.0);
+					
+					
                     vec3 throughput = vec3(1.0);
                     bool rayInGlass = false;
 
@@ -6038,12 +6676,14 @@
                                 throughput /= q;
                             }
                         } else {
+							// Bầu trời thế giới thực chuẩn MagicaVoxel:
+							// Nhìn lên (rd.y >= 0): Gradient từ Chân trời (Horizon) lên Đỉnh trời (Zenith)
+							// Nhìn xuống (rd.y < 0): Gradient từ Chân trời (Horizon) xuống Đáy đất (Ground)
 							vec3 skyCol = (rd.y >= 0.0) 
 								? mix(pow(uSkyHorizon, vec3(2.2)), pow(uSkyZenith, vec3(2.2)), pow(clamp(rd.y, 0.0, 1.0), 0.7))
 								: mix(pow(uSkyHorizon, vec3(2.2)), pow(uSkyGround, vec3(2.2)), pow(clamp(-rd.y, 0.0, 1.0), 0.7));
 
 							if (uSkyEnabled > 0.5) {
-								// Đặt 0.22 để giữ vùng bóng râm dưới gầm bàn/chân tường luôn có độ tối sâu thẳm
 								radiance += (bounce == 0) ? skyCol : (skyCol * (uSkyAmbientInt * 0.20) * throughput);
 							} else {
 								if (bounce == 0) radiance += pow(uSkyGround, vec3(2.2));
@@ -6278,7 +6918,7 @@
             pathTraceMaterial.uniforms.uFrameSeed.value = Math.random();
             pathTraceMaterial.uniforms.uResolution.value.set(width, height);
             pathTraceMaterial.uniforms.uGridSize.value.set(AppState.model.size.x, AppState.model.size.y, AppState.model.size.z);
-			
+			pathTraceMaterial.uniforms.uShowFloorPlane.value = AppState.showFloorPlane ? 1.0 : 0.0; // <-- THÊM DÒNG NÀY
 			pathTraceMaterial.uniforms.uEnableShadow.value = AppState.sampleOptions.shadow ? 1.0 : 0.0;
 			pathTraceMaterial.uniforms.uEnableAA.value = AppState.sampleOptions.aa ? 1.0 : 0.0;
 			
@@ -6735,6 +7375,8 @@
                 fileName: AppState.currentFileName || 'project.vox',
                 savedAt: Date.now(),
                 settings: {
+					layers: JSON.parse(JSON.stringify(AppState.layers)),
+					activeLayerId: AppState.activeLayerId,
                     size: { ...AppState.model.size },
                     renderMode: AppState.renderMode,
                     cameraMode: AppState.cameraMode,
@@ -6884,6 +7526,7 @@
 
         const voxelMap = new Map();
         for (const v of voxels) {
+		if (!isVoxelVisible(v)) continue;
             voxelMap.set(`${v.x},${v.y},${v.z}`, v.i);
         }
 
@@ -6899,6 +7542,7 @@
         const h = 0.5;
 
         for (const v of voxels) {
+		if (!isVoxelVisible(v)) continue;
             const matIdx = v.i;
             const color = AppState.materialProps[matIdx]?.color || new THREE.Color(1, 1, 1);
             const posX = v.x - cx + 0.5;
@@ -7643,7 +8287,11 @@
         
         updateFreeCamera();
         updateGridVisibilityByCamera();
-
+		// BỔ SUNG: Quả cầu trời luôn di chuyển theo Camera, zoom xa bao nhiêu cũng không bị thoát ra ngoài
+        if (AppState.skyMesh && AppState.camera) {
+            AppState.skyMesh.position.copy(AppState.camera.position);
+        }
+		
         if (AppState.controls && AppState.controls.enabled) {
             AppState.controls.update();
         }
