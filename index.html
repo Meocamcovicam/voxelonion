@@ -213,6 +213,10 @@
             </div>
 
             <button id="btn-reset-cam" class="bg-gray-800 hover:bg-gray-700 py-1 px-2 rounded text-xs font-bold text-gray-300 border border-gray-700 shrink-0">Reset</button>
+            <button id="btn-toggle-noti" title="Toggle Notifications (Default: Off)" class="bg-gray-800 hover:bg-gray-700 py-1 px-2 rounded text-xs font-bold text-gray-400 border border-gray-700 shrink-0 flex items-center gap-1 transition-colors">
+                <span id="noti-icon">🔕</span>
+                <span id="noti-text" class="hidden sm:inline">Noti: Off</span>
+            </button>
         </div>
 
 		<div class="panel flex gap-1 items-center !py-1 !px-2 shrink-0">
@@ -325,7 +329,7 @@
 				</div>
             </div>
 
-            <div id="selection-ops-panel" class="flex flex-col gap-1.5 bg-[#171722] p-2 rounded-md border border-amber-600/40 shrink-0">
+            <div id="selection-ops-panel" class="flex flex-col gap-1.5 bg-[#171722] p-2 rounded-md border border-amber-600/40 shrink-0" style="display: none;">
                 <div class="flex items-center justify-between text-[9px] font-bold text-amber-300 uppercase tracking-wider">
                     <span>📦 Selection & Transform</span>
                     <span id="selected-voxel-count-badge" class="bg-[#22222c] text-gray-400 border border-gray-700 px-1.5 py-0.2 rounded font-mono text-[9px]">0 selected</span>
@@ -817,7 +821,7 @@
         showFloorGrid: true,
         showBoxFrame: true,
         showFloorPlane: true,
-
+		showNotifications: false, // Mặc định tắt thông báo hành động
         sampleOptions: {
             stochastic: true,
             misReflect: false,
@@ -913,14 +917,17 @@
         resolutionHeight: window.innerHeight
     };
 
-    function showToast(message, type = 'error') {
+    function showToast(message, type = 'error', force = false) {
+        // Nếu thông báo đang bị tắt và không phải hành động bắt buộc (như Save) thì bỏ qua
+        if (!AppState.showNotifications && !force) return;
+
         const toast = document.createElement('div');
         toast.className = `px-4 py-2 rounded-lg shadow-2xl text-xs font-bold text-white transition-all duration-300 transform translate-y-[-20px] opacity-0 ${type === 'error' ? 'bg-rose-600' : 'bg-emerald-600'}`;
         toast.textContent = message;
         const container = document.getElementById('toast-container');
         if (container) container.appendChild(toast);
         requestAnimationFrame(() => { toast.style.transform = 'translate-y(0)'; toast.style.opacity = '1'; });
-        setTimeout(() => { toast.style.opacity = '0'; toast.style.transform = 'translate-y(-20px)'; setTimeout(() => toast.remove(), 250); }, 3000);
+        setTimeout(() => { toast.style.opacity = '0'; toast.style.transform = 'translate-y(-20px)'; setTimeout(() => toast.remove(), 250); }, 2500);
     }
 
     function updateProjectFileNameBadge(name) {
@@ -1155,20 +1162,17 @@
 			AppState.controls.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
 			AppState.controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
 			AppState.controls.touches.ONE = isPanActive ? THREE.TOUCH.PAN : THREE.TOUCH.ROTATE;
-			AppState.controls.touches.TWO = isPanActive ? THREE.TOUCH.DOLLY_ROTATE : THREE.TOUCH.DOLLY_PAN;
+			AppState.controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
 		} else {
 			// --- CẤU HÌNH TRÊN PC ---
-			// Chuột trái ngoài model: Mặc định là XOAY, khi giữ Shift/Space hoặc bật nút Pan thì thành PAN
 			AppState.controls.mouseButtons.LEFT = isPanActive ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
-			// Chuột giữa: Luôn luôn là PAN
 			AppState.controls.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
-			// Chuột phải ngoài model: PAN (giúp PC có thể xoay chuột trái, pan chuột phải cực kỳ tiện lợi)
 			AppState.controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
 
 			// --- CẤU HÌNH TRÊN MOBILE ---
-			// 1 ngón tay kéo ngoài model: Theo chế độ đang chọn (Xoay 🔄 hoặc Pan ✋)
+			// 1 ngón tay: Giữ nguyên cơ chế cũ (theo chế độ Xoay 🔄 hoặc Pan ✋)
 			AppState.controls.touches.ONE = isPanActive ? THREE.TOUCH.PAN : THREE.TOUCH.ROTATE;
-			// 2 ngón tay vuốt: Luôn tự động PAN và Zoom (Pinch)
+			// 2 ngón tay: Luôn cố định là Pan camera và Pinch-Zoom
 			AppState.controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
 		}
 
@@ -1209,6 +1213,38 @@
             }
         }
         return null;
+    }
+	
+	function setupNotificationToggle() {
+        const btnToggle = document.getElementById('btn-toggle-noti');
+        const icon = document.getElementById('noti-icon');
+        const text = document.getElementById('noti-text');
+        if (!btnToggle) return;
+
+        const updateBtnUI = () => {
+            if (AppState.showNotifications) {
+                btnToggle.classList.remove('text-gray-400');
+                btnToggle.classList.add('text-emerald-400', 'border-emerald-600/70', 'bg-emerald-950/40');
+                if (icon) icon.textContent = '🔔';
+                if (text) text.textContent = 'Noti: On';
+            } else {
+                btnToggle.classList.remove('text-emerald-400', 'border-emerald-600/70', 'bg-emerald-950/40');
+                btnToggle.classList.add('text-gray-400');
+                if (icon) icon.textContent = '🔕';
+                if (text) text.textContent = 'Noti: Off';
+            }
+        };
+
+        btnToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            AppState.showNotifications = !AppState.showNotifications;
+            updateBtnUI();
+            if (AppState.showNotifications) {
+                showToast("Notifications enabled", "success");
+            }
+        });
+
+        updateBtnUI();
     }
 
     function initThreeJS() {
@@ -1351,32 +1387,66 @@
         window.addEventListener('pointercancel', onPointerUp);
 		
 		// Bắt trực tiếp sự kiện Touch của iOS / iPadOS và Android để ưu tiên cử chỉ 2 ngón tay
+        // Bắt sự kiện Touch trên Mobile/iPad: 1 ngón thao tác cũ, 2 ngón Pan camera, 3 ngón Rotate camera
         dom.addEventListener('touchstart', (e) => {
             touchCount = e.touches.length;
             if (touchCount >= 2) {
                 isTwoFingerGesture = true;
                 cancelActiveVoxelAction();
+            }
+
+            if (touchCount === 3) {
+                // Kích hoạt chế độ xoay 3 ngón tay và tạm khóa OrbitControls để tránh xung đột
+                isThreeFingerRotating = true;
+                threeFingerStartPos = getThreeFingerCenter(e.touches);
+                if (AppState.controls) AppState.controls.enabled = false;
+            } else {
+                isThreeFingerRotating = false;
                 if (AppState.controls) AppState.controls.enabled = true;
+            }
+        }, { passive: false });
+
+        dom.addEventListener('touchmove', (e) => {
+            // Khi dùng 3 ngón tay: Tính toán độ dịch chuyển và xoay camera
+            if (e.touches.length === 3 && isThreeFingerRotating) {
+                e.preventDefault();
+                const currentCenter = getThreeFingerCenter(e.touches);
+                const deltaX = currentCenter.x - threeFingerStartPos.x;
+                const deltaY = currentCenter.y - threeFingerStartPos.y;
+                threeFingerStartPos = currentCenter;
+
+                rotateCameraByAngles(deltaX, deltaY);
             }
         }, { passive: false });
 
         dom.addEventListener('touchend', (e) => {
             touchCount = e.touches.length;
+            if (touchCount < 3) {
+                isThreeFingerRotating = false;
+            }
             if (touchCount === 0) {
                 isTwoFingerGesture = false;
                 activePointers.clear();
+                if (AppState.controls) AppState.controls.enabled = true;
+            } else if (touchCount === 2) {
+                // Khi từ 3 ngón nhả bớt 1 ngón về 2 ngón: Mở lại OrbitControls để tiếp tục Pan
                 if (AppState.controls) AppState.controls.enabled = true;
             }
         }, { passive: false });
 
         dom.addEventListener('touchcancel', (e) => {
             touchCount = e.touches.length;
+            if (touchCount < 3) {
+                isThreeFingerRotating = false;
+            }
             if (touchCount === 0) {
                 isTwoFingerGesture = false;
                 activePointers.clear();
                 if (AppState.controls) AppState.controls.enabled = true;
             }
         }, { passive: false });
+		
+		
 		
 		
         window.addEventListener('keydown', onKeyDown);
@@ -1394,6 +1464,9 @@
         setupGridToggleButtons();
         setupWorkspaceSizeAndClear();
         setupTouchNavToggle();
+		
+		setupNotificationToggle();
+		
         setupSelectionActions();
         setupBrushShapeButtons();
 		setupResolutionControls();
@@ -1621,7 +1694,7 @@
                             recordUndoStep(snap);
                             rebuildMesh();
                             renderLayerUI();
-                            showToast(`Đã chuyển "${item.name}" sang vị trí mới`, "success");
+                            showToast(`Moved "${item.name}" to new position`, "success");
                         }
                     }
                 }
@@ -1640,7 +1713,7 @@
             toggleAuto.checked = AppState.autoSelectLayer;
             toggleAuto.addEventListener('change', (e) => {
                 AppState.autoSelectLayer = e.target.checked;
-                showToast(AppState.autoSelectLayer ? "Đã bật Auto-select layer" : "Đã tắt Auto-select layer", "success");
+                showToast(AppState.autoSelectLayer ? "Auto-select layer enabled" : "Auto-select layer disabled", "success");
             });
         }
 
@@ -1658,7 +1731,7 @@
             AppState.activeLayerId = newId;
             recordUndoStep(snap);
             renderLayerUI();
-            showToast(`Đã thêm "${newLayer.name}"`, "success");
+            showToast(`Added "${newLayer.name}"`, "success");
         });
 
         // Clone Layer
@@ -1685,7 +1758,7 @@
             recordUndoStep(snap);
             rebuildMesh();
             renderLayerUI();
-            showToast(`Đã nhân bản "${cur.name}"`, "success");
+            showToast(`Duplicated "${cur.name}"`, "success");
         });
 
         // Merge Layer Down
@@ -1693,7 +1766,7 @@
             if (!AppState.model) return;
             const curIdx = AppState.layers.findIndex(l => l.id === AppState.activeLayerId);
             if (curIdx < 0 || curIdx >= AppState.layers.length - 1) {
-                showToast("Không có layer bên dưới để gộp!", "error");
+                showToast("No layer below to merge!", "error");
                 return;
             }
             const snap = captureStateSnapshot();
@@ -1713,14 +1786,14 @@
             recordUndoStep(snap);
             rebuildMesh();
             renderLayerUI();
-            showToast(`Đã gộp "${curLayer.name}" vào "${targetLayer.name}"`, "success");
+            showToast(`Merged "${curLayer.name}" into "${targetLayer.name}"`, "success");
         });
 
         // Delete Layer
         document.getElementById('btn-layer-delete')?.addEventListener('click', () => {
             if (!AppState.model) return;
             if (AppState.layers.length <= 1) {
-                showToast("Không thể xóa layer duy nhất!", "error");
+                showToast("Cannot delete the only layer!", "error");
                 return;
             }
             const snap = captureStateSnapshot();
@@ -1735,7 +1808,7 @@
             recordUndoStep(snap);
             rebuildMesh();
             renderLayerUI();
-            showToast(`Đã xóa layer "${cur.name}"`, "success");
+            showToast(`Deleted layer "${cur.name}"`, "success");
         });
 		
 		
@@ -1778,7 +1851,7 @@
         layer.locked = !layer.locked;
         recordUndoStep(snap);
         renderLayerUI();
-        showToast(layer.locked ? `Đã khóa "${layer.name}"` : `Đã mở khóa "${layer.name}"`, "success");
+        showToast(layer.locked ? `Layer "${layer.name}" locked` : `Layer "${layer.name}" unlocked`, "success");
     }
 
     function startRenameLayer(layerId, nameEl) {
@@ -1879,10 +1952,12 @@
         });
 		
 		if (shape === 'bucket') {
-            showToast("Bucket Tool: Bấm vào 1 voxel để đổi màu tất cả các khối cùng màu (kể cả tách rời)", "success");
-        } else if (shape === 'wand') {
-            showToast("Magic Wand Mode: Bấm vào 1 voxel để chọn cụm khối cùng màu dính liền", "success");
-        } else if (shape === 'face') {
+			showToast("Bucket Tool: Click a voxel to recolor all identical voxels", "success");
+		} else if (shape === 'wand') {
+			showToast("Magic Wand Mode: Click a voxel to select connected identical voxels", "success");
+		}
+		
+		else if (shape === 'face') {
             showToast("Face Mode (-F-): Extrude/Erase/Paint continuous faces", "success");
         } else {
             showToast("Box Mode (-B-): Hold & drag 3D boxes", "success");
@@ -3476,11 +3551,57 @@
     }
 
     const activePointers = new Map();
-    let isTwoFingerGesture = false; // Cờ khóa mọi tương tác vẽ khi đang dùng 2 ngón tay
+    let isTwoFingerGesture = false; // Cờ khóa tương tác vẽ khi chạm từ 2 ngón tay trở lên
     let touchCount = 0;             // Đếm số điểm chạm thực tế trên màn hình cảm ứng
+    let isThreeFingerRotating = false; // Cờ xoay camera bằng 3 ngón tay
+    let threeFingerStartPos = { x: 0, y: 0 };
     let boxDragStart = null;
     let boxDragNormal = null;
     let boxDragCurrent = null;
+
+    // Tính tọa độ trung bình (tâm) của 3 ngón tay
+    function getThreeFingerCenter(touches) {
+        return {
+            x: (touches[0].clientX + touches[1].clientX + touches[2].clientX) / 3,
+            y: (touches[0].clientY + touches[1].clientY + touches[2].clientY) / 3
+        };
+    }
+
+    // Xoay camera mượt mà quanh tâm Target bằng cử chỉ 3 ngón tay
+    function rotateCameraByAngles(deltaX, deltaY) {
+        if (!AppState.camera || !AppState.controls) return;
+
+        const elementHeight = window.innerHeight || 800;
+        const rotateSpeed = (2 * Math.PI) / elementHeight;
+        const rotX = deltaX * rotateSpeed;
+        const rotY = deltaY * rotateSpeed;
+
+        const target = AppState.controls.target;
+        const offset = new THREE.Vector3().copy(AppState.camera.position).sub(target);
+
+        const spherical = new THREE.Spherical().setFromVector3(offset);
+        spherical.theta -= rotX;
+
+        // Nếu không phải góc Isometric cố định thì cho phép xoay cao độ (Pitch)
+        if (AppState.cameraMode !== 'iso') {
+            spherical.phi -= rotY;
+            const minPolar = AppState.controls.minPolarAngle !== undefined ? AppState.controls.minPolarAngle : 0.01;
+            const maxPolar = AppState.controls.maxPolarAngle !== undefined ? AppState.controls.maxPolarAngle : (Math.PI - 0.01);
+            spherical.phi = Math.max(minPolar, Math.min(maxPolar, spherical.phi));
+        }
+        spherical.makeSafe();
+
+        offset.setFromSpherical(spherical);
+        AppState.camera.position.copy(target).add(offset);
+        AppState.camera.lookAt(target);
+
+        AppState.controls.update();
+        syncCameraState();
+
+        if (AppState.renderMode === 'pathtrace') {
+            AppState.needsAccumulationReset = true;
+        }
+    }
 
     // Hủy bỏ toàn bộ tương tác voxel (Select, Attach, Paint, Erase, Pick) và hoàn tác về trạng thái trước đó
     function cancelActiveVoxelAction() {
@@ -3503,7 +3624,9 @@
         if (AppState.ghostBoxMesh) AppState.ghostBoxMesh.visible = false;
         AppState.isInteracting = false;
         strokeDidModify = false;
-        if (AppState.controls) AppState.controls.enabled = true;
+        if (AppState.controls && !isThreeFingerRotating && touchCount < 3) {
+            AppState.controls.enabled = true;
+        }
     }
 
     function getVoxelMap() {
@@ -3520,7 +3643,7 @@
 
         // KIỂM TRA KHÓA LAYER:
         if (isVoxelLocked(targetVoxel)) {
-            showToast(`Khối thuộc layer "${getLayerOfVoxel(targetVoxel).name}" đang bị khóa!`, "error");
+            showToast(`Layer "${getLayerOfVoxel(targetVoxel).name}" is locked!`, "error");
             return false;
         }
 
@@ -3541,7 +3664,7 @@
         strokeDidModify = true;
         rebuildMesh();
         buildPaletteUI();
-        showToast(`Face Erase: Đã xóa ${delSet.size} voxel!`, "success");
+        showToast(`Face Erase: Removed ${delSet.size} voxels!`, "success");
         return true;
     }
 
@@ -3732,7 +3855,7 @@
             AppState.usedIndices.add(newColor);
             rebuildMesh();
             buildPaletteUI();
-            showToast(`Bucket Tool: Đã đổi màu ${count} voxel cùng màu!`, "success");
+            showToast(`Bucket Tool: Recolored ${count} voxels!`, "success");
         }
     }
 	
@@ -3805,7 +3928,7 @@
         }
 
         updateSelectionBoxVisual();
-        showToast(`Magic Wand: Đã chọn cụm gồm ${AppState.selectedVoxels.size} voxel!`, "success");
+        showToast(`Magic Wand: Selected ${AppState.selectedVoxels.size} voxels!`, "success");
     }
 
     function executeSelectionBox(v1, v2) {
@@ -4021,7 +4144,7 @@
     if (isMultiTouch) {
         isTwoFingerGesture = true;
         cancelActiveVoxelAction();
-        if (AppState.controls) AppState.controls.enabled = true;
+        if (AppState.controls) AppState.controls.enabled = (touchCount < 3 && !isThreeFingerRotating);
         return;
     }
 
@@ -4097,11 +4220,13 @@
 		AppState.lastInteractionPointerPos.set(event.clientX, event.clientY);
 
 		// Nếu phát hiện 2 ngón tay: Lập tức hủy mọi tác vụ vẽ và nhường cho OrbitControls
+		// Nếu phát hiện từ 2 ngón tay trở lên: Hủy mọi tác vụ vẽ
+		// Nếu phát hiện từ 2 ngón tay trở lên: Hủy mọi tác vụ vẽ
 		const isMultiTouch = (activePointers.size >= 2) || (event.touches && event.touches.length >= 2) || isTwoFingerGesture || (touchCount >= 2);
 		if (isMultiTouch) {
 			isTwoFingerGesture = true;
 			cancelActiveVoxelAction();
-			if (AppState.controls) AppState.controls.enabled = true;
+			if (AppState.controls) AppState.controls.enabled = (touchCount < 3 && !isThreeFingerRotating);
 			return;
 		}
 		
@@ -4147,7 +4272,7 @@
 				if (matTabBtn) matTabBtn.click();
 				if (navigator.vibrate) navigator.vibrate(15);
 
-				showToast(`Đã định vị màu trên Palette: Slot #${targetColorIdx}`, "success");
+				showToast(`Located palette color: Slot #${targetColorIdx}`, "success");
 			}
 			return;
 		}
@@ -4549,7 +4674,7 @@
         if (isMultiTouch) {
             isTwoFingerGesture = true;
             cancelActiveVoxelAction();
-            if (AppState.controls) AppState.controls.enabled = true;
+            if (AppState.controls) AppState.controls.enabled = (touchCount < 3 && !isThreeFingerRotating);
             return;
         }
 
@@ -5777,7 +5902,8 @@
 
       const selPanel = document.getElementById('selection-ops-panel');
       if (selPanel) {
-          selPanel.classList.toggle('opacity-60', action !== 'select');
+          // Chỉ hiển thị khung Selection & Transform khi action là 'select', ẩn hoàn toàn ở các action khác
+          selPanel.style.display = (action === 'select') ? 'flex' : 'none';
       }
 
       updateControlsConfiguration();
@@ -5939,7 +6065,7 @@
                             AppState.currentFileName = record.fileName || 'project.vox';
                             updateProjectFileNameBadge(AppState.currentFileName);
                             loadModel(voxData, record.settings);
-                            showToast(`Đã khôi phục "${AppState.currentFileName}" từ Cache!`, "success");
+                            showToast(`Restored "${AppState.currentFileName}" from cache!`, "success");
                             return;
                         }
                     } catch (err) {
@@ -6061,7 +6187,7 @@
 				  if (AppState.renderMode === 'pathtrace') {
 					  AppState.needsAccumulationReset = true;
 				  }
-				  showToast("Đã căn vừa toàn màn hình!", "success");
+				  showToast("Fitted to screen!", "success");
 			  });
 		  }
 	  }
@@ -7132,7 +7258,7 @@
             newIdx++;
         }
         if (newIdx > 256) {
-            showToast("Đã đạt giới hạn tối đa 256 màu!", "error");
+            showToast("Reached maximum 256 color slots!", "error");
             return;
         }
         if (!AppState.materialProps[newIdx]) {
@@ -7146,7 +7272,7 @@
         AppState.usedIndices.add(newIdx);
         selectColor(newIdx);
         buildPaletteUI();
-        showToast(`Đã thêm ô màu mới (Idx: ${newIdx})`, "success");
+        showToast(`Added new color slot (Idx: ${newIdx})`, "success");
     }
 
     function buildPaletteUI() {
@@ -7542,10 +7668,10 @@
                 tx.onabort = () => reject(tx.error);
             });
 
-            showToast(`Đã lưu "${AppState.currentFileName || 'project.vox'}" vào Cache thành công! (Ctrl+S)`, "success");
+           showToast(`Saved "${AppState.currentFileName || 'project.vox'}" to cache successfully! (Ctrl+S)`, "success", true);
         } catch (err) {
-            console.error("Lỗi lưu cache:", err);
-            showToast("Lỗi khi lưu cache: " + err.message, "error");
+            console.error("Cache save error:", err);
+            showToast("Failed to save cache: " + err.message, "error", true);
         }
     }
 
@@ -7599,10 +7725,10 @@
                 const voxData = parser.parse(event.target.result);
                 loadModel(voxData);
                 resetHistory();
-                showToast(`Đã mở "${file.name}" (${voxData.voxels.length} voxels)!`, "success");
+                showToast(`Opened "${file.name}" (${voxData.voxels.length} voxels)!`, "success");
             } catch (err) {
                 console.error("Lỗi đọc file .vox:", err);
-                showToast("Lỗi đọc file: " + err.message, "error");
+                showToast("File reading error: " + err.message, "error");
             }
         };
         reader.readAsArrayBuffer(file);
