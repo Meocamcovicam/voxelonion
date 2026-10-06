@@ -8253,12 +8253,65 @@
     });
 
     function triggerFileDownload(buffer, filename) {
-        const blob = new Blob([buffer], { type: 'application/octet-stream' });
+        const blob = (buffer instanceof Blob) ? buffer : new Blob([buffer], { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
+        a.href = url;
         a.download = filename;
+        document.body.appendChild(a);
         a.click();
-        URL.revokeObjectURL(a.href);
+        setTimeout(() => {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }, 1500); // Kéo dài thời gian hủy URL để WebKit trên iPad kịp hoàn tất luồng tải
+    }
+
+   // Hàm xuất ảnh: Tự động tải thẳng trên PC/Android, chỉ dùng Share Sheet trên iPad/iPhone
+    async function triggerImageSave(blob, filename) {
+        if (!blob) return;
+
+        // Nhận diện thiết bị Apple di động (iPad, iPad mini, iPhone, iPod)
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+        // 1. NẾU LÀ IPAD / IPHONE: Dùng Web Share API để lưu vào Photos (Cuộn camera)
+        if (isIOS && navigator.canShare) {
+            const file = new File([blob], filename, { type: 'image/png' });
+            if (navigator.canShare({ files: [file] })) {
+                try {
+                    await navigator.share({
+                        files: [file],
+                        title: filename,
+                        text: 'Rendered image from VoxWeb'
+                    });
+                    showToast("Image exported successfully!", "success", true);
+                    return;
+                } catch (err) {
+                    if (err.name === 'AbortError') return; // Người dùng chủ động bấm Hủy chia sẻ
+                }
+            }
+        }
+
+        // 2. NẾU LÀ PC (WINDOWS / MACOS / LINUX) HOẶC ANDROID: TẢI TRỰC TIẾP VỀ MÁY
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+
+        // Fallback mở tab mới chỉ khi chạy trên iPad mà trình duyệt không hỗ trợ download
+        if (isIOS) {
+            setTimeout(() => {
+                window.open(url, '_blank');
+            }, 300);
+        }
+
+        setTimeout(() => {
+            if (document.body.contains(a)) document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }, 2000);
     }
 
     document.getElementById('btn-reset-cam').addEventListener('click', () => {
@@ -8495,35 +8548,33 @@
         if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
     });
 
-    document.getElementById('btn-export-img').addEventListener('click', () => {
-        const baseName = (AppState.currentFileName || 'voxel_model').replace(/\.vox$/i, '');
+    document.getElementById('btn-export-img')?.addEventListener('click', () => {
+        if (!AppState.renderer) return;
+
+        // Đảm bảo khung hình hiện tại được vẽ trọn vẹn lên màn hình canvas trước khi chụp
         if (AppState.renderMode === 'pathtrace') {
-            if (AppState.renderTargetB) {
-                drawAccumulationToScreen();
-            } else {
-                processRenderFrame();
-            }
-            const dataURL = AppState.renderer.domElement.toDataURL('image/png');
-            const link = document.createElement('a');
-            link.download = `${baseName}_render.png`;
-            link.href = dataURL;
-            link.click();
-            showToast("Downloaded rendered image!", "success");
+            drawAccumulationToScreen();
         } else {
-            AppState.renderer.setRenderTarget(null);
             if (AppState.composer) {
-                AppState.composer.renderToScreen = true;
                 AppState.composer.render();
             } else {
                 AppState.renderer.render(AppState.scene, AppState.camera);
             }
-            const dataURL = AppState.renderer.domElement.toDataURL('image/png');
-            const link = document.createElement('a');
-            link.download = `${baseName}_preview.png`;
-            link.href = dataURL;
-            link.click();
-            showToast("Downloaded screenshot!", "success");
         }
+
+        const rawName = (AppState.currentFileName || 'render_scene').replace(/\.vox$/i, '');
+        const filename = `${rawName}_render.png`;
+        const canvas = AppState.renderer.domElement;
+
+        // Xuất Blob chuẩn PNG không nén chất lượng cao
+        canvas.toBlob((blob) => {
+            if (blob) {
+                triggerImageSave(blob, filename);
+                showToast("Exporting image...", "success", true);
+            } else {
+                showToast("Failed to generate image buffer", "error", true);
+            }
+        }, 'image/png', 1.0);
     });
 
 	function animate() {
