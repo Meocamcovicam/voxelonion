@@ -8267,42 +8267,32 @@
     }
 
    // Hàm xuất ảnh: Tự động tải thẳng trên PC/Android, chỉ dùng Share Sheet trên iPad/iPhone
-    // Hàm xuất ảnh: Tải trực tiếp 100% trên cả Android và PC; Chỉ iPad/iPhone dùng Share Sheet
     async function triggerImageSave(blob, filename) {
         if (!blob) return;
 
-        // 1. NHẬN DIỆN RIÊNG IPAD / IPHONE (Loại trừ hoàn toàn Android và PC)
-        const isAppleMobile = (/iPad|iPhone|iPod/i.test(navigator.userAgent) || 
-                              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) &&
-                              !/Android/i.test(navigator.userAgent);
+        // Nhận diện thiết bị Apple di động (iPad, iPad mini, iPhone, iPod)
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-        // NẾU LÀ IPAD / IPHONE: Giữ nguyên Web Share Sheet để lưu vào Photos/Files
-        if (isAppleMobile && navigator.canShare) {
+        // 1. NẾU LÀ IPAD / IPHONE: Dùng Web Share API để lưu vào Photos (Cuộn camera)
+        if (isIOS && navigator.canShare) {
             const file = new File([blob], filename, { type: 'image/png' });
             if (navigator.canShare({ files: [file] })) {
                 try {
                     await navigator.share({
                         files: [file],
                         title: filename,
-                        text: 'Rendered voxel image from VoxWeb'
+                        text: 'Rendered image from VoxWeb'
                     });
                     showToast("Image exported successfully!", "success", true);
                     return;
                 } catch (err) {
-                    if (err.name === 'AbortError') return; // Người dùng bấm Hủy
+                    if (err.name === 'AbortError') return; // Người dùng chủ động bấm Hủy chia sẻ
                 }
             }
-
-            // Dự phòng cho iPad/iPhone nếu Safari chặn tải tệp
-            const iosUrl = URL.createObjectURL(blob);
-            setTimeout(() => {
-                window.open(iosUrl, '_blank');
-                setTimeout(() => URL.revokeObjectURL(iosUrl), 4000);
-            }, 300);
-            return;
         }
 
-        // 2. TRÊN ANDROID VÀ PC (WINDOWS / MAC / LINUX): TẢI TRỰC TIẾP VỀ MÁY GIỐNG HỆT NHAU
+        // 2. NẾU LÀ PC (WINDOWS / MACOS / LINUX) HOẶC ANDROID: TẢI TRỰC TIẾP VỀ MÁY
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.style.display = 'none';
@@ -8311,12 +8301,17 @@
         document.body.appendChild(a);
         a.click();
 
-        showToast("Downloaded render image!", "success", true);
+        // Fallback mở tab mới chỉ khi chạy trên iPad mà trình duyệt không hỗ trợ download
+        if (isIOS) {
+            setTimeout(() => {
+                window.open(url, '_blank');
+            }, 300);
+        }
 
         setTimeout(() => {
             if (document.body.contains(a)) document.body.removeChild(a);
             URL.revokeObjectURL(url);
-        }, 3000); // Đảm bảo Android và PC có đủ thời gian ghi dữ liệu vào thư mục Downloads
+        }, 2000);
     }
 
     document.getElementById('btn-reset-cam').addEventListener('click', () => {
@@ -8553,10 +8548,10 @@
         if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
     });
 
-    document.getElementById('btn-export-img')?.addEventListener('click', () => {document.getElementById('btn-export-img')?.addEventListener('click', () => {
+    document.getElementById('btn-export-img')?.addEventListener('click', () => {
         if (!AppState.renderer) return;
 
-        // Vẽ trọn vẹn khung hình hiện tại lên màn hình trước khi xuất
+        // Đảm bảo khung hình hiện tại được vẽ trọn vẹn lên màn hình canvas trước khi chụp
         if (AppState.renderMode === 'pathtrace') {
             drawAccumulationToScreen();
         } else {
@@ -8571,10 +8566,11 @@
         const filename = `${rawName}_render.png`;
         const canvas = AppState.renderer.domElement;
 
-        // Tạo Blob PNG chất lượng cao và chuyển sang hàm triggerImageSave
+        // Xuất Blob chuẩn PNG không nén chất lượng cao
         canvas.toBlob((blob) => {
             if (blob) {
                 triggerImageSave(blob, filename);
+                showToast("Exporting image...", "success", true);
             } else {
                 showToast("Failed to generate image buffer", "error", true);
             }
