@@ -6,14 +6,60 @@
     <title>Web Voxel Editor & Renderer - MagicaVoxel Edition</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #282828; color: #eee; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif; user-select: none; -webkit-user-select: none; touch-action: none; }
-        #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; display: flex; align-items: center; justify-content: center; background-color: #242428; }
-        #canvas-container canvas { display: block; touch-action: none; -webkit-touch-callout: none; }
-		#ui-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; display: flex; flex-direction: column; justify-content: space-between; }
-        
-        .panel { background: rgba(28, 28, 34, 0.94); border: 1px solid #3e3e48; border-radius: 8px; pointer-events: auto; padding: 8px 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.55); backdrop-filter: blur(12px); }
-        .top-bar { display: flex; justify-content: space-between; padding: 8px; pointer-events: none; gap: 8px; }
-        .top-bar > * { pointer-events: auto; }
+        html, body {
+		margin: 0;
+		padding: 0;
+		width: 100%;
+		height: 100%;
+		height: 100dvh;
+		overflow: hidden;
+		position: fixed; /* Khóa cứng khung nhìn, triệt tiêu 100% lỗi Chrome bị cuộn mất thanh trên cùng */
+		background-color: #282828;
+		color: #eee;
+		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
+		user-select: none;
+		-webkit-user-select: none;
+	}
+	#canvas-container { width: 100vw; height: 100%; height: 100dvh; position: absolute; top: 0; left: 0; z-index: 1; display: flex; align-items: center; justify-content: center; background-color: #242428; }
+	#canvas-container canvas { display: block; touch-action: none; -webkit-touch-callout: none; }
+	#ui-container { 
+		position: fixed; /* Đổi từ absolute sang fixed để luôn neo chặt sát mép trên màn hình */
+		top: 0; 
+		left: 0; 
+		width: 100vw; 
+		height: 100%; 
+		height: 100dvh; 
+		pointer-events: none; 
+		z-index: 10; 
+		display: flex; 
+		flex-direction: column; 
+		justify-content: space-between; 
+	}
+
+	.panel { background: rgba(28, 28, 34, 0.94); border: 1px solid #3e3e48; border-radius: 8px; pointer-events: auto; padding: 8px 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.55); backdrop-filter: blur(12px); }
+	.top-bar { 
+		display: flex; 
+		align-items: center; 
+		justify-content: space-between; 
+		padding: max(8px, env(safe-area-inset-top)) 8px 8px 8px; /* Tự động né thanh trạng thái trên iPad */
+		pointer-events: none; 
+		gap: 8px; 
+		width: 100vw;
+		box-sizing: border-box;
+	}
+	.top-bar > * { pointer-events: auto; }
+
+	/* Cho phép vuốt trượt ngang mượt mà trên iPad Safari/Chrome và ẩn thanh cuộn */
+	.top-scroll-container {
+		overflow-x: auto !important;
+		overflow-y: hidden !important;
+		-webkit-overflow-scrolling: touch !important;
+		touch-action: pan-x !important; /* Mở khóa cử chỉ vuốt ngang ngón tay */
+		scrollbar-width: none; /* Ẩn scrollbar Firefox */
+	}
+	.top-scroll-container::-webkit-scrollbar {
+		display: none; /* Ẩn scrollbar WebKit */
+	}
         
         .side-panels { display: flex; justify-content: space-between; flex-grow: 1; padding: 8px; overflow: hidden; gap: 8px; pointer-events: none; }
         .side-panels > * { pointer-events: auto; }
@@ -155,13 +201,14 @@
 
 
 <div id="ui-container">
-    <div class="top-bar overflow-x-auto no-scrollbar flex-nowrap shrink-0">
-        <div class="panel flex gap-1.5 items-center !py-1 !px-2 shrink-0">
-            <h1 class="font-black text-sm mr-1 text-blue-500 tracking-tight flex items-center gap-1">
+    <div class="top-bar flex-nowrap shrink-0">
+        <!-- Panel công cụ bên trái: Tự động co giãn theo khoảng trống còn lại và vuốt cuộn mượt mà -->
+        <div class="panel top-scroll-container flex gap-1.5 items-center !py-1 !px-2 min-w-0 flex-1 mr-1">
+            <h1 class="font-black text-sm mr-1 text-blue-500 tracking-tight flex items-center gap-1 shrink-0">
                 <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
                 VoxWeb
             </h1>
-            <span id="project-filename-badge" class="text-[10px] font-mono text-gray-400 bg-[#16161b] px-1.5 py-0.5 rounded border border-gray-700 max-w-[85px] md:max-w-[120px] truncate" title="Current project: project.vox">project.vox</span>
+            <span id="project-filename-badge" class="text-[10px] font-mono text-gray-400 bg-[#16161c] px-1.5 py-0.5 rounded border border-gray-700 max-w-[85px] md:max-w-[120px] truncate shrink-0" title="Current project: project.vox">project.vox</span>
             <button id="btn-open-vox" class="bg-blue-600 hover:bg-blue-500 text-white py-1 px-2 rounded text-xs font-bold shadow flex items-center gap-1 shrink-0">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
                 <span class="hidden sm:inline">Open</span>
@@ -219,7 +266,8 @@
             </button>
         </div>
 
-		<div class="panel flex gap-1 items-center !py-1 !px-2 shrink-0">
+        <!-- Panel Preview/P-Tracing bên phải: Neo cố định ở góc trên bên phải, không bị trôi khi cuộn -->
+        <div class="panel flex gap-1 items-center !py-1 !px-2 shrink-0 ml-auto">
             <button class="mode-btn active bg-emerald-600 text-white py-1 px-2.5 rounded text-xs font-bold shadow shrink-0" data-mode="preview">Preview</button>
             <button class="mode-btn bg-gray-800 hover:bg-gray-700 text-purple-400 border border-purple-900/60 py-1 px-2.5 rounded text-xs font-bold shrink-0 flex items-center gap-1" data-mode="pathtrace">
                 <span>✨</span> P-Tracing
