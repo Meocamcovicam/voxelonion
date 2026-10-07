@@ -509,63 +509,76 @@
                     </div>
                     
                     <div id="mat-props" class="space-y-2.5">
-					
+                        <!-- 1. ROUGHNESS -->
                         <div class="prop-group" id="group-roughness">
-                          <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>Roughness</label><span id="val-roughness">0.00</span></div>
-                          <input type="range" id="prop-roughness" min="0" max="1" step="0.01" value="0.00">
-                      </div>
-                      <div class="prop-group hidden" id="group-metallic">
-                          <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>Metallic</label><span id="val-metallic">1.00</span></div>
-							<input type="range" id="prop-metallic" min="0" max="1" step="0.01" value="1.00">
-                      </div>
-                      <div class="prop-group hidden" id="group-specular">
-                          <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>Specular</label><span id="val-specular">0.95</span></div>
-                          <input type="range" id="prop-specular" min="0" max="1" step="0.01" value="0.95">
-                      </div>
+                            <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5">
+                                <label>Roughness</label><span id="val-roughness">0.00</span>
+                            </div>
+                            <input type="range" id="prop-roughness" min="0" max="1" step="0.01" value="0.00">
+                        </div>
 
-                      <div class="prop-group hidden" id="group-ior">
-                        <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>IOR (Refraction)</label><span id="val-ior">1.30</span></div>
-							<input type="range" id="prop-ior" min="1.0" max="3.0" step="0.01" value="1.30">
-                      </div>
+                        <!-- 2. IOR (REFRACTION) -->
+                        <div class="prop-group hidden" id="group-ior">
+                            <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5">
+                                <label>IOR (Refraction)</label><span id="val-ior">1.30</span>
+                            </div>
+                            <input type="range" id="prop-ior" min="1.0" max="3.0" step="0.01" value="1.30">
+                        </div>
 
-                     <div class="prop-group hidden" id="group-transparent">
-						<div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>Transparency</label><span id="val-transparent">0.95</span></div>
-						<input type="range" id="prop-transparent" min="0" max="1" step="0.01" value="0.95">
-					</div>
-						
-						
-						
+                        <!-- 3. SPECULAR -->
+                        <div class="prop-group hidden" id="group-specular">
+                            <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5">
+                                <label>Specular</label><span id="val-specular">1.00</span>
+                            </div>
+                            <input type="range" id="prop-specular" min="0" max="2" step="0.01" value="1.00">
+                        </div>
+
+                        <!-- 4. METALLIC -->
+                        <div class="prop-group hidden" id="group-metallic">
+                            <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5">
+                                <label>Metallic</label><span id="val-metallic">0.00</span>
+                            </div>
+                            <input type="range" id="prop-metallic" min="0" max="1" step="0.01" value="0.00">
+                        </div>
+
+                        <!-- 5. TRANSPARENCY -->
+                        <div class="prop-group hidden" id="group-transparent">
+                            <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5">
+                                <label>Transparency</label><span id="val-transparent">0.00</span>
+                            </div>
+                            <input type="range" id="prop-transparent" min="0" max="1" step="0.01" value="0.00">
+                        </div>
+
+                        <!-- 6. EMISSION CONTROLS -->
                         <div id="group-emission-controls" class="prop-group hidden space-y-2.5">
                             <div>
-								<div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>Emission</label><span id="val-emission">10.00</span></div>
-								<input type="range" id="prop-emission" min="0" max="100" step="0.5" value="10.0">
-							</div>
-							<div>
-								<div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>Power / Flux</label><span id="val-power">1.00</span></div>
-								<input type="range" id="prop-power" min="0" max="5" step="0.1" value="1.0">
-							</div>
-							<div>
-								<div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>Ldr</label><span id="val-ldr">0.00</span></div>
-								<input type="range" id="prop-ldr" min="0" max="1" step="0.01" value="0.0">
-							</div>
+                                <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>Emission</label><span id="val-emission">10.00</span></div>
+                                <input type="range" id="prop-emission" min="0" max="100" step="0.5" value="10.0">
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>Power / Flux</label><span id="val-power">1.00</span></div>
+                                <input type="range" id="prop-power" min="0" max="5" step="0.1" value="1.0">
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>Ldr</label><span id="val-ldr">0</span></div>
+                                <input type="range" id="prop-ldr" min="0" max="100" step="1" value="0">
+                            </div>
                         </div>
+
+                        <!-- 7. CLOUD & BLEND MEDIA (DENSITY & PHASE) -->
                         <div id="group-cloud-controls" class="prop-group hidden space-y-2.5">
                             <div>
-                                <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>Density</label><span id="val-cloud-density">79</span></div>
-                                <input type="range" id="prop-cloud-density" min="1" max="100" step="1" value="79">
+                                <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>Density</label><span id="val-cloud-density">50</span></div>
+                                <input type="range" id="prop-cloud-density" min="1" max="100" step="1" value="50">
                             </div>
                             <div>
                                 <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>Phase (g)</label><span id="val-cloud-phase">0.00</span></div>
                                 <input type="range" id="prop-cloud-phase" min="-0.9" max="0.9" step="0.02" value="0.0">
                             </div>
                         </div>
-                        <div id="group-blend-controls" class="prop-group hidden space-y-2.5">
-                            <div>
-                                <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>Alpha</label><span id="val-blend-alpha">0.60</span></div>
-                                <input type="range" id="prop-blend-alpha" min="0.05" max="1.0" step="0.02" value="0.6">
-                            </div>
-                        </div>
                     </div>
+					
+					
                 </div>
 
                 <div id="tab-light" class="tab-content hidden space-y-4">
@@ -574,6 +587,7 @@
                             <h3 class="text-[10px] uppercase tracking-widest font-bold text-gray-300 flex items-center"><span class="mr-1.5 text-amber-400">☀️</span> Sun Light</h3>
                             <span class="text-[10px] text-amber-400/80 font-mono">Direct</span>
                         </div>
+						
                         <div class="mb-2">
                             <div class="flex justify-between text-xs text-gray-300 font-bold mb-1">
                                 <label>Angle (Pitch / Yaw)</label>
@@ -582,7 +596,7 @@
                             <div class="grid grid-cols-2 gap-2">
                                 <div>
                                     <span class="text-[9px] text-gray-400 block">Pitch</span>
-                                    <input type="range" id="prop-sun-pitch" min="5" max="89" step="1" value="50" class="!mb-0">
+                                    <input type="range" id="prop-sun-pitch" min="-90" max="90" step="1" value="50" class="!mb-0">
                                 </div>
                                 <div>
                                     <span class="text-[9px] text-gray-400 block">Yaw</span>
@@ -590,6 +604,7 @@
                                 </div>
                             </div>
                         </div>
+						
                         <div class="mb-2">
                             <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5">
                                 <label>Soft Shadow</label>
@@ -651,13 +666,15 @@
                                 <span class="text-xs text-gray-300 font-medium">Fog Color</span>
                                 <input type="color" id="prop-fog-col" value="#a9d4f5" class="w-8 h-6 p-0 border-0 cursor-pointer bg-transparent rounded">
                             </div>
+							
                             <div>
                                 <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5">
                                     <label>Fog Density</label>
-                                    <span id="val-fog-density" class="font-mono text-gray-400">0.0008</span>
+                                    <span id="val-fog-density" class="font-mono text-gray-400">0</span>
                                 </div>
-                                <input type="range" id="prop-fog-density" min="0.0001" max="0.01" step="0.0001" value="0.0008" class="!mb-1">
+                                <input type="range" id="prop-fog-density" min="0" max="100" step="1" value="0" class="!mb-1">
                             </div>
+							
                         </div>
                     </div>
                 </div>
@@ -1143,14 +1160,177 @@
         AppState.scene.environment = AppState.cubeRenderTarget.texture;
         AppState.needsCubeMapUpdate = false;
     }
+	
+	function setupMaterialControls() {
+        const bindRange = (id, propKey, isInt = false) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('input', (e) => {
+                const val = parseFloat(e.target.value);
+                const p = AppState.materialProps[AppState.selectedColorIndex];
+                if (p) {
+                    p[propKey] = val;
+                    const valEl = document.getElementById(id.replace('prop-', 'val-'));
+                    if (valEl) valEl.textContent = isInt ? Math.round(val) : val.toFixed(isInt ? 0 : 2);
+                    updateInstancedMaterial(AppState.selectedColorIndex);
+                }
+            });
+        };
+
+        // Gắn listener cho Emission, Power/Flux và LDR
+        bindRange('prop-emission', 'emission', false);
+        bindRange('prop-power', 'power', false);
+        bindRange('prop-ldr', 'ldr', true);
+
+        // Gắn listener cho các chất liệu khác
+        bindRange('prop-roughness', 'roughness', false);
+        bindRange('prop-metallic', 'metalness', false);
+        bindRange('prop-specular', 'specular', false);
+        bindRange('prop-ior', 'ior', false);
+        bindRange('prop-transparent', 'transparent', false);
+        bindRange('prop-cloud-density', 'density', true);
+        bindRange('prop-cloud-phase', 'phase', false);
+        bindRange('prop-blend-alpha', 'blendAlpha', false);
+
+        // Đổi màu Color Picker
+        const picker = document.getElementById('color-picker');
+        if (picker) {
+            picker.addEventListener('input', (e) => {
+                const p = AppState.materialProps[AppState.selectedColorIndex];
+                if (p) {
+                    p.color.set(e.target.value);
+                    const swatch = document.getElementById(`swatch-${AppState.selectedColorIndex}`);
+                    if (swatch) swatch.style.backgroundColor = e.target.value;
+                    updateInstancedMaterial(AppState.selectedColorIndex);
+                }
+            });
+        }
+
+        // Chuyển loại vật liệu (Diffuse, Metal, Glass, Emit, Cloud, Blend)
+        document.querySelectorAll('.mat-type-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const newType = btn.dataset.type;
+                const p = AppState.materialProps[AppState.selectedColorIndex];
+                if (p) {
+                    p.type = newType;
+                    updateMaterialUIState(newType);
+                    document.querySelectorAll('.mat-type-btn').forEach(b => {
+                        b.className = (b.dataset.type === newType)
+                            ? "mat-type-btn text-[10px] font-bold py-1.5 rounded bg-blue-600 text-white shadow"
+                            : "mat-type-btn text-[10px] font-bold py-1.5 rounded text-gray-400 hover:text-white";
+                    });
+                    updateInstancedMaterial(AppState.selectedColorIndex);
+                }
+            });
+        });
+    }
+	
+	function setupSunControls() {
+        const elPitch = document.getElementById('prop-sun-pitch');
+        const elYaw = document.getElementById('prop-sun-yaw');
+        const elArea = document.getElementById('prop-sun-area');
+        const elInt = document.getElementById('prop-sun-int');
+        const elCol = document.getElementById('prop-sun-col');
+
+        if (elPitch) {
+            elPitch.addEventListener('input', (e) => {
+                AppState.sun.pitch = parseFloat(e.target.value);
+                safeSetText('val-sun-pitch', AppState.sun.pitch);
+                updateSunPosition();
+                if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
+            });
+        }
+
+        if (elYaw) {
+            elYaw.addEventListener('input', (e) => {
+                AppState.sun.yaw = parseFloat(e.target.value);
+                safeSetText('val-sun-yaw', AppState.sun.yaw);
+                updateSunPosition();
+                if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
+            });
+        }
+
+        if (elArea) {
+            elArea.addEventListener('input', (e) => {
+                AppState.sun.area = parseFloat(e.target.value);
+                safeSetText('val-sun-area', AppState.sun.area);
+                updateSunPosition();
+                if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
+            });
+        }
+
+        if (elInt) {
+            elInt.addEventListener('input', (e) => {
+                AppState.sun.intensity = parseFloat(e.target.value);
+                safeSetText('val-sun-int', AppState.sun.intensity.toFixed(2));
+                updateSunPosition();
+                if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
+            });
+        }
+
+        if (elCol) {
+            elCol.addEventListener('input', (e) => {
+                AppState.sun.color.set(e.target.value);
+                updateSunPosition();
+                if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
+            });
+        }
+    }
+	
+	function setupFogControls() {
+        const elFogToggle = document.getElementById('fog-enabled');
+        const elFogCol = document.getElementById('prop-fog-col');
+        const elFogDensity = document.getElementById('prop-fog-density');
+
+        if (elFogToggle) {
+            elFogToggle.addEventListener('change', (e) => {
+                AppState.fog.enabled = e.target.checked;
+                updateFog();
+            });
+        }
+
+        if (elFogCol) {
+            elFogCol.addEventListener('input', (e) => {
+                AppState.fog.color.set(e.target.value);
+                updateFog();
+            });
+        }
+
+        if (elFogDensity) {
+            elFogDensity.addEventListener('input', (e) => {
+                AppState.fog.density = parseFloat(e.target.value);
+                safeSetText('val-fog-density', Math.round(AppState.fog.density));
+                updateFog();
+            });
+        }
+    }
 
     function updateFog() {
-        if (AppState.renderMode === 'pathtrace' && AppState.fog.enabled) {
-            AppState.scene.fog = new THREE.FogExp2(AppState.fog.color, AppState.fog.density);
+        // 1. Áp dụng cho chế độ Preview
+        if (AppState.renderMode === 'preview' && AppState.fog.enabled && AppState.fog.density > 0) {
+            const densityVal = (AppState.fog.density / 100.0) * 0.010;
+            AppState.scene.fog = new THREE.FogExp2(AppState.fog.color, densityVal);
         } else {
             AppState.scene.fog = null;
         }
-        if (AppState.isRendering) AppState.needsAccumulationReset = true;
+
+        // 2. Đồng bộ dữ liệu sương mù sang Shader của P-Tracing
+        if (pathTraceMaterial && pathTraceMaterial.uniforms) {
+            if (pathTraceMaterial.uniforms.uFogEnabled) {
+                pathTraceMaterial.uniforms.uFogEnabled.value = AppState.fog.enabled ? 1.0 : 0.0;
+            }
+            if (pathTraceMaterial.uniforms.uFogCol) {
+                const sFog = colorToSRGBUint8(AppState.fog.color);
+                pathTraceMaterial.uniforms.uFogCol.value.set(sFog.r / 255, sFog.g / 255, sFog.b / 255);
+            }
+            if (pathTraceMaterial.uniforms.uFogDensity) {
+                pathTraceMaterial.uniforms.uFogDensity.value = AppState.fog.density;
+            }
+        }
+
+        if (AppState.renderMode === 'pathtrace') {
+            AppState.needsAccumulationReset = true;
+        }
     }
 
     function updateSunPosition() {
@@ -1503,6 +1683,8 @@
         syncCameraState();
 
         buildPaletteUI();
+		setupSunControls();
+		setupFogControls(); // <-- BỔ SUNG DÒNG NÀY
         setupViewModeButtons();
         setupRenderModeButtons();
         setupFilterControls();
@@ -1519,6 +1701,7 @@
         setupBrushShapeButtons();
 		setupResolutionControls();
 		setupLayerSystem();
+		setupMaterialControls();
 		
         setMagicaAction('attach');
         setBrushShape('face');
@@ -2239,6 +2422,11 @@
             let colR = 0, colG = 0, colB = 0;
             let totalPower = 0;
 
+
+
+
+            let totalLdr = 0;
+
             for (const v of c) {
                 if (v.x < minX) minX = v.x;
                 if (v.x > maxX) maxX = v.x;
@@ -2252,29 +2440,34 @@
                 colG += p.color.g;
                 colB += p.color.b;
                 
-                // Công thức tính năng lượng phát sáng tuyến tính, mượt mà chuẩn MagicaVoxel:
-                // Không dùng hàm mũ lũy thừa quá lớn để tránh nhảy vọt sáng bất thường
                 const em = Math.max(0.0, p.emission !== undefined ? p.emission : 0.0);
                 const fl = Math.max(0.0, p.power !== undefined ? p.power : 1.0);
-                // Chuẩn hóa quang năng dịu: Tỉ lệ tuyến tính với emission và lũy thừa êm với power
-                const pwr = (em / 100.0) * Math.pow(1.85, fl) * 0.65;
-                totalPower += pwr;
+                let ldrRaw = (p.ldr !== undefined) ? p.ldr : 0.0;
+                // Chuẩn hóa ldr về [0.0, 1.0]: nếu ldrRaw > 1 thì chia 100, nếu <= 1 thì giữ nguyên
+                const ldr = Math.max(0.0, Math.min(1.0, (ldrRaw > 1.0) ? (ldrRaw / 100.0) : ldrRaw));
+
+                const rad = (em / 100.0) * Math.pow(2.0, fl) * 16.0;
+                totalPower += rad;
+                totalLdr += ldr;
             }
 
             colR /= c.length;
             colG /= c.length;
             colB /= c.length;
             const avgPower = totalPower / c.length;
+            const avgLdr = totalLdr / c.length;
 
-            // Kích thước bề mặt thực tế (Three.js coordinates)
             pathTraceMaterial.uniforms.uEmitMin.value[i].set(minX - cx, minZ, minY - cy);
             pathTraceMaterial.uniforms.uEmitMax.value[i].set(maxX - cx + 1.0, maxZ + 1.0, maxY - cy + 1.0);
             pathTraceMaterial.uniforms.uEmitCol.value[i].set(colR, colG, colB);
-            
-            // Tỷ lệ diện tích phân bố mềm mại
-			pathTraceMaterial.uniforms.uEmitPwr.value[i] = totalPower * 1.2;
+            pathTraceMaterial.uniforms.uEmitPwr.value[i] = avgPower;
+            pathTraceMaterial.uniforms.uEmitLdr.value[i] = avgLdr;
         }
-		pathTraceMaterial.uniforms.uEmitPwr.value = new Float32Array(pathTraceMaterial.uniforms.uEmitPwr.value);
+        pathTraceMaterial.uniforms.uEmitPwr.value = new Float32Array(pathTraceMaterial.uniforms.uEmitPwr.value);
+        pathTraceMaterial.uniforms.uEmitLdr.value = new Float32Array(pathTraceMaterial.uniforms.uEmitLdr.value);
+		
+		
+		
     }
 
     function updateDynamicEmitLights() {
@@ -5392,9 +5585,17 @@
 			conf.ior = 1.0; 
 			conf.depthWrite = false;
         } else if (props.type === 'blend') {
-            conf.roughness = props.roughness ?? 0.5;
-			conf.transparent = true;
-			conf.opacity = THREE.MathUtils.clamp(props.blendAlpha ?? 0.6, 0.01, 1.0);
+            const trans = THREE.MathUtils.clamp(props.transparent ?? 0.0, 0.0, 1.0);
+            conf.roughness = THREE.MathUtils.clamp(props.roughness ?? 0.10, 0.0, 1.0);
+            conf.metalness = THREE.MathUtils.clamp(props.metalness ?? 0.0, 0.0, 1.0);
+            conf.reflectivity = THREE.MathUtils.clamp((props.specular ?? 1.0) * 0.5, 0.0, 1.0);
+            conf.transmission = trans;
+            let iorVal = props.ior ?? 1.30;
+            if (iorVal < 1.0) iorVal = 1.0 + iorVal;
+            conf.ior = Math.max(1.0, iorVal);
+            conf.transparent = (trans > 0.01);
+            conf.opacity = Math.max(0.12, 1.0 - trans * 0.80);
+            conf.depthWrite = (trans < 0.5);
         }
         return conf;
     }
@@ -5827,8 +6028,8 @@
         const fogToggle = document.getElementById('fog-enabled');
         if (fogToggle) fogToggle.checked = AppState.fog.enabled;
         syncCol('prop-fog-col', AppState.fog.color);
-        syncUI('prop-fog-density', AppState.fog.density);
-        syncTxt('val-fog-density', AppState.fog.density.toFixed(4));
+        syncUI('prop-fog-density', AppState.fog.density || 0);
+        syncTxt('val-fog-density', Math.round(AppState.fog.density || 0));
 
         syncUI('prop-bloom-strength', AppState.bloomStrength); syncTxt('val-bloom-strength', AppState.bloomStrength.toFixed(2));
         syncUI('prop-render-exposure', AppState.exposure); syncTxt('val-render-exposure', AppState.exposure.toFixed(2));
@@ -6308,9 +6509,10 @@
 						const densByte = Math.round(THREE.MathUtils.clamp((p.density ?? 50) / 100.0, 0.0, 1.0) * 19.0);
 						data[idx + 3] = 60 + densByte;
 					} else if (p.type === 'blend') {
-						// Tag 80..99: Lưu độ trong suốt Alpha của Blend
-						const alphaByte = Math.round(THREE.MathUtils.clamp(p.blendAlpha ?? 0.6, 0.0, 1.0) * 19.0);
-						data[idx + 3] = 80 + alphaByte;
+						// Tag 80..99: Lưu độ trong suốt Transparency của Blend
+						const trans = (p.transparent !== undefined) ? p.transparent : 0.0;
+						const transByte = Math.round(THREE.MathUtils.clamp(trans, 0.0, 1.0) * 19.0);
+						data[idx + 3] = 80 + transByte;
 					} else {
 						// Tag 50: Diffuse chuẩn
 						data[idx + 3] = 50;
@@ -6366,6 +6568,17 @@
                 uSunInt: { value: 1.5 },
                 uSunArea: { value: 4.0 }, // <-- THÊM DÒNG NÀY ĐỂ ĐIỀU KHIỂN ĐỘ NÉT BÓNG ĐỔ
 				
+				uBlendIOR: { value: 1.30 },
+				uBlendRoughness: { value: 0.10 },
+				uBlendMetallic: { value: 0.0 },
+				uBlendSpecular: { value: 1.0 },
+				uBlendDensity: { value: 50.0 },
+				uBlendPhase: { value: 0.0 },
+				
+				uFogEnabled: { value: AppState.fog.enabled ? 1.0 : 0.0 },
+                uFogCol: { value: new THREE.Vector3(0.66, 0.83, 0.96) },
+                uFogDensity: { value: AppState.fog.density || 0.0 },
+				
                 uSkyZenith: { value: new THREE.Vector3(0.26, 0.53, 0.96) },
                 uSkyHorizon: { value: new THREE.Vector3(0.7, 0.85, 1.0) },
                 uSkyGround: { value: new THREE.Vector3(0.2, 0.2, 0.2) },
@@ -6378,6 +6591,7 @@
                 uEmitMax: { value: uEmitMax },
                 uEmitCol: { value: uEmitCol },
                 uEmitPwr: { value: uEmitPwr },
+				uEmitLdr: { value: new Float32Array(MAX_LIGHTS) },
 				uGlassIOR: { value: 1.45 },
 			    uGlassRoughness: { value: 0.0 },
 			    uCloudPhase: { value: 0.0 },
@@ -6406,9 +6620,20 @@
                 uniform float uFrameSeed;
                 uniform vec3 uSunDir;
 				
+				uniform float uBlendIOR;
+				uniform float uBlendRoughness;
+				uniform float uBlendMetallic;
+				uniform float uBlendSpecular;
+				uniform float uBlendDensity;
+				uniform float uBlendPhase;
+				
                 uniform vec3 uSunCol;
                 uniform float uSunInt;
                 uniform float uSunArea; // <-- THÊM DÒNG NÀY
+				
+				uniform float uFogEnabled;
+                uniform vec3 uFogCol;
+                uniform float uFogDensity;
 				
                 uniform vec3 uSkyZenith;
                 uniform vec3 uSkyHorizon;
@@ -6426,6 +6651,7 @@
                 uniform vec3 uEmitMax[MAX_EMIT_LIGHTS];
                 uniform vec3 uEmitCol[MAX_EMIT_LIGHTS];
                 uniform float uEmitPwr[MAX_EMIT_LIGHTS];
+				uniform float uEmitLdr[MAX_EMIT_LIGHTS];
 				uniform float uEnableAA;
 				uniform float uEnableShadow;
 				
@@ -6538,7 +6764,23 @@
                                 if (max(transmittance.r, max(transmittance.g, transmittance.b)) < 0.01) {
                                     return vec3(0.0);
                                 }
-                            } else if (tag >= 140.0 && tag <= 189.0) {
+                            }
+
+							else if (tag >= 80.0 && tag <= 99.0) {
+								float transparency = clamp((tag - 80.0) / 19.0, 0.0, 1.0);
+								vec3 bCol = pow(voxel.rgb, vec3(2.2));
+								float density = clamp(uBlendDensity / 100.0, 0.0, 1.0);
+								float minSide = min(min(sideDist.x, sideDist.y), sideDist.z);
+								float dt = max(0.001, minSide - tStart);
+								float att = exp(-density * 0.45 * dt);
+								vec3 blendTint = mix(bCol, vec3(1.0), transparency);
+								transmittance *= mix(blendTint * att, vec3(att), 0.35);
+								if (max(transmittance.r, max(transmittance.g, transmittance.b)) < 0.01) {
+									return vec3(0.0);
+								}							
+							}
+	
+							else if (tag >= 140.0 && tag <= 189.0) {
                                 float transparency = clamp((tag - 140.0) / 45.0, 0.0, 1.0);
                                 vec3 gCol = pow(voxel.rgb, vec3(2.2));
                                 // Xuyên sáng qua kính chuẩn MagicaVoxel: Kính 100% không tạo bóng đen, kính có màu đổ bóng nhuộm màu
@@ -6723,10 +6965,9 @@
                     
 
                     vec3 radiance = vec3(0.0);
-					
-					
                     vec3 throughput = vec3(1.0);
                     bool rayInGlass = false;
+                    float primaryHitDist = -1.0; // <-- Thêm biến này
 
                     // Giảm từ 8 xuống 4 bounces
                     for (int bounce = 0; bounce < 4; bounce++) {
@@ -6735,10 +6976,22 @@
                         bool isVolume = false;
                         float distInGlass = 0.0;
 
-                        if (voxelTraversal(ro, rd, hitNormal, hitColor, hitPos, isVolume, seed)) {
+                        bool hit = voxelTraversal(ro, rd, hitNormal, hitColor, hitPos, isVolume, seed);
+
+                        if (bounce == 0 && hit) {
+                            primaryHitDist = length(hitPos - ro); // <-- Ghi nhận cự ly va chạm tia gốc
+                        }
+
+                        if (hit) {
+						
                             float matTag = floor(hitColor.a * 255.0 + 0.5);
                             vec3 albedo = pow(hitColor.rgb, vec3(2.2));
                             bool isGlass = (matTag >= 140.0 && matTag <= 189.0);
+							
+							bool isBlend = (matTag >= 80.0 && matTag <= 99.0);
+                            float blendTrans = isBlend ? clamp((matTag - 80.0) / 19.0, 0.0, 1.0) : 0.0;
+                            // Khi transparency = 1.0, diffuseWeight = 0 -> triệt tiêu hoàn toàn màu sơn đặc trên bề mặt
+                            float diffuseWeight = isBlend ? ((1.0 - blendTrans) * (1.0 - clamp(uBlendMetallic, 0.0, 1.0))) : 1.0;
 						  
                             if (rayInGlass && distInGlass > 0.0) {
                                 vec3 absorb = -log(max(albedo, vec3(0.02))) * 0.18;
@@ -6746,52 +6999,106 @@
                             }
 
                             // A. KHỐI EMIT PHÁT SÁNG
-                            // A. KHỐI EMIT PHÁT SÁNG (Lõi sáng trắng rực rỡ chuẩn MagicaVoxel)
+                            // A. KHỐI EMIT PHÁT SÁNG (CƠ CHẾ LDR & HDR CHUẨN MAGICAVOXEL)
                             if (matTag >= 190.0) {
                                 vec3 emitBaseColor = pow(hitColor.rgb, vec3(2.2));
-                                float emitNorm = clamp((matTag - 195.0) / 60.0, 0.0, 1.0);
-                                // Ở mức thấp: giữ nguyên màu xanh/hồng rực rỡ; ở mức cao: lõi chuyển sang trắng sáng nhẹ
-                                float directCore = (bounce == 0) ? (1.0 + emitNorm * 2.2) : 1.0;
-                                radiance += throughput * emitBaseColor * directCore;
+                                
+                                int bestLi = 0;
+                                float bestDist = 1e9;
+                                for (int li = 0; li < MAX_EMIT_LIGHTS; li++) {
+                                    if (li >= uNumEmitLights) break;
+                                    vec3 lCenter = (uEmitMin[li] + uEmitMax[li]) * 0.5;
+                                    float d = length(hitPos - lCenter);
+                                    if (d < bestDist) {
+                                        bestDist = d;
+                                        bestLi = li;
+                                    }
+                                }
+                                float emitPwr = (uNumEmitLights > 0) ? uEmitPwr[bestLi] : 16.0;
+                                float ldrVal = clamp((uNumEmitLights > 0) ? uEmitLdr[bestLi] : 0.0, 0.0, 1.0);
+
+                                if (bounce == 0) {
+                                    // 1. TIA CAMERA NHÌN TRỰC DIỆN VÀO KHỐI EMIT:
+                                    // - Khi Ldr = 0: Lõi phát sáng HDR cực đại, cháy sáng trắng rực rỡ
+                                    // - Khi Ldr = 100: Bề mặt dịu đi, không bị cháy trắng, giữ nguyên màu bão hòa của Palette
+                                    vec3 colHDR = emitBaseColor * (1.0 + emitPwr * 2.5);
+                                    vec3 colLDR = emitBaseColor * 0.85; // Bề mặt êm dịu, giữ màu sắc bão hòa
+                                    vec3 finalDirect = mix(colHDR, colLDR, ldrVal);
+                                    radiance += throughput * finalDirect;
+                                } else {
+                                    // 2. TIA PHẢN XẠ GIÁN TIẾP TỪ SÀN/TƯỜNG HẮT VÀO KHỐI EMIT:
+                                    float bouncePwr = emitPwr * mix(0.85, 0.40, ldrVal);
+                                    radiance += throughput * emitBaseColor * bouncePwr;
+                                }
                                 break;
                             }
 
-                            // B. NGUỒN SÁNG EMIT (Monte Carlo: Chọn 1 đèn ngẫu nhiên thay vì quét toàn bộ 16 đèn)
-                            if (!isGlass && uNumEmitLights > 0) {
+                            // B. NGUỒN SÁNG EMIT (CHIẾU SÁNG MẶT SÀN VÀ CÁC ĐIỂM XUNG QUANH CHUẨN MAGICAVOXEL)
+                            if (!isGlass && diffuseWeight > 0.001 && uNumEmitLights > 0) {
                                 int li = int(rand(seed) * float(uNumEmitLights));
                                 li = clamp(li, 0, uNumEmitLights - 1);
 
                                 vec3 lMin = uEmitMin[li];
                                 vec3 lMax = uEmitMax[li];
-                                vec3 lHalf = 0.5 * (lMax - lMin);
-                                float lRadius = length(lHalf);
+                                vec3 lSize = max(vec3(1.0), lMax - lMin);
 
-                                vec3 rnd = vec3(rand(seed), rand(seed), rand(seed));
-                                vec3 sampleLightPos = mix(lMin, lMax, rnd);
+                                vec3 pClosest = clamp(hitPos, lMin, lMax);
+                                vec3 offset = hitPos - pClosest;
+                                vec3 aOffset = abs(offset);
+
+                                vec3 lightFaceNorm = vec3(0.0);
+                                vec3 sampleLightPos = pClosest;
+                                float faceArea = 1.0;
+
+                                float r1 = rand(seed) - 0.5;
+                                float r2 = rand(seed) - 0.5;
+
+                                if (aOffset.x >= aOffset.y && aOffset.x >= aOffset.z) {
+                                    float s = (offset.x >= 0.0) ? 1.0 : -1.0;
+                                    lightFaceNorm = vec3(s, 0.0, 0.0);
+                                    sampleLightPos.x = (s > 0.0) ? lMax.x : lMin.x;
+                                    sampleLightPos.y = mix(lMin.y, lMax.y, r1 + 0.5);
+                                    sampleLightPos.z = mix(lMin.z, lMax.z, r2 + 0.5);
+                                    faceArea = lSize.y * lSize.z;
+                                } else if (aOffset.y >= aOffset.x && aOffset.y >= aOffset.z) {
+                                    float s = (offset.y >= 0.0) ? 1.0 : -1.0;
+                                    lightFaceNorm = vec3(s, 0.0, 0.0);
+                                    sampleLightPos.y = (s > 0.0) ? lMax.y : lMin.y;
+                                    sampleLightPos.x = mix(lMin.x, lMax.x, r1 + 0.5);
+                                    sampleLightPos.z = mix(lMin.z, lMax.z, r2 + 0.5);
+                                    faceArea = lSize.x * lSize.z;
+                                } else {
+                                    float s = (offset.z >= 0.0) ? 1.0 : -1.0;
+                                    lightFaceNorm = vec3(0.0, 0.0, s);
+                                    sampleLightPos.z = (s > 0.0) ? lMax.z : lMin.z;
+                                    sampleLightPos.x = mix(lMin.x, lMax.x, r1 + 0.5);
+                                    sampleLightPos.y = mix(lMin.y, lMax.y, r2 + 0.5);
+                                    faceArea = lSize.x * lSize.y;
+                                }
+                                faceArea = max(1.0, faceArea);
 
                                 vec3 toL = sampleLightPos - hitPos;
                                 float dist = length(toL);
                                 vec3 L = toL / max(dist, 0.0001);
 
-                                float lightWeight = isVolume ? (phaseHG(clamp(dot(L, rd), -1.0, 1.0), uCloudPhase) * 2.0) : max(0.0, dot(hitNormal, L));
+                                float cosSurface = isVolume ? (phaseHG(clamp(dot(L, rd), -1.0, 1.0), uCloudPhase) * 2.0) : max(0.0, dot(hitNormal, L));
+                                float cosEmit = max(0.0, dot(lightFaceNorm, -L));
 
-                                if (lightWeight > 0.001) {
-                                    vec3 shadowOrigin = isVolume ? (hitPos + L * 0.01) : (hitPos + hitNormal * 0.02);
-                                    vec3 shadowTrans = (uEnableShadow > 0.5) ? shadowTraversal(shadowOrigin, L, dist - 0.1, seed) : vec3(1.0);
+                                if (cosSurface > 0.001 && (isVolume || cosEmit > 0.001)) {
+                                    vec3 shadowOrigin = isVolume ? (hitPos + L * 0.02) : (hitPos + hitNormal * 0.03);
+                                    vec3 shadowTrans = (uEnableShadow > 0.5) ? shadowTraversal(shadowOrigin, L, dist - 0.05, seed) : vec3(1.0);
 
                                     if (max(shadowTrans.r, max(shadowTrans.g, shadowTrans.b)) > 0.001) {
-                                        // Quy luật nghịch đảo bình phương chuẩn xác (1 / d^2) giúp ánh sáng suy giảm tự nhiên theo khoảng cách
-                                        float r0 = max(0.9, lRadius * 0.55);
-                                        float atten = 1.0 / (dist * dist + r0 * r0);
+                                        float geomTerm = (cosSurface * cosEmit * faceArea) / (dist * dist + 1.25);
+                                        geomTerm = min(geomTerm, 3.0);
 
                                         vec3 emitCol = pow(uEmitCol[li], vec3(2.2));
                                         float emitPower = uEmitPwr[li];
+                                        float ldrVal = clamp(uEmitLdr[li], 0.0, 1.0);
+                                        float effectivePower = emitPower * mix(1.0, 0.45, ldrVal);
                                         float bounceDamp = (bounce == 0) ? 1.0 : 0.35;
 
-                                        // Tính lượng sáng hắt ra tường/sàn với độ mịn cao
-                                        vec3 emitContrib = throughput * albedo * emitCol * (emitPower * lightWeight * atten * 1.5 * bounceDamp * float(uNumEmitLights)) * shadowTrans;
-                                        // Giới hạn max ở mức 3.5 để ánh sáng không bao giờ lấn át hoặc xóa mất bóng đổ mặt trời
-                                        emitContrib = min(emitContrib, vec3(3.5 * bounceDamp));
+                                        vec3 emitContrib = throughput * albedo * emitCol * (effectivePower * geomTerm * 0.75 * bounceDamp * float(uNumEmitLights) * diffuseWeight) * shadowTrans;
                                         radiance += emitContrib;
                                     }
                                 }
@@ -6801,7 +7108,7 @@
                            // C. ÁNH SÁNG MẶT TRỜI TRỰC TIẾP (Chuẩn hóa chuẩn MagicaVoxel)
                            // C. ÁNH SÁNG MẶT TRỜI TRỰC TIẾP (Tạo bóng đổ tương phản chuẩn MagicaVoxel)
                             // C. ÁNH SÁNG MẶT TRỜI TRỰC TIẾP & BÓNG ĐỔ SẮC NÉT CHUẨN MAGICAVOXEL
-							if (!isGlass && uSunInt > 0.01) {
+							if (!isGlass && diffuseWeight > 0.001 && uSunInt > 0.01) {
 								// Nếu uSunArea == 0, jitter = 0 để bóng đổ sắc như dao cạo (Hard Edge)
 								float shadowJitter = (uSunArea > 0.0) ? (uSunArea * 0.0008) : 0.0;
 								vec3 jitterSun = (shadowJitter > 0.0) 
@@ -6825,7 +7132,7 @@
 									if (max(sunTrans.r, max(sunTrans.g, sunTrans.b)) > 0.001) {
 										float sunBounceDamp = (bounce == 0) ? 1.0 : 0.20;
 										// Trả lại toàn bộ cường độ mặt trời uSunInt, tạo tương phản sáng/tối cực mạnh
-										vec3 sunContrib = throughput * albedo * pow(uSunCol, vec3(2.2)) * (sunWeight * uSunInt * sunBounceDamp) * sunTrans;
+										vec3 sunContrib = throughput * albedo * pow(uSunCol, vec3(2.2)) * (sunWeight * uSunInt * sunBounceDamp * diffuseWeight) * sunTrans;
 										radiance += sunContrib;
 									}
 								}
@@ -6941,15 +7248,120 @@
                                 rd = (dot(roughReflect, hitNormal) > 0.0) ? roughReflect : pureReflect;
                                 throughput *= albedo;
                             } else if (matTag >= 80.0 && matTag <= 99.0) {
-                                float alpha = (matTag - 80.0) / 19.0;
-                                if (rand(seed) > alpha) {
-                                    ro = hitPos + rd * 0.006;
+                                // CHẤT LIỆU BLEND CHUẨN MAGICAVOXEL: BỀ MẶT (ROUGH/IOR/SPEC/METAL) + THỂ TÍCH (TRANS/DENSITY/PHASE)
+                                float transparency = clamp((matTag - 80.0) / 19.0, 0.0, 1.0);
+                                float roughness = clamp(uBlendRoughness, 0.0, 1.0);
+                                float rawIor = (uBlendIOR < 1.0) ? (1.0 + uBlendIOR) : uBlendIOR;
+                                float ior = max(1.0, rawIor);
+                                float metal = clamp(uBlendMetallic, 0.0, 1.0);
+                                float spec = clamp(uBlendSpecular, 0.0, 2.0);
+
+                                vec3 N = (dot(rd, hitNormal) < 0.0) ? hitNormal : -hitNormal;
+                                float cosTheta = clamp(abs(dot(N, rd)), 0.0, 1.0);
+                                float r0 = (ior <= 1.001) ? (0.04 * spec) : pow((1.0 - ior) / (1.0 + ior), 2.0) * spec;
+                                float fresnel = mix(r0 + (1.0 - r0) * pow(1.0 - cosTheta, 5.0), 1.0, metal);
+
+                                if (rand(seed) < fresnel) {
+                                    // 1. Phản xạ bề mặt (Specular / Metallic có Roughness)
+                                    vec3 refl = reflect(rd, N);
+                                    if (roughness > 0.001) {
+                                        refl = normalize(refl + cosineWeightedHemisphere(N, seed) * (roughness * 0.7));
+                                        if (dot(refl, N) <= 0.0) refl = reflect(rd, N);
+                                    }
+                                    ro = hitPos + N * 0.002;
+                                    rd = refl;
+                                    if (metal > 0.01) {
+                                        throughput *= mix(vec3(1.0), albedo, metal);
+                                    }
+                                } else if (rand(seed) < transparency) {
+                                    // 2. KHÚC XẠ VÀO THỂ TÍCH & ĐI XUYÊN QUA ĐỘ DÀY BỨC TƯỜNG
+                                    vec3 refr = (ior <= 1.001) ? rd : refract(rd, N, 1.0 / ior);
+                                    if (dot(refr, refr) < 0.01) refr = rd;
+                                    if (roughness > 0.001) {
+                                        refr = normalize(refr + sampleSphere(seed) * (roughness * 0.15));
+                                    }
+
+                                    vec3 pIn = hitPos + refr * 0.002;
+                                    float tFloorIn = (refr.y < -0.0001) ? (-pIn.y / refr.y) : -1.0;
+
+                                    vec3 boxMinIn = vec3(-uGridSize.x * 0.5, 0.0, -uGridSize.y * 0.5);
+                                    vec3 localPosIn = vec3(pIn.x - boxMinIn.x, pIn.z - boxMinIn.z, pIn.y - boxMinIn.y);
+                                    ivec3 mapPosIn = clamp(ivec3(floor(localPosIn)), ivec3(0), ivec3(uGridSize) - ivec3(1));
+
+                                    vec3 rdGridIn = vec3(refr.x, refr.z, refr.y);
+                                    vec3 deltaDistIn = abs(vec3(1.0) / max(abs(rdGridIn), vec3(0.00001)));
+                                    vec3 raySignIn = sign(rdGridIn);
+                                    raySignIn = vec3(raySignIn.x == 0.0 ? 1.0 : raySignIn.x, raySignIn.y == 0.0 ? 1.0 : raySignIn.y, raySignIn.z == 0.0 ? 1.0 : raySignIn.z);
+                                    ivec3 rayStepIn = ivec3(raySignIn);
+                                    vec3 sideDistIn = (raySignIn * (vec3(mapPosIn) - localPosIn) + (raySignIn * 0.5) + 0.5) * deltaDistIn;
+
+                                    vec3 lastMask = abs(vec3(N.x, N.z, N.y));
+                                    float tTravel = 0.0;
+                                    float dBlend = 0.0;
+
+                                    // Vòng lặp DDA march xuyên qua các voxel của bức tường cho đến khi gặp khoảng trống
+                                    int maxBlendSteps = int(max(uGridSize.x, max(uGridSize.y, uGridSize.z)));
+                                    for (int s = 0; s < 160; s++) {
+                                        if (s >= maxBlendSteps) break;
+
+                                        if (tFloorIn > 0.001 && tTravel >= tFloorIn) {
+                                            tTravel = tFloorIn;
+                                            break;
+                                        }
+
+                                        if (s > 0) {
+                                            if (mapPosIn.x < 0 || mapPosIn.x >= int(uGridSize.x) || 
+                                                mapPosIn.y < 0 || mapPosIn.y >= int(uGridSize.y) || 
+                                                mapPosIn.z < 0 || mapPosIn.z >= int(uGridSize.z)) {
+                                                break;
+                                            }
+
+                                            vec3 uvIn = (vec3(mapPosIn) + 0.5) / uGridSize;
+                                            vec4 vIn = texture(tVoxelGrid, uvIn);
+                                            float tagV = (vIn.a > 0.01) ? floor(vIn.a * 255.0 + 0.5) : 0.0;
+
+                                            // Khi ra khỏi khối Blend (tag ngoài 80..99), dừng lại
+                                            if (tagV < 80.0 || tagV > 99.0) break;
+                                        }
+
+                                        vec3 maskIn = step(sideDistIn.xyz, sideDistIn.yzx) * step(sideDistIn.xyz, sideDistIn.zxy);
+                                        float minS = min(min(sideDistIn.x, sideDistIn.y), sideDistIn.z);
+
+                                        dBlend += max(0.0, minS - tTravel);
+                                        tTravel = minS;
+                                        sideDistIn += maskIn * deltaDistIn;
+                                        mapPosIn += ivec3(maskIn) * rayStepIn;
+                                        lastMask = maskIn;
+                                    }
+
+                                    vec3 stepG = vec3(float(rayStepIn.x), float(rayStepIn.y), float(rayStepIn.z));
+                                    vec3 nG = lastMask * stepG;
+                                    vec3 rN = vec3(nG.x, nG.z, nG.y);
+                                    vec3 outNorm = (dot(rN, rN) > 0.01) ? normalize(rN) : refr;
+
+                                    // HẤP THỤ MÀU SẮC THEO ĐỊNH LUẬT BEER-LAMBERT:
+                                    // Khi Transparency = 1.0 và Density = 0 hoặc 1 -> Hấp thụ cực nhỏ, nhìn xuyên 100%
+                                    float transFactor = clamp(1.0 - transparency, 0.0, 1.0);
+                                    float densityFactor = (uBlendDensity / 100.0);
+                                    vec3 absorb = (-log(max(albedo, vec3(0.04))) * transFactor * 0.35) + vec3(densityFactor * 0.12);
+                                    throughput *= exp(-absorb * dBlend);
+
+                                    // Thoát ra mặt sau của bức tường và tiếp tục bắn tia vào không gian bên trong
+                                    vec3 exitPos = pIn + refr * tTravel;
+                                    vec3 refrOut = (ior <= 1.001) ? refr : refract(refr, -outNorm, ior);
+                                    if (dot(refrOut, refrOut) < 0.01) refrOut = refr;
+
+                                    ro = exitPos + refrOut * 0.004;
+                                    rd = refrOut;
                                 } else {
+                                    // 3. Phần tán xạ bề mặt (Diffuse) còn lại khi Transparency < 1.0
                                     ro = hitPos + hitNormal * 0.002;
                                     rd = cosineWeightedHemisphere(hitNormal, seed);
                                     throughput *= albedo;
                                 }
-                            } else {
+                            }
+
+							else {
                                 ro = hitPos + hitNormal * 0.002;
                                 rd = cosineWeightedHemisphere(hitNormal, seed);
                                 throughput *= albedo;
@@ -6979,6 +7391,16 @@
 							break;
 						}
                     }
+					
+					// ÁP DỤNG FOG ĐỒNG BỘ CHO P-TRACING
+                    if (uFogEnabled > 0.5 && uFogDensity > 0.01) {
+                        float d = (primaryHitDist > 0.0) ? primaryHitDist : 250.0;
+                        float actualFogDensity = (uFogDensity / 100.0) * 0.0055;
+                        float fogFactor = 1.0 - exp(-pow(d * actualFogDensity, 1.5));
+                        vec3 fogColLinear = pow(uFogCol, vec3(2.2));
+                        radiance = mix(radiance, fogColLinear, clamp(fogFactor, 0.0, 1.0));
+                    }
+					
                     pc_fragColor = vec4(radiance, 1.0);
                 }
             `
@@ -7220,6 +7642,17 @@
                 pathTraceMaterial.uniforms.uSunInt.value = AppState.sun.intensity;
                 pathTraceMaterial.uniforms.uSunArea.value = AppState.sun.area; // <-- THÊM DÒNG NÀY ĐỂ TRUYỀN GIÁ TRỊ VÀO SHADER
             }
+			
+			if (pathTraceMaterial.uniforms.uFogEnabled) {
+                pathTraceMaterial.uniforms.uFogEnabled.value = AppState.fog.enabled ? 1.0 : 0.0;
+            }
+            if (pathTraceMaterial.uniforms.uFogCol) {
+                const sFog = colorToSRGBUint8(AppState.fog.color);
+                pathTraceMaterial.uniforms.uFogCol.value.set(sFog.r / 255, sFog.g / 255, sFog.b / 255);
+            }
+            if (pathTraceMaterial.uniforms.uFogDensity) {
+                pathTraceMaterial.uniforms.uFogDensity.value = AppState.fog.density || 0.0;
+            }
 
             const sZenith = colorToSRGBUint8(AppState.sky.zenith);
 			const sHorizon = colorToSRGBUint8(AppState.sky.horizon);
@@ -7245,6 +7678,28 @@
                     if (AppState.materialProps[mi]?.type === 'glass') {
                         pathTraceMaterial.uniforms.uGlassIOR.value = getSafeIor(AppState.materialProps[mi].ior);
                         pathTraceMaterial.uniforms.uGlassRoughness.value = (AppState.materialProps[mi].roughness !== undefined) ? AppState.materialProps[mi].roughness : 0.0;
+                        break;
+                    }
+                }
+            }
+			
+			if (curMat && curMat.type === 'blend') {
+                pathTraceMaterial.uniforms.uBlendIOR.value = getSafeIor(curMat.ior);
+                pathTraceMaterial.uniforms.uBlendRoughness.value = curMat.roughness ?? 0.10;
+                pathTraceMaterial.uniforms.uBlendMetallic.value = curMat.metalness ?? 0.0;
+                pathTraceMaterial.uniforms.uBlendSpecular.value = curMat.specular ?? 1.0;
+                pathTraceMaterial.uniforms.uBlendDensity.value = curMat.density ?? 50.0;
+                pathTraceMaterial.uniforms.uBlendPhase.value = curMat.phase ?? 0.0;
+            } else {
+                for (let mi = 1; mi <= 256; mi++) {
+                    if (AppState.materialProps[mi]?.type === 'blend') {
+                        const bm = AppState.materialProps[mi];
+                        pathTraceMaterial.uniforms.uBlendIOR.value = getSafeIor(bm.ior);
+                        pathTraceMaterial.uniforms.uBlendRoughness.value = bm.roughness ?? 0.10;
+                        pathTraceMaterial.uniforms.uBlendMetallic.value = bm.metalness ?? 0.0;
+                        pathTraceMaterial.uniforms.uBlendSpecular.value = bm.specular ?? 1.0;
+                        pathTraceMaterial.uniforms.uBlendDensity.value = bm.density ?? 50.0;
+                        pathTraceMaterial.uniforms.uBlendPhase.value = bm.phase ?? 0.0;
                         break;
                     }
                 }
@@ -7430,8 +7885,13 @@
         safeSetText('val-emission', (props.emission || 0).toFixed(2));
         safeSetVal('prop-power', props.power || 1.0);
         safeSetText('val-power', (props.power || 1.0).toFixed(2));
-        safeSetVal('prop-ldr', props.ldr || 0.0);
-        safeSetText('val-ldr', (props.ldr || 0.0).toFixed(2));
+        
+        let ldrDisplay = (props.ldr !== undefined) ? props.ldr : 0;
+        if (ldrDisplay <= 1.0 && ldrDisplay > 0.0) ldrDisplay = Math.round(ldrDisplay * 100);
+        safeSetVal('prop-ldr', Math.round(ldrDisplay));
+        safeSetText('val-ldr', Math.round(ldrDisplay));
+		
+		
 
         safeSetVal('prop-cloud-density', props.density ?? 79);
         safeSetText('val-cloud-density', Math.round(props.density ?? 79));
@@ -7447,11 +7907,12 @@
     function updateMaterialUIState(type) {
         const groups = {
             'diffuse': ['group-roughness'],
-            'metal': ['group-roughness', 'group-metallic', 'group-specular', 'group-ior'],
+            'metal': ['group-roughness', 'group-ior', 'group-specular', 'group-metallic'],
             'glass': ['group-roughness', 'group-ior', 'group-transparent'],
             'emit': ['group-emission-controls'],
             'cloud': ['group-cloud-controls'],
-            'blend': ['group-roughness', 'group-blend-controls']
+            // BLEND HIỂN THỊ ĐỦ 7 THANH TRƯỢT THEO ĐÚNG MAGICAVOXEL:
+            'blend': ['group-roughness', 'group-ior', 'group-specular', 'group-metallic', 'group-transparent', 'group-cloud-controls']
         };
         document.querySelectorAll('.prop-group').forEach(el => el.classList.add('hidden'));
         if (groups[type]) {
@@ -7508,7 +7969,18 @@
             else if (p.type === 'glass') { dict['_type'] = '_glass'; dict['_trans'] = p.transparent; dict['_rough'] = p.roughness; dict['_ior'] = p.ior; }
             else if (p.type === 'emit') { dict['_type'] = '_emit'; dict['_emit'] = p.emission; dict['_flux'] = p.power; dict['_ldr'] = p.ldr; }
             else if (p.type === 'cloud') { dict['_type'] = '_cloud'; dict['_d'] = ((p.density ?? 79) / 100).toFixed(2); dict['_density'] = String(p.density ?? 79); dict['_g'] = (p.phase ?? 0).toFixed(2); dict['_phase'] = String(p.phase ?? 0); dict['_rough'] = p.roughness; }
-            else if (p.type === 'blend') { dict['_type'] = '_blend'; dict['_alpha'] = (p.blendAlpha ?? 0.6).toFixed(2); dict['_rough'] = p.roughness; }
+            else if (p.type === 'blend') { 
+                dict['_type'] = '_blend'; 
+                dict['_rough'] = String(p.roughness ?? 0.1);
+                dict['_ior'] = String(((p.ior ?? 1.3) > 1.0) ? (p.ior - 1.0).toFixed(2) : (p.ior ?? 0.3));
+                dict['_spec'] = String(p.specular ?? 1.0);
+                dict['_metal'] = String(p.metalness ?? 0.0);
+                dict['_trans'] = String(p.transparent ?? 0.0);
+                dict['_d'] = ((p.density ?? 50) / 100).toFixed(2);
+                dict['_density'] = String(p.density ?? 50);
+                dict['_g'] = String(p.phase ?? 0.0);
+                dict['_phase'] = String(p.phase ?? 0.0);
+            }
 
             const dictBytes = encodeDict(dict);
             // SỬA: Ghi matId chuẩn 1-based (1..256) để MagicaVoxel nhận diện chính xác
