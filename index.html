@@ -1175,10 +1175,14 @@
                     const valEl = document.getElementById(id.replace('prop-', 'val-'));
                     if (valEl) valEl.textContent = isInt ? Math.round(val) : val.toFixed(isInt ? 0 : 2);
                     updateInstancedMaterial(AppState.selectedColorIndex);
+                    
+                    // Reset Path Tracing ngay khi đang rê thanh trượt
+                    if (AppState.renderMode === 'pathtrace') {
+                        AppState.needsAccumulationReset = true;
+                    }
                 }
             },
             () => {
-                // Đảm bảo cập nhật texture khi nhả chuột
                 updateVoxel3DTexture();
                 updateDynamicEmitLights();
             }
@@ -1532,14 +1536,16 @@ function setupSkyControls() {
 		AppState.transformControls = new TransformControls(AppState.camera, AppState.renderer.domElement);
         AppState.transformControls.size = 0.85;
 		
-		let gizmoTransformStartSnapshot = null;
-
-		AppState.transformControls.addEventListener('mouseDown', () => {
-			gizmoTransformStartSnapshot = captureStateSnapshot();
+		// Tự động vô hiệu hóa OrbitControls khi đang kéo Gizmo
+		AppState.transformControls.addEventListener('dragging-changed', (event) => {
+			AppState.isTransformingGizmo = event.value;
+			if (AppState.controls) {
+				AppState.controls.enabled = !event.value;
+			}
 		});
 		
 		// Tự động vô hiệu hóa OrbitControls khi đang kéo Gizmo
-        AppState.transformControls.addEventListener('dragging-changed', (event) => {
+       AppState.transformControls.addEventListener('dragging-changed', (event) => {
             AppState.isTransformingGizmo = event.value;
             if (AppState.controls) {
                 AppState.controls.enabled = !event.value;
@@ -1557,6 +1563,8 @@ function setupSkyControls() {
                 AppState.controls.enabled = true;
             }
         });
+		
+		
 
         AppState.scene.add(AppState.transformControls);
 
@@ -2512,16 +2520,12 @@ function setupSkyControls() {
     const pRot = pivot.rotation.clone();
     const pScale = pivot.scale.clone();
 
-    // Nếu không có sự thay đổi tọa độ, hủy bỏ
     if (pPos.lengthSq() < 1e-4 && Math.abs(pRot.x) < 1e-4 && Math.abs(pRot.y) < 1e-4 && Math.abs(pRot.z) < 1e-4 &&
         Math.abs(pScale.x - 1) < 1e-4 && Math.abs(pScale.y - 1) < 1e-4 && Math.abs(pScale.z - 1) < 1e-4) {
-        gizmoTransformStartSnapshot = null;
         return;
     }
 
-    // Lấy snapshot đã lưu lúc mouseDown (nếu không có thì chụp snapshot hiện tại)
-    const snapshotBefore = gizmoTransformStartSnapshot || captureStateSnapshot();
-    gizmoTransformStartSnapshot = null;
+    const snapshotBefore = captureStateSnapshot();
        
         if (historyUndo.length > MAX_HISTORY) historyUndo.shift();
         historyRedo.length = 0;
@@ -6800,15 +6804,18 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 				uSkyEnabled: { value: 1.0 }, // <-- THÊM DÒNG NÀY
 				uShowFloorPlane: { value: AppState.showFloorPlane ? 1.0 : 0.0 }, // <-- THÊM DÒNG NÀY
                 uResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+				
                 uNumEmitLights: { value: 0 },
-                uEmitMin: { value: uEmitMin },
-                uEmitMax: { value: uEmitMax },
-                uEmitCol: { value: uEmitCol },
-                uEmitPwr: { value: uEmitPwr },
-				uEmitLdr: { value: new Float32Array(MAX_LIGHTS) },
-				uGlassIOR: { value: 1.45 },
-			    uGlassRoughness: { value: 0.0 },
-			    uCloudPhase: { value: 0.0 },
+				 uEmitMin: { value: uEmitMin },
+				 uEmitMax: { value: uEmitMax },
+				 uEmitCol: { value: uEmitCol },
+				 uEmitPwr: { value: uEmitPwr },
+					uEmitLdr: { value: new Float32Array(MAX_LIGHTS) },
+					uGlassIOR: { value: 1.45 },
+					uGlassRoughness: { value: 0.0 },
+				 uGlassDensity: { value: 50.0 }, // Bổ sung Density cho Glass
+					uCloudPhase: { value: 0.0 },
+				
 				uEnableShadow: { value: AppState.sampleOptions.shadow ? 1.0 : 0.0 },
 				uEnableAA: { value: AppState.sampleOptions.aa ? 1.0 : 0.0 }
 				
@@ -6861,10 +6868,13 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 uniform float uSkyAmbientInt;
 				uniform float uSkyEnabled;
 				uniform float uShowFloorPlane; // <-- THÊM DÒNG NÀY
+				
                 uniform vec2 uResolution;
 				uniform float uGlassIOR;
 			    uniform float uGlassRoughness;
+				uniform float uGlassDensity; // Khai báo uniform nhận giá trị
 			    uniform float uCloudPhase;
+				
                 #define MAX_EMIT_LIGHTS 16
                 uniform int uNumEmitLights;
                 uniform vec3 uEmitMin[MAX_EMIT_LIGHTS];
@@ -6989,12 +6999,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 							else if (tag >= 80.0 && tag <= 99.0) {
 								float transparency = clamp((tag - 80.0) / 19.0, 0.0, 1.0);
 								vec3 bCol = pow(voxel.rgb, vec3(2.2));
-								float density = clamp(uBlendDensity / 100.0, 0.0, 1.0);
-								float minSide = min(min(sideDist.x, sideDist.y), sideDist.z);
-								float dt = max(0.001, minSide - tStart);
-								float att = exp(-density * 0.45 * dt);
-								vec3 blendTint = mix(bCol, vec3(1.0), transparency);
-								transmittance *= mix(blendTint * att, vec3(att), 0.35);
+								float densityFactor = max(0.1, uBlendDensity / 50.0);
+								vec3 blendAtt = exp(-(-log(max(bCol, vec3(0.02))) * (densityFactor * 0.35)));
+								transmittance *= mix(vec3(0.0), blendAtt, transparency);
 								if (max(transmittance.r, max(transmittance.g, transmittance.b)) < 0.01) {
 									return vec3(0.0);
 								}							
@@ -7003,11 +7010,13 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 							else if (tag >= 140.0 && tag <= 189.0) {
                                 float transparency = clamp((tag - 140.0) / 45.0, 0.0, 1.0);
                                 vec3 gCol = pow(voxel.rgb, vec3(2.2));
-                                // Xuyên sáng qua kính chuẩn MagicaVoxel: Kính 100% không tạo bóng đen, kính có màu đổ bóng nhuộm màu
-                                float transFactor = clamp(1.0 - transparency, 0.0, 1.0);
-                                vec3 glassTint = mix(vec3(1.0), max(gCol, vec3(0.12)), transFactor);
-                                transmittance *= mix(glassTint, vec3(1.0), transparency * 0.98);
+                                // Bóng đổ xuyên sáng nhuộm màu kính chuẩn xác theo độ dày và Density
+                                float densityFactor = max(0.1, uGlassDensity / 50.0);
+                                vec3 glassAtt = exp(-(-log(max(gCol, vec3(0.02))) * (densityFactor * 0.35)));
+                                transmittance *= mix(vec3(0.0), glassAtt, transparency);
                             }
+							
+							
 							
 							else if (tag >= 190.0) {
                                 // Nguồn emit không cản bóng
@@ -7054,9 +7063,11 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     }
 
                     // Nếu tia hướng xuống cắt sàn trước khi chạm hộp voxel:
-                    if (canHitFloor && (!hitBox || tFloor < tNear)) {
+                   if (canHitFloor && (!hitBox || tFloor < tNear)) {
                         hitNormal = vec3(0.0, 1.0, 0.0);
-                        hitColor = vec4(uSkyGround, 0.04); // Chuẩn màu Ground nguyên bản, KHÔNG bị hòa màu Cyan của Sky
+                        // Khi Sky tắt: Mặt sàn tối màu (#18181a) để kim loại phản chiếu màu đen huyền bí
+                        vec3 floorBaseCol = (uSkyEnabled > 0.5) ? uSkyGround : vec3(0.08, 0.08, 0.09);
+                        hitColor = vec4(floorBaseCol, 0.04);
                         hitPos = ro + rd * tFloor;
                         isVolume = false;
                         return true;
@@ -7210,24 +7221,33 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 							bool isBlend = (matTag >= 80.0 && matTag <= 99.0);
                             bool isMetal = (matTag >= 100.0 && matTag <= 139.0);
 
-                            float metalRough = isMetal ? clamp((matTag - 100.0) / 39.0, 0.005, 1.0) : 0.05;
+                            // Lấy trực tiếp thông số từ thanh trượt UI của Metal
+                            float metalRough = isMetal ? clamp(uMetalRoughness, 0.0, 1.0) : 0.05;
                             float metalMetallic = clamp(uMetalMetallic, 0.0, 1.0);
                             float metalSpecular = clamp(uMetalSpecular, 0.0, 2.0);
+                            float metalIOR = max(1.0, uMetalIOR);
+
+                            // Phản xạ Fresnel chuẩn MagicaVoxel
+                            float R0_diel = pow((metalIOR - 1.0) / (metalIOR + 1.0), 2.0);
+                            float F0_diel = clamp(R0_diel * metalSpecular, 0.0, 1.0);
+                            float cosThetaV = clamp(dot(hitNormal, -rd), 0.0, 1.0);
+                            float F_diel = F0_diel + (1.0 - F0_diel) * pow(1.0 - cosThetaV, 5.0);
 
                             float blendTrans = isBlend ? clamp((matTag - 80.0) / 19.0, 0.0, 1.0) : 0.0;
 
-                            // Trọng số tán xạ khuếch tán:
-                            // - Kim loại thuần (Metallic = 1.0): diffuseWeight = 0.0 (loại bỏ hoàn toàn lớp màu bệt)
-                            // - Kim loại pha (vd: Metallic = 0.65): diffuseWeight = 0.35
-                            // - Kính: diffuseWeight = 0.0
+                            // Trọng số khuếch tán (Diffuse):
+                            // Khi Metallic = 1.0 -> diffuseWeight = 0.0 (triệt tiêu hoàn toàn màu bệt, biến thành gương kim loại)
+                            // Khi Metallic = 0.0 -> diffuseWeight = (1.0 - F_diel) (bảo toàn năng lượng, thành nhựa bóng)
                             float diffuseWeight = 1.0;
                             if (isMetal) {
-                                diffuseWeight = (1.0 - metalMetallic);
+                                diffuseWeight = (1.0 - metalMetallic) * (1.0 - F_diel);
                             } else if (isBlend) {
                                 diffuseWeight = (1.0 - blendTrans) * (1.0 - clamp(uBlendMetallic, 0.0, 1.0));
                             } else if (isGlass) {
                                 diffuseWeight = 0.0;
                             }
+							
+							
 						  
                             if (rayInGlass && distInGlass > 0.0) {
                                 vec3 absorb = -log(max(albedo, vec3(0.02))) * 0.18;
@@ -7376,52 +7396,25 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                         }
 
                                         // 2. Điểm sáng kim loại / gương trực tiếp từ Mặt Trời (Specular Glint)
+                                        // 2. Điểm sáng phản xạ Mặt Trời (Chuẩn MagicaVoxel: Chỉ chói ở điểm nhìn trúng đĩa mặt trời)
                                         if (!isVolume) {
-                                            vec3 V = -rd;
-                                            vec3 H = normalize(jitterSun + V);
-                                            float NdotH = max(0.0, dot(hitNormal, H));
-                                            float NdotV = max(0.0, dot(hitNormal, V));
-                                            float VdotH = max(0.0, dot(V, H));
+                                            vec3 reflRay = reflect(rd, hitNormal);
+                                            float cosSun = dot(reflRay, jitterSun);
 
-                                            if (NdotV > 0.0001 && NdotH > 0.0001) {
-                                                float rough = 0.05;
-                                                vec3 F0 = vec3(0.04);
-                                                bool hasSpec = false;
+                                            // Góc mở đĩa mặt trời (bán kính góc)
+                                            float sunDiskCos = cos(max(0.015, uSunArea * 0.004));
 
-                                                if (isMetal) {
-                                                    rough = clamp(metalRough, 0.02, 1.0);
-                                                    F0 = mix(vec3(0.04 * metalSpecular), albedo, metalMetallic);
-                                                    hasSpec = true;
-                                                } else if (isBlend) {
-                                                    rough = clamp(uBlendRoughness, 0.02, 1.0);
-                                                    F0 = mix(vec3(0.04 * uBlendSpecular), albedo, clamp(uBlendMetallic, 0.0, 1.0));
-                                                    hasSpec = true;
-                                                } else if (isGlass) {
-                                                    float iorG = max(1.0, (uGlassIOR < 1.0) ? (1.0 + uGlassIOR) : uGlassIOR);
-                                                    float r0G = pow((1.0 - iorG) / (1.0 + iorG), 2.0);
-                                                    F0 = vec3(r0G);
-                                                    rough = clamp(uGlassRoughness, 0.02, 1.0);
-                                                    hasSpec = true;
-                                                }
+                                            if (cosSun > 0.0) {
+                                                float rough = isMetal ? max(0.008, metalRough) : 0.05;
+                                                vec3 F0 = isMetal ? mix(vec3(F0_diel), albedo, metalMetallic) : vec3(0.04);
+                                                
+                                                // Nếu là kim loại bóng (Roughness thấp): Chỉ chói lóa khi góc phản xạ trúng đĩa mặt trời
+                                                // Không làm loang sáng ra các vùng khác của bức tường
+                                                float specSpread = max(0.0001, rough * rough);
+                                                float sunGlint = smoothstep(1.0 - specSpread * 2.0, 1.0, cosSun);
 
-                                                if (hasSpec) {
-                                                    // Phân bố vi bề mặt GGX
-                                                    float a = rough * rough;
-                                                    float a2 = a * a;
-                                                    float denom = (NdotH * NdotH * (a2 - 1.0) + 1.0);
-                                                    float D = a2 / max(0.0001, 3.14159265 * denom * denom);
-
-                                                    // Che khuất hình học Smith GGX
-                                                    float k = (rough + 1.0) * (rough + 1.0) / 8.0;
-                                                    float gL = NdotL / (NdotL * (1.0 - k) + k);
-                                                    float gV = NdotV / (NdotV * (1.0 - k) + k);
-                                                    float G = gL * gV;
-
-                                                    // Fresnel Schlick
-                                                    vec3 F = F0 + (vec3(1.0) - F0) * pow(clamp(1.0 - VdotH, 0.0, 1.0), 5.0);
-
-                                                    vec3 specBRDF = (D * G * F) / max(0.001, 4.0 * NdotV);
-                                                    vec3 sunSpecContrib = throughput * specBRDF * sunLightCol;
+                                                if (sunGlint > 0.001) {
+                                                    vec3 sunSpecContrib = throughput * F0 * sunLightCol * (sunGlint * (1.0 / (specSpread * 15.0 + 0.1)));
                                                     radiance += sunSpecContrib;
                                                 }
                                             }
@@ -7463,10 +7456,13 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     }
 
                                     // Chuẩn MagicaVoxel: Khi transparency = 1.0 (100%), hệ số hấp thụ = 0 -> Kính trong suốt 100%
-									float transFactor = clamp(1.0 - transparency, 0.0, 1.0);
-									vec3 absorb = -log(max(albedo, vec3(0.05))) * transFactor * 0.35;
-									
+									// Chuẩn MagicaVoxel: Giữ nguyên màu sắc Albedo khi xuyên sáng theo định luật Beer-Lambert
+                                    // Độ đậm nhạt của màu kính được kiểm soát trực tiếp bởi Density
+                                    float densityFactor = max(0.05, uGlassDensity / 50.0);
+                                    vec3 absorb = -log(max(albedo, vec3(0.02))) * (densityFactor * 0.35);
+
                                     vec3 pIn = hitPos + refr * 0.002;
+									
                                     float tFloorIn = (refr.y < -0.0001) ? (-pIn.y / refr.y) : -1.0;
 
                                     vec3 boxMinIn = vec3(-uGridSize.x * 0.5, 0.0, -uGridSize.y * 0.5);
@@ -7533,19 +7529,31 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     rd = refrOut;
                                 }
                             } else if (isMetal) {
-                                vec3 pureReflect = reflect(rd, hitNormal);
-                                vec3 jitter = sampleSphere(seed);
-                                if (dot(jitter, hitNormal) < 0.0) jitter = -jitter;
-                                vec3 roughReflect = normalize(pureReflect + jitter * (metalRough * 0.65));
-                                if (dot(roughReflect, hitNormal) <= 0.0) roughReflect = pureReflect;
-                                ro = hitPos + hitNormal * 0.002;
-                                rd = roughReflect;
+                                // Xác suất phân nhánh giữa Phản xạ gương (Specular) và Tán xạ (Diffuse) chuẩn MagicaVoxel
+                                float specProb = clamp(mix(F_diel, 1.0, metalMetallic), 0.02, 1.0);
 
-                                // Phản chiếu giữ nguyên màu sắc đặc trưng của kim loại
-                                vec3 F0_metal = mix(vec3(0.04 * metalSpecular), albedo, metalMetallic);
-                                float cosTheta = clamp(dot(hitNormal, -rd), 0.0, 1.0);
-                                vec3 F_metal = F0_metal + (vec3(1.0) - F0_metal) * pow(1.0 - cosTheta, 5.0);
-                                throughput *= F_metal;
+                                if (rand(seed) < specProb) {
+                                    // 1. NHÁNH PHẢN XẠ GƯƠNG / KIM LOẠI
+                                    vec3 pureReflect = reflect(rd, hitNormal);
+                                    if (metalRough > 0.002) {
+                                        vec3 jitter = sampleSphere(seed);
+                                        if (dot(jitter, hitNormal) < 0.0) jitter = -jitter;
+                                        vec3 roughReflect = normalize(pureReflect + jitter * (metalRough * metalRough * 0.75));
+                                        rd = (dot(roughReflect, hitNormal) > 0.0) ? roughReflect : pureReflect;
+                                    } else {
+                                        rd = pureReflect; // Gương phẳng tuyệt đối khi Roughness = 0
+                                    }
+                                    ro = hitPos + hitNormal * 0.002;
+
+                                    // Kim loại (Metallic = 1) phản xạ theo màu albedo; Phi kim (Metallic = 0) phản xạ màu trắng
+                                    vec3 specColor = mix(vec3(1.0), albedo, metalMetallic);
+                                    throughput *= specColor;
+                                } else {
+                                    // 2. NHÁNH TÁN XẠ KHUẾCH TÁN (Chỉ kích hoạt khi Metallic < 1.0)
+                                    ro = hitPos + hitNormal * 0.002;
+                                    rd = cosineWeightedHemisphere(hitNormal, seed);
+                                    throughput *= albedo;
+                                }
                             }
 							
 							else if (matTag >= 80.0 && matTag <= 99.0) {
@@ -7642,10 +7650,10 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
                                     // HẤP THỤ MÀU SẮC THEO ĐỊNH LUẬT BEER-LAMBERT:
                                     // Khi Transparency = 1.0 và Density = 0 hoặc 1 -> Hấp thụ cực nhỏ, nhìn xuyên 100%
-                                    float transFactor = clamp(1.0 - transparency, 0.0, 1.0);
-                                    float densityFactor = (uBlendDensity / 100.0);
-                                    vec3 absorb = (-log(max(albedo, vec3(0.04))) * transFactor * 0.35) + vec3(densityFactor * 0.12);
-                                    throughput *= exp(-absorb * dBlend);
+                                    // HẤP THỤ MÀU SẮC THEO ĐỊNH LUẬT BEER-LAMBERT: Giữ nguyên màu albedo khi Transparency = 1.0
+                                    float densityFactor = max(0.05, uBlendDensity / 50.0);
+                                    vec3 absorb = -log(max(albedo, vec3(0.02))) * (densityFactor * 0.35);
+                                    throughput *= exp(-absorb * max(0.5, dBlend));
 
                                     // Thoát ra mặt sau của bức tường và tiếp tục bắn tia vào không gian bên trong
                                     vec3 exitPos = pIn + refr * tTravel;
@@ -7682,11 +7690,14 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 								: mix(pow(uSkyHorizon, vec3(2.2)), pow(uSkyGround, vec3(2.2)), pow(clamp(-rd.y, 0.0, 1.0), 0.7));
 
 							if (uSkyEnabled > 0.5) {
-                                // Xóa bỏ "* 0.20" để hình ảnh phản chiếu bầu trời trên kim loại đạt độ sáng tự nhiên
-								radiance += (bounce == 0) ? skyCol : (skyCol * uSkyAmbientInt * throughput);
+                                // bounce == 0: Camera nhìn thẳng vào bầu trời
+                                // bounce > 0: Tia phản chiếu từ kim loại/gương
+								radiance += (bounce == 0) ? skyCol : (skyCol * (uSkyAmbientInt * 0.25) * throughput);
 							} else {
-								if (bounce == 0) radiance += pow(uSkyGround, vec3(2.2));
-                                else radiance += pow(uSkyGround, vec3(2.2)) * throughput;
+                                // Phản chiếu khoảng tối studio chuẩn MagicaVoxel (#1e1e24)
+                                vec3 darkStudioBg = vec3(0.015, 0.015, 0.018);
+								if (bounce == 0) radiance += darkStudioBg;
+                                else radiance += darkStudioBg * throughput;
 							}
 							break;
 						}
@@ -7990,17 +8001,19 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             }
 
             if (curMat && curMat.type === 'glass') {
-                pathTraceMaterial.uniforms.uGlassIOR.value = getSafeIor(curMat.ior);
-                pathTraceMaterial.uniforms.uGlassRoughness.value = (curMat.roughness !== undefined) ? curMat.roughness : 0.0;
-            } else {
-                for (let mi = 1; mi <= 256; mi++) {
-                    if (AppState.materialProps[mi]?.type === 'glass') {
-                        pathTraceMaterial.uniforms.uGlassIOR.value = getSafeIor(AppState.materialProps[mi].ior);
-                        pathTraceMaterial.uniforms.uGlassRoughness.value = (AppState.materialProps[mi].roughness !== undefined) ? AppState.materialProps[mi].roughness : 0.0;
-                        break;
-                    }
-                }
-            }
+             pathTraceMaterial.uniforms.uGlassIOR.value = getSafeIor(curMat.ior);
+             pathTraceMaterial.uniforms.uGlassRoughness.value = (curMat.roughness !== undefined) ? curMat.roughness : 0.0;
+             pathTraceMaterial.uniforms.uGlassDensity.value = (curMat.density !== undefined) ? curMat.density : 50.0;
+         } else {
+             for (let mi = 1; mi <= 256; mi++) {
+                 if (AppState.materialProps[mi]?.type === 'glass') {
+                     pathTraceMaterial.uniforms.uGlassIOR.value = getSafeIor(AppState.materialProps[mi].ior);
+                     pathTraceMaterial.uniforms.uGlassRoughness.value = (AppState.materialProps[mi].roughness !== undefined) ? AppState.materialProps[mi].roughness : 0.0;
+                     pathTraceMaterial.uniforms.uGlassDensity.value = (AppState.materialProps[mi].density !== undefined) ? AppState.materialProps[mi].density : 50.0;
+                     break;
+                 }
+             }
+         }
 			
 			if (curMat && curMat.type === 'blend') {
                 pathTraceMaterial.uniforms.uBlendIOR.value = getSafeIor(curMat.ior);
@@ -8226,14 +8239,14 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
     function updateMaterialUIState(type) {
         const groups = {
-            'diffuse': ['group-roughness'],
-            'metal': ['group-roughness', 'group-ior', 'group-specular', 'group-metallic'],
-            'glass': ['group-roughness', 'group-ior', 'group-transparent'],
-            'emit': ['group-emission-controls'],
-            'cloud': ['group-cloud-controls'],
-            // BLEND HIỂN THỊ ĐỦ 7 THANH TRƯỢT THEO ĐÚNG MAGICAVOXEL:
-            'blend': ['group-roughness', 'group-ior', 'group-specular', 'group-metallic', 'group-transparent', 'group-cloud-controls']
-        };
+			 'diffuse': ['group-roughness'],
+			 'metal': ['group-roughness', 'group-ior', 'group-specular', 'group-metallic'],
+			 // Bổ sung group-cloud-controls (chứa Density) cho Glass như MagicaVoxel
+			 'glass': ['group-roughness', 'group-ior', 'group-transparent', 'group-cloud-controls'],
+			 'emit': ['group-emission-controls'],
+			 'cloud': ['group-cloud-controls'],
+			 'blend': ['group-roughness', 'group-ior', 'group-specular', 'group-metallic', 'group-transparent', 'group-cloud-controls']
+		 };
         document.querySelectorAll('.prop-group').forEach(el => el.classList.add('hidden'));
         if (groups[type]) {
             groups[type].forEach(id => {
@@ -8340,11 +8353,11 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             controlsTarget: AppState.controls ? { x: AppState.controls.target.x, y: AppState.controls.target.y, z: AppState.controls.target.z } : null,
             sun: { pitch: 45, yaw: 215, area: 3, intensity: 1.80, color: new THREE.Color(0xfff5e6) },
 			sky: {
-				enabled: true,
-				zenith: new THREE.Color(0x4287f5),
-				horizon: new THREE.Color(0xbae0ff),
-				ground: new THREE.Color(0x757d88), 
-				ambientIntensity: 0.50             // Đặt 0.50 để bóng đổ có chiều sâu rõ rệt
+				enabled: false, // Mặc định tắt Skybox như MagicaVoxel để khối kim loại có nền phản chiếu tối sâu thẳm
+				zenith: new THREE.Color(0x282828),
+				horizon: new THREE.Color(0x383838),
+				ground: new THREE.Color(0x242426),
+				ambientIntensity: 0.25
 			},
             fog: {
                 enabled: AppState.fog.enabled,
