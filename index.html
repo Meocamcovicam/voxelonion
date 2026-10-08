@@ -623,6 +623,24 @@
                             </div>
                         </div>
                     </div>
+					
+					<!-- CỤM ĐIỀU KHIỂN GODRAY -->
+                        <div class="mt-2.5 pt-2 border-t border-gray-700/60">
+                            <div class="flex items-center justify-between mb-1.5">
+                                <label class="flex items-center text-xs text-amber-300 font-bold gap-1.5 cursor-pointer">
+                                    <input type="checkbox" id="prop-sun-godray" class="rounded bg-gray-800 border-gray-700 text-amber-500 focus:ring-0">
+                                    <span>✨ Sun Godray (Light Shafts)</span>
+                                </label>
+                                <span id="val-sun-godray" class="font-mono text-[10px] text-gray-400">Off</span>
+                            </div>
+                            <div id="godray-controls" class="hidden">
+                                <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5">
+                                    <label>Godray Density</label>
+                                    <span id="val-godray-density" class="font-mono text-gray-400">0.35</span>
+                                </div>
+                                <input type="range" id="prop-godray-density" min="0.0" max="1.0" step="0.01" value="0.35" class="!mb-1">
+                            </div>
+                        </div>
                     
                     <div class="border-t border-gray-700 pt-3">
                         <div class="flex items-center justify-between border-b border-gray-700 pb-1 mb-2">
@@ -917,7 +935,9 @@
 			yaw: 50, 
 			area: 0,              // Đặt mặc định 0 để bóng đổ sắc nét tuyệt đối
 			intensity: 2.80,      // Cường độ nắng mạnh mẽ
-			color: new THREE.Color(0xfff5e6) 
+			color: new THREE.Color(0xfff5e6),
+			godray: false,
+			godrayDensity: 0.35   // Mật độ chuẩn nhẹ nhàng
 		},
 		sky: {
 			enabled: true,
@@ -1275,6 +1295,29 @@
                 if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
             });
         }
+		
+		const elGodray = document.getElementById('prop-sun-godray');
+        const elGodrayWrap = document.getElementById('godray-controls');
+        const elGodrayTxt = document.getElementById('val-sun-godray');
+        const elGodrayDensity = document.getElementById('prop-godray-density');
+
+        if (elGodray) {
+            elGodray.addEventListener('change', (e) => {
+                AppState.sun.godray = e.target.checked;
+                if (elGodrayWrap) elGodrayWrap.classList.toggle('hidden', !AppState.sun.godray);
+                if (elGodrayTxt) elGodrayTxt.textContent = AppState.sun.godray ? 'On' : 'Off';
+                if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
+            });
+        }
+
+        if (elGodrayDensity) {
+            elGodrayDensity.addEventListener('input', (e) => {
+                AppState.sun.godrayDensity = parseFloat(e.target.value);
+                safeSetText('val-godray-density', AppState.sun.godrayDensity.toFixed(2));
+                if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
+            });
+        }
+		
     }
 	
 	function setupFogControls() {
@@ -5939,6 +5982,8 @@
             AppState.sun.yaw = parseSafeFloat(settings.sun.yaw, AppState.sun.yaw);
             AppState.sun.area = parseSafeFloat(settings.sun.area, AppState.sun.area);
             AppState.sun.intensity = parseSafeFloat(settings.sun.intensity, AppState.sun.intensity);
+            AppState.sun.godray = !!settings.sun.godray;
+            AppState.sun.godrayDensity = parseSafeFloat(settings.sun.godrayDensity, 0.35);
             if (settings.sun.color) AppState.sun.color = new THREE.Color(settings.sun.color);
         }
 
@@ -6015,10 +6060,23 @@
         syncUI('prop-sun-pitch', AppState.sun.pitch); syncTxt('val-sun-pitch', AppState.sun.pitch);
         syncUI('prop-sun-yaw', AppState.sun.yaw); syncTxt('val-sun-yaw', AppState.sun.yaw);
         syncUI('prop-sun-area', AppState.sun.area); syncTxt('val-sun-area', AppState.sun.area);
+		
         syncUI('prop-sun-int', AppState.sun.intensity); syncTxt('val-sun-int', AppState.sun.intensity.toFixed(2));
         syncCol('prop-sun-col', AppState.sun.color);
 
+        const elGodray = document.getElementById('prop-sun-godray');
+        const elGodrayWrap = document.getElementById('godray-controls');
+        if (elGodray) {
+            elGodray.checked = !!AppState.sun.godray;
+            if (elGodrayWrap) elGodrayWrap.classList.toggle('hidden', !AppState.sun.godray);
+            safeSetText('val-sun-godray', AppState.sun.godray ? 'On' : 'Off');
+        }
+        safeSetVal('prop-godray-density', AppState.sun.godrayDensity || 0.35);
+        safeSetText('val-godray-density', (AppState.sun.godrayDensity || 0.35).toFixed(2));
+
         const skyToggle = document.getElementById('sky-enabled');
+		
+		
         if (skyToggle) skyToggle.checked = AppState.sky.enabled;
         syncCol('sky-zenith-col', AppState.sky.zenith);
         syncCol('sky-horizon-col', AppState.sky.horizon);
@@ -6569,6 +6627,11 @@
                 uSunInt: { value: 1.5 },
                 uSunArea: { value: 4.0 }, // <-- THÊM DÒNG NÀY ĐỂ ĐIỀU KHIỂN ĐỘ NÉT BÓNG ĐỔ
 				
+				uSunGodray: { value: 0.0 },
+                uGodrayDensity: { value: 0.35 },
+                uModelCenter: { value: new THREE.Vector3(0, 15, 0) },
+                uModelRadius: { value: 25.0 },
+				
 				uBlendIOR: { value: 1.30 },
 				uBlendRoughness: { value: 0.10 },
 				uBlendMetallic: { value: 0.0 },
@@ -6632,7 +6695,14 @@
                 uniform float uSunInt;
                 uniform float uSunArea; // <-- THÊM DÒNG NÀY
 				
+				uniform float uSunGodray;
+                uniform float uGodrayDensity;
+                uniform vec3 uModelCenter;
+                uniform float uModelRadius;
+				
 				uniform float uFogEnabled;
+				
+				
                 uniform vec3 uFogCol;
                 uniform float uFogDensity;
 				
@@ -6981,6 +7051,89 @@
 
                         if (bounce == 0 && hit) {
                             primaryHitDist = length(hitPos - ro); // <-- Ghi nhận cự ly va chạm tia gốc
+                        }
+						
+						// --- GAME ENGINE VOLUMETRIC LIGHT SHAFTS (TỐI ƯU WEB/MOBILE - 16 BƯỚC DITHERED) ---
+                        if (bounce == 0 && uSunGodray > 0.5 && uSunInt > 0.01 && uGodrayDensity > 0.001) {
+                            // 1. Giới hạn raymarch trong hình cầu bao quanh mô hình (loại bỏ lãng phí tính toán khoảng không vô tận)
+                            float R = max(uModelRadius * 1.45, 24.0);
+                            vec3 oc = ro - uModelCenter;
+                            float bDisc = dot(oc, rd);
+                            float cDisc = dot(oc, oc) - R * R;
+                            float hDisc = bDisc * bDisc - cDisc;
+
+                            if (hDisc > 0.0) {
+                                float sqrtD = sqrt(hDisc);
+                                float tEntry = max(0.2, -bDisc - sqrtD);
+                                float tExit = -bDisc + sqrtD;
+                                float tSurface = (hit && primaryHitDist > 0.0) ? primaryHitDist : tExit;
+                                float tRayStart = tEntry;
+                                float tRayEnd = min(tSurface, tExit);
+
+                                if (tRayEnd > tRayStart + 0.1) {
+                                    float marchDist = tRayEnd - tRayStart;
+                                    // 16 bước lấy mẫu dithered: Cực nhẹ cho mobile web, khử răng cưa mượt nhờ tích lũy frame
+                                    const int NUM_STEPS = 16;
+                                    float stepSize = marchDist / float(NUM_STEPS);
+                                    float jitterVal = rand(seed);
+
+                                    float rayShadowJitter = (uSunArea > 0.0) ? (uSunArea * 0.0001) : 0.0;
+                                    vec3 lDir = (rayShadowJitter > 0.0) 
+                                        ? normalize(uSunDir + sampleSphere(seed) * rayShadowJitter) 
+                                        : normalize(uSunDir);
+
+                                    // 2. Pha tán xạ Mie Forward Scattering + Aperture Glow (ánh sáng bừng nở ở khe cửa sổ)
+                                    float cosTheta = clamp(dot(rd, lDir), -1.0, 1.0);
+                                    float phase = 0.26 + 0.44 * pow(clamp(cosTheta * 0.5 + 0.5, 0.0, 1.0), 3.2);
+                                    float apertureGlow = 1.0 + 1.8 * pow(clamp(cosTheta * 0.5 + 0.5, 0.0, 1.0), 5.0);
+
+                                    vec3 godrayAcc = vec3(0.0);
+
+                                    for (int s = 0; s < NUM_STEPS; s++) {
+                                        float tSample = tRayStart + (float(s) + jitterVal) * stepSize;
+                                        vec3 pSample = ro + rd * tSample;
+
+                                        // 3. Suy giảm mật độ khí quyển tự nhiên theo độ cao và bán kính
+                                        float distXZ = length(pSample.xz - uModelCenter.xz);
+                                        float horizFade = exp(-pow(distXZ / max(uModelRadius * 1.4, 15.0), 2.0));
+                                        float vertFade = exp(-max(0.0, pSample.y - uModelCenter.y) / max(uModelRadius * 1.1, 12.0));
+                                        vertFade *= smoothstep(0.0, 0.35, pSample.y); // Chặn đáy sàn
+                                        float boundarySoft = smoothstep(R, R * 0.72, length(pSample - uModelCenter));
+                                        float sampleDensity = horizFade * vertFade * boundarySoft;
+
+                                        // 4. Bỏ qua các điểm nằm bên trong voxel đặc (tường, đồ vật)
+                                        vec3 localCoord = vec3(pSample.x + uGridSize.x * 0.5, pSample.z + uGridSize.y * 0.5, pSample.y);
+                                        ivec3 iCoord = ivec3(floor(localCoord));
+                                        bool isSolid = false;
+                                        if (iCoord.x >= 0 && iCoord.x < int(uGridSize.x) &&
+                                            iCoord.y >= 0 && iCoord.y < int(uGridSize.y) &&
+                                            iCoord.z >= 0 && iCoord.z < int(uGridSize.z)) {
+                                            vec4 curVox = texture(tVoxelGrid, (vec3(iCoord) + 0.5) / uGridSize);
+                                            if (curVox.a > 0.01) {
+                                                float tagV = floor(curVox.a * 255.0 + 0.5);
+                                                if ((tagV < 60.0) || (tagV > 79.0 && tagV < 140.0) || tagV >= 190.0) {
+                                                    isSolid = true;
+                                                }
+                                            }
+                                        }
+
+                                        // 5. Kiểm tra tia nắng chiếu xuyên qua cửa sổ/khe hở
+                                        if (!isSolid && sampleDensity > 0.002) {
+                                            vec3 trans = (uEnableShadow > 0.5) 
+                                                ? shadowTraversal(pSample + lDir * 0.04, lDir, 1000.0, seed) 
+                                                : vec3(1.0);
+
+                                            if (max(trans.r, max(trans.g, trans.b)) > 0.001) {
+                                                godrayAcc += trans * (stepSize * sampleDensity);
+                                            }
+                                        }
+                                    }
+
+                                    vec3 sunColLinear = pow(uSunCol, vec3(2.2));
+                                    float densityFactor = pow(uGodrayDensity, 1.4) * 0.016;
+                                    radiance += godrayAcc * (phase * apertureGlow * densityFactor) * sunColLinear * uSunInt;
+                                }
+                            }
                         }
 
                         if (hit) {
@@ -7641,7 +7794,59 @@
                 pathTraceMaterial.uniforms.uSunDir.value.copy(AppState.dirLight.position).normalize();
                 pathTraceMaterial.uniforms.uSunCol.value.set(AppState.sun.color.r, AppState.sun.color.g, AppState.sun.color.b);
                 pathTraceMaterial.uniforms.uSunInt.value = AppState.sun.intensity;
-                pathTraceMaterial.uniforms.uSunArea.value = AppState.sun.area; // <-- THÊM DÒNG NÀY ĐỂ TRUYỀN GIÁ TRỊ VÀO SHADER
+                pathTraceMaterial.uniforms.uSunArea.value = AppState.sun.area;
+            }
+
+            // Đồng bộ trạng thái Godray
+            if (pathTraceMaterial.uniforms.uSunGodray) {
+                pathTraceMaterial.uniforms.uSunGodray.value = AppState.sun.godray ? 1.0 : 0.0;
+            }
+            if (pathTraceMaterial.uniforms.uGodrayDensity) {
+                pathTraceMaterial.uniforms.uGodrayDensity.value = AppState.sun.godrayDensity || 0.35;
+            }
+
+            // Tự động tính tâm và bán kính mô hình để raymarch chuẩn xác
+            if (AppState.model && AppState.model.voxels && AppState.model.voxels.length > 0) {
+                const sx = AppState.model.size.x;
+                const sy = AppState.model.size.y;
+                const cx = sx / 2;
+                const cy = sy / 2;
+
+                let minVx = Infinity, maxVx = -Infinity;
+                let minVy = Infinity, maxVy = -Infinity;
+                let minVz = Infinity, maxVz = -Infinity;
+
+                for (let k = 0; k < AppState.model.voxels.length; k++) {
+                    const v = AppState.model.voxels[k];
+                    if (!isVoxelVisible(v)) continue;
+                    if (v.x < minVx) minVx = v.x;
+                    if (v.x > maxVx) maxVx = v.x;
+                    if (v.y < minVy) minVy = v.y;
+                    if (v.y > maxVy) maxVy = v.y;
+                    if (v.z < minVz) minVz = v.z;
+                    if (v.z > maxVz) maxVz = v.z;
+                }
+
+                if (minVx !== Infinity && pathTraceMaterial.uniforms.uModelCenter && pathTraceMaterial.uniforms.uModelRadius) {
+                    const minWx = minVx - cx;
+                    const maxWx = maxVx - cx + 1.0;
+                    const minWy = Math.max(0.0, minVz);
+                    const maxWy = maxVz + 1.0;
+                    const minWz = minVy - cy;
+                    const maxWz = maxVy - cy + 1.0;
+
+                    const centerX = (minWx + maxWx) * 0.5;
+                    const centerY = (minWy + maxWy) * 0.5;
+                    const centerZ = (minWz + maxWz) * 0.5;
+
+                    const radX = (maxWx - minWx) * 0.5;
+                    const radY = (maxWy - minWy) * 0.5;
+                    const radZ = (maxWz - minWz) * 0.5;
+                    const radius = Math.max(Math.sqrt(radX * radX + radY * radY + radZ * radZ), 15.0);
+
+                    pathTraceMaterial.uniforms.uModelCenter.value.set(centerX, centerY, centerZ);
+                    pathTraceMaterial.uniforms.uModelRadius.value = radius;
+                }
             }
 			
 			if (pathTraceMaterial.uniforms.uFogEnabled) {
