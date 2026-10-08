@@ -6782,6 +6782,13 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 				uBlendDensity: { value: 50.0 },
 				uBlendPhase: { value: 0.0 },
 				
+				// --- BỔ SUNG UNIFORMS CHO METAL ---
+                uMetalMetallic: { value: 1.0 },
+                uMetalSpecular: { value: 1.0 },
+                uMetalRoughness: { value: 0.1 },
+                uMetalIOR: { value: 1.5 },
+                // ----------------------------------
+				
 				uFogEnabled: { value: AppState.fog.enabled ? 1.0 : 0.0 },
                 uFogCol: { value: new THREE.Vector3(0.66, 0.83, 0.96) },
                 uFogDensity: { value: AppState.fog.density || 0.0 },
@@ -6833,6 +6840,12 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 				uniform float uBlendSpecular;
 				uniform float uBlendDensity;
 				uniform float uBlendPhase;
+				
+				// Khai báo Uniforms cho Metal
+                uniform float uMetalMetallic;
+                uniform float uMetalSpecular;
+                uniform float uMetalRoughness;
+                uniform float uMetalIOR;
 				
                 uniform vec3 uSunCol;
                 uniform float uSunInt;
@@ -7194,11 +7207,27 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                             float matTag = floor(hitColor.a * 255.0 + 0.5);
                             vec3 albedo = pow(hitColor.rgb, vec3(2.2));
                             bool isGlass = (matTag >= 140.0 && matTag <= 189.0);
-							
 							bool isBlend = (matTag >= 80.0 && matTag <= 99.0);
+                            bool isMetal = (matTag >= 100.0 && matTag <= 139.0);
+
+                            float metalRough = isMetal ? clamp((matTag - 100.0) / 39.0, 0.005, 1.0) : 0.05;
+                            float metalMetallic = clamp(uMetalMetallic, 0.0, 1.0);
+                            float metalSpecular = clamp(uMetalSpecular, 0.0, 2.0);
+
                             float blendTrans = isBlend ? clamp((matTag - 80.0) / 19.0, 0.0, 1.0) : 0.0;
-                            // Khi transparency = 1.0, diffuseWeight = 0 -> triệt tiêu hoàn toàn màu sơn đặc trên bề mặt
-                            float diffuseWeight = isBlend ? ((1.0 - blendTrans) * (1.0 - clamp(uBlendMetallic, 0.0, 1.0))) : 1.0;
+
+                            // Trọng số tán xạ khuếch tán:
+                            // - Kim loại thuần (Metallic = 1.0): diffuseWeight = 0.0 (loại bỏ hoàn toàn lớp màu bệt)
+                            // - Kim loại pha (vd: Metallic = 0.65): diffuseWeight = 0.35
+                            // - Kính: diffuseWeight = 0.0
+                            float diffuseWeight = 1.0;
+                            if (isMetal) {
+                                diffuseWeight = (1.0 - metalMetallic);
+                            } else if (isBlend) {
+                                diffuseWeight = (1.0 - blendTrans) * (1.0 - clamp(uBlendMetallic, 0.0, 1.0));
+                            } else if (isGlass) {
+                                diffuseWeight = 0.0;
+                            }
 						  
                             if (rayInGlass && distInGlass > 0.0) {
                                 vec3 absorb = -log(max(albedo, vec3(0.02))) * 0.18;
@@ -7315,35 +7344,91 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                            // C. ÁNH SÁNG MẶT TRỜI TRỰC TIẾP (Chuẩn hóa chuẩn MagicaVoxel)
                            // C. ÁNH SÁNG MẶT TRỜI TRỰC TIẾP (Tạo bóng đổ tương phản chuẩn MagicaVoxel)
                             // C. ÁNH SÁNG MẶT TRỜI TRỰC TIẾP & BÓNG ĐỔ SẮC NÉT CHUẨN MAGICAVOXEL
-							if (!isGlass && diffuseWeight > 0.001 && uSunInt > 0.01) {
-								// Nếu uSunArea == 0, jitter = 0 để bóng đổ sắc như dao cạo (Hard Edge)
-								float shadowJitter = (uSunArea > 0.0) ? (uSunArea * 0.0008) : 0.0;
-								vec3 jitterSun = (shadowJitter > 0.0) 
-									? normalize(uSunDir + sampleSphere(seed) * shadowJitter) 
-									: normalize(uSunDir);
+							// C. ÁNH SÁNG MẶT TRỜI TRỰC TIẾP (KHUẾCH TÁN + PHẢN XẠ KIM LOẠI/GƯƠNG)
+                            if (uSunInt > 0.01) {
+                                float shadowJitter = (uSunArea > 0.0) ? (uSunArea * 0.0008) : 0.0;
+                                vec3 jitterSun = (shadowJitter > 0.0) 
+                                    ? normalize(uSunDir + sampleSphere(seed) * shadowJitter) 
+                                    : normalize(uSunDir);
 
-								float sunWeight = isVolume 
-									? (phaseHG(clamp(dot(jitterSun, rd), -1.0, 1.0), uCloudPhase) * 2.0) 
-									: max(0.0, dot(hitNormal, jitterSun));
+                                float NdotL = max(0.0, dot(hitNormal, jitterSun));
 
-								if (sunWeight > 0.0001) {
-									// Đẩy nhẹ gốc tia bóng đổ theo cả pháp tuyến và hướng nắng để triệt tiêu shadow acne (rỗ bóng)
-									vec3 shadowOrigin = isVolume 
-										? (hitPos + jitterSun * 0.03) 
-										: (hitPos + hitNormal * 0.04 + jitterSun * 0.02);
+                                if (NdotL > 0.0001 || isVolume) {
+                                    vec3 shadowOrigin = isVolume 
+                                        ? (hitPos + jitterSun * 0.03) 
+                                        : (hitPos + hitNormal * 0.04 + jitterSun * 0.02);
 
-									vec3 sunTrans = (uEnableShadow > 0.5) 
-										? shadowTraversal(shadowOrigin, jitterSun, 1000.0, seed) 
-										: vec3(1.0);
+                                    vec3 sunTrans = (uEnableShadow > 0.5) 
+                                        ? shadowTraversal(shadowOrigin, jitterSun, 1000.0, seed) 
+                                        : vec3(1.0);
 
-									if (max(sunTrans.r, max(sunTrans.g, sunTrans.b)) > 0.001) {
-										float sunBounceDamp = (bounce == 0) ? 1.0 : 0.20;
-										// Trả lại toàn bộ cường độ mặt trời uSunInt, tạo tương phản sáng/tối cực mạnh
-										vec3 sunContrib = throughput * albedo * pow(uSunCol, vec3(2.2)) * (sunWeight * uSunInt * sunBounceDamp * diffuseWeight) * sunTrans;
-										radiance += sunContrib;
-									}
-								}
-							}
+                                    if (max(sunTrans.r, max(sunTrans.g, sunTrans.b)) > 0.001) {
+                                        float sunBounceDamp = (bounce == 0) ? 1.0 : 0.20;
+                                        vec3 sunLightCol = pow(uSunCol, vec3(2.2)) * (uSunInt * sunBounceDamp) * sunTrans;
+
+                                        // 1. Ánh sáng khuếch tán (Diffuse) - Chỉ áp dụng cho phần phi kim loại
+                                        if (!isGlass && diffuseWeight > 0.001) {
+                                            float diffFactor = isVolume 
+                                                ? (phaseHG(clamp(dot(jitterSun, rd), -1.0, 1.0), uCloudPhase) * 2.0) 
+                                                : NdotL;
+                                            vec3 sunDiffContrib = throughput * albedo * sunLightCol * (diffFactor * diffuseWeight);
+                                            radiance += sunDiffContrib;
+                                        }
+
+                                        // 2. Điểm sáng kim loại / gương trực tiếp từ Mặt Trời (Specular Glint)
+                                        if (!isVolume) {
+                                            vec3 V = -rd;
+                                            vec3 H = normalize(jitterSun + V);
+                                            float NdotH = max(0.0, dot(hitNormal, H));
+                                            float NdotV = max(0.0, dot(hitNormal, V));
+                                            float VdotH = max(0.0, dot(V, H));
+
+                                            if (NdotV > 0.0001 && NdotH > 0.0001) {
+                                                float rough = 0.05;
+                                                vec3 F0 = vec3(0.04);
+                                                bool hasSpec = false;
+
+                                                if (isMetal) {
+                                                    rough = clamp(metalRough, 0.02, 1.0);
+                                                    F0 = mix(vec3(0.04 * metalSpecular), albedo, metalMetallic);
+                                                    hasSpec = true;
+                                                } else if (isBlend) {
+                                                    rough = clamp(uBlendRoughness, 0.02, 1.0);
+                                                    F0 = mix(vec3(0.04 * uBlendSpecular), albedo, clamp(uBlendMetallic, 0.0, 1.0));
+                                                    hasSpec = true;
+                                                } else if (isGlass) {
+                                                    float iorG = max(1.0, (uGlassIOR < 1.0) ? (1.0 + uGlassIOR) : uGlassIOR);
+                                                    float r0G = pow((1.0 - iorG) / (1.0 + iorG), 2.0);
+                                                    F0 = vec3(r0G);
+                                                    rough = clamp(uGlassRoughness, 0.02, 1.0);
+                                                    hasSpec = true;
+                                                }
+
+                                                if (hasSpec) {
+                                                    // Phân bố vi bề mặt GGX
+                                                    float a = rough * rough;
+                                                    float a2 = a * a;
+                                                    float denom = (NdotH * NdotH * (a2 - 1.0) + 1.0);
+                                                    float D = a2 / max(0.0001, 3.14159265 * denom * denom);
+
+                                                    // Che khuất hình học Smith GGX
+                                                    float k = (rough + 1.0) * (rough + 1.0) / 8.0;
+                                                    float gL = NdotL / (NdotL * (1.0 - k) + k);
+                                                    float gV = NdotV / (NdotV * (1.0 - k) + k);
+                                                    float G = gL * gV;
+
+                                                    // Fresnel Schlick
+                                                    vec3 F = F0 + (vec3(1.0) - F0) * pow(clamp(1.0 - VdotH, 0.0, 1.0), 5.0);
+
+                                                    vec3 specBRDF = (D * G * F) / max(0.001, 4.0 * NdotV);
+                                                    vec3 sunSpecContrib = throughput * specBRDF * sunLightCol;
+                                                    radiance += sunSpecContrib;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
 
                             // D. PHẢN XẠ & KHÚC XẠ BƯỚC TIẾP THEO
                             if (isVolume) {
@@ -7447,14 +7532,23 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     ro = exitPos + refrOut * 0.004;
                                     rd = refrOut;
                                 }
-                            } else if (matTag >= 100.0 && matTag <= 139.0) {
-                                float rough = (matTag - 100.0) / 39.0;
+                            } else if (isMetal) {
                                 vec3 pureReflect = reflect(rd, hitNormal);
-                                vec3 roughReflect = normalize(pureReflect + cosineWeightedHemisphere(hitNormal, seed) * (rough * 0.7));
+                                vec3 jitter = sampleSphere(seed);
+                                if (dot(jitter, hitNormal) < 0.0) jitter = -jitter;
+                                vec3 roughReflect = normalize(pureReflect + jitter * (metalRough * 0.65));
+                                if (dot(roughReflect, hitNormal) <= 0.0) roughReflect = pureReflect;
                                 ro = hitPos + hitNormal * 0.002;
-                                rd = (dot(roughReflect, hitNormal) > 0.0) ? roughReflect : pureReflect;
-                                throughput *= albedo;
-                            } else if (matTag >= 80.0 && matTag <= 99.0) {
+                                rd = roughReflect;
+
+                                // Phản chiếu giữ nguyên màu sắc đặc trưng của kim loại
+                                vec3 F0_metal = mix(vec3(0.04 * metalSpecular), albedo, metalMetallic);
+                                float cosTheta = clamp(dot(hitNormal, -rd), 0.0, 1.0);
+                                vec3 F_metal = F0_metal + (vec3(1.0) - F0_metal) * pow(1.0 - cosTheta, 5.0);
+                                throughput *= F_metal;
+                            }
+							
+							else if (matTag >= 80.0 && matTag <= 99.0) {
                                 // CHẤT LIỆU BLEND CHUẨN MAGICAVOXEL: BỀ MẶT (ROUGH/IOR/SPEC/METAL) + THỂ TÍCH (TRANS/DENSITY/PHASE)
                                 float transparency = clamp((matTag - 80.0) / 19.0, 0.0, 1.0);
                                 float roughness = clamp(uBlendRoughness, 0.0, 1.0);
@@ -7583,17 +7677,16 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                 throughput /= q;
                             }
                         } else {
-							// Bầu trời thế giới thực chuẩn MagicaVoxel:
-							// Nhìn lên (rd.y >= 0): Gradient từ Chân trời (Horizon) lên Đỉnh trời (Zenith)
-							// Nhìn xuống (rd.y < 0): Gradient từ Chân trời (Horizon) xuống Đáy đất (Ground)
 							vec3 skyCol = (rd.y >= 0.0) 
 								? mix(pow(uSkyHorizon, vec3(2.2)), pow(uSkyZenith, vec3(2.2)), pow(clamp(rd.y, 0.0, 1.0), 0.7))
 								: mix(pow(uSkyHorizon, vec3(2.2)), pow(uSkyGround, vec3(2.2)), pow(clamp(-rd.y, 0.0, 1.0), 0.7));
 
 							if (uSkyEnabled > 0.5) {
-								radiance += (bounce == 0) ? skyCol : (skyCol * (uSkyAmbientInt * 0.20) * throughput);
+                                // Xóa bỏ "* 0.20" để hình ảnh phản chiếu bầu trời trên kim loại đạt độ sáng tự nhiên
+								radiance += (bounce == 0) ? skyCol : (skyCol * uSkyAmbientInt * throughput);
 							} else {
 								if (bounce == 0) radiance += pow(uSkyGround, vec3(2.2));
+                                else radiance += pow(uSkyGround, vec3(2.2)) * throughput;
 							}
 							break;
 						}
@@ -7876,6 +7969,25 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 if (val === undefined || Number.isNaN(val)) return 1.30;
                 return (val < 1.0) ? (1.0 + val) : val;
             };
+			
+			// ĐỒNG BỘ THÔNG SỐ METAL TỪ PALETTE / MATERIAL TAB VÀO SHADER
+            if (curMat && curMat.type === 'metal') {
+                pathTraceMaterial.uniforms.uMetalMetallic.value = (curMat.metalness !== undefined) ? curMat.metalness : 1.0;
+                pathTraceMaterial.uniforms.uMetalSpecular.value = (curMat.specular !== undefined) ? curMat.specular : 1.0;
+                pathTraceMaterial.uniforms.uMetalRoughness.value = (curMat.roughness !== undefined) ? curMat.roughness : 0.1;
+                pathTraceMaterial.uniforms.uMetalIOR.value = getSafeIor(curMat.ior);
+            } else {
+                for (let mi = 1; mi <= 256; mi++) {
+                    if (AppState.materialProps[mi]?.type === 'metal') {
+                        const mm = AppState.materialProps[mi];
+                        pathTraceMaterial.uniforms.uMetalMetallic.value = (mm.metalness !== undefined) ? mm.metalness : 1.0;
+                        pathTraceMaterial.uniforms.uMetalSpecular.value = (mm.specular !== undefined) ? mm.specular : 1.0;
+                        pathTraceMaterial.uniforms.uMetalRoughness.value = (mm.roughness !== undefined) ? mm.roughness : 0.1;
+                        pathTraceMaterial.uniforms.uMetalIOR.value = getSafeIor(mm.ior);
+                        break;
+                    }
+                }
+            }
 
             if (curMat && curMat.type === 'glass') {
                 pathTraceMaterial.uniforms.uGlassIOR.value = getSafeIor(curMat.ior);
