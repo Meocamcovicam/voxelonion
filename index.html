@@ -1162,10 +1162,12 @@
     }
 	
 	function setupMaterialControls() {
-        const bindRange = (id, propKey, isInt = false) => {
-            const el = document.getElementById(id);
-            if (!el) return;
-            el.addEventListener('input', (e) => {
+    const bindMatRange = (id, propKey, isInt = false) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        bindUndoableInput(
+            el,
+            (e) => {
                 const val = parseFloat(e.target.value);
                 const p = AppState.materialProps[AppState.selectedColorIndex];
                 if (p) {
@@ -1174,28 +1176,33 @@
                     if (valEl) valEl.textContent = isInt ? Math.round(val) : val.toFixed(isInt ? 0 : 2);
                     updateInstancedMaterial(AppState.selectedColorIndex);
                 }
-            });
-        };
+            },
+            () => {
+                // Đảm bảo cập nhật texture khi nhả chuột
+                updateVoxel3DTexture();
+                updateDynamicEmitLights();
+            }
+        );
+    };
 
-        // Gắn listener cho Emission, Power/Flux và LDR
-        bindRange('prop-emission', 'emission', false);
-        bindRange('prop-power', 'power', false);
-        bindRange('prop-ldr', 'ldr', true);
+    bindMatRange('prop-emission', 'emission', false);
+    bindMatRange('prop-power', 'power', false);
+    bindMatRange('prop-ldr', 'ldr', true);
+    bindMatRange('prop-roughness', 'roughness', false);
+    bindMatRange('prop-metallic', 'metalness', false);
+    bindMatRange('prop-specular', 'specular', false);
+    bindMatRange('prop-ior', 'ior', false);
+    bindMatRange('prop-transparent', 'transparent', false);
+    bindMatRange('prop-cloud-density', 'density', true);
+    bindMatRange('prop-cloud-phase', 'phase', false);
+    bindMatRange('prop-blend-alpha', 'blendAlpha', false);
 
-        // Gắn listener cho các chất liệu khác
-        bindRange('prop-roughness', 'roughness', false);
-        bindRange('prop-metallic', 'metalness', false);
-        bindRange('prop-specular', 'specular', false);
-        bindRange('prop-ior', 'ior', false);
-        bindRange('prop-transparent', 'transparent', false);
-        bindRange('prop-cloud-density', 'density', true);
-        bindRange('prop-cloud-phase', 'phase', false);
-        bindRange('prop-blend-alpha', 'blendAlpha', false);
-
-        // Đổi màu Color Picker
-        const picker = document.getElementById('color-picker');
-        if (picker) {
-            picker.addEventListener('input', (e) => {
+    // Chỉnh màu qua Color Picker (Hỗ trợ Undo)
+    const picker = document.getElementById('color-picker');
+    if (picker) {
+        bindUndoableInput(
+            picker,
+            (e) => {
                 const p = AppState.materialProps[AppState.selectedColorIndex];
                 if (p) {
                     p.color.set(e.target.value);
@@ -1203,107 +1210,111 @@
                     if (swatch) swatch.style.backgroundColor = e.target.value;
                     updateInstancedMaterial(AppState.selectedColorIndex);
                 }
-            });
-        }
-
-        // Chuyển loại vật liệu (Diffuse, Metal, Glass, Emit, Cloud, Blend)
-        document.querySelectorAll('.mat-type-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const newType = btn.dataset.type;
-                const p = AppState.materialProps[AppState.selectedColorIndex];
-                if (p) {
-                    p.type = newType;
-                    updateMaterialUIState(newType);
-                    document.querySelectorAll('.mat-type-btn').forEach(b => {
-                        b.className = (b.dataset.type === newType)
-                            ? "mat-type-btn text-[10px] font-bold py-1.5 rounded bg-blue-600 text-white shadow"
-                            : "mat-type-btn text-[10px] font-bold py-1.5 rounded text-gray-400 hover:text-white";
-                    });
-                    updateInstancedMaterial(AppState.selectedColorIndex);
-                }
-            });
-        });
+            },
+            () => {
+                updateVoxel3DTexture();
+                buildPaletteUI();
+            }
+        );
     }
+
+    // Đổi loại vật liệu (Diffuse, Metal, Glass, Emit, Cloud, Blend)
+    document.querySelectorAll('.mat-type-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const newType = btn.dataset.type;
+            const p = AppState.materialProps[AppState.selectedColorIndex];
+            if (p && p.type !== newType) {
+                const snap = captureStateSnapshot();
+                p.type = newType;
+                recordUndoStep(snap);
+
+                updateMaterialUIState(newType);
+                document.querySelectorAll('.mat-type-btn').forEach(b => {
+                    b.className = (b.dataset.type === newType)
+                        ? "mat-type-btn text-[10px] font-bold py-1.5 rounded bg-blue-600 text-white shadow"
+                        : "mat-type-btn text-[10px] font-bold py-1.5 rounded text-gray-400 hover:text-white";
+                });
+                updateInstancedMaterial(AppState.selectedColorIndex);
+            }
+        });
+    });
+}
 	
 	function setupSunControls() {
-        const elPitch = document.getElementById('prop-sun-pitch');
-        const elYaw = document.getElementById('prop-sun-yaw');
-        const elArea = document.getElementById('prop-sun-area');
-        const elInt = document.getElementById('prop-sun-int');
-        const elCol = document.getElementById('prop-sun-col');
+    const elPitch = document.getElementById('prop-sun-pitch');
+    const elYaw = document.getElementById('prop-sun-yaw');
+    const elArea = document.getElementById('prop-sun-area');
+    const elInt = document.getElementById('prop-sun-int');
+    const elCol = document.getElementById('prop-sun-col');
 
-        if (elPitch) {
-            elPitch.addEventListener('input', (e) => {
-                AppState.sun.pitch = parseFloat(e.target.value);
-                safeSetText('val-sun-pitch', AppState.sun.pitch);
-                updateSunPosition();
-                if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
-            });
-        }
+    const updateSun = () => {
+        updateSunPosition();
+        if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
+    };
 
-        if (elYaw) {
-            elYaw.addEventListener('input', (e) => {
-                AppState.sun.yaw = parseFloat(e.target.value);
-                safeSetText('val-sun-yaw', AppState.sun.yaw);
-                updateSunPosition();
-                if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
-            });
-        }
-
-        if (elArea) {
-            elArea.addEventListener('input', (e) => {
-                AppState.sun.area = parseFloat(e.target.value);
-                safeSetText('val-sun-area', AppState.sun.area);
-                updateSunPosition();
-                if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
-            });
-        }
-
-        if (elInt) {
-            elInt.addEventListener('input', (e) => {
-                AppState.sun.intensity = parseFloat(e.target.value);
-                safeSetText('val-sun-int', AppState.sun.intensity.toFixed(2));
-                updateSunPosition();
-                if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
-            });
-        }
-
-        if (elCol) {
-            elCol.addEventListener('input', (e) => {
-                AppState.sun.color.set(e.target.value);
-                updateSunPosition();
-                if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
-            });
-        }
-    }
+    bindUndoableInput(elPitch, (e) => { AppState.sun.pitch = parseFloat(e.target.value); safeSetText('val-sun-pitch', AppState.sun.pitch); updateSun(); });
+    bindUndoableInput(elYaw, (e) => { AppState.sun.yaw = parseFloat(e.target.value); safeSetText('val-sun-yaw', AppState.sun.yaw); updateSun(); });
+    bindUndoableInput(elArea, (e) => { AppState.sun.area = parseFloat(e.target.value); safeSetText('val-sun-area', AppState.sun.area); updateSun(); });
+    bindUndoableInput(elInt, (e) => { AppState.sun.intensity = parseFloat(e.target.value); safeSetText('val-sun-int', AppState.sun.intensity.toFixed(2)); updateSun(); });
+    bindUndoableInput(elCol, (e) => { AppState.sun.color.set(e.target.value); updateSun(); });
+}
 	
 	function setupFogControls() {
-        const elFogToggle = document.getElementById('fog-enabled');
-        const elFogCol = document.getElementById('prop-fog-col');
-        const elFogDensity = document.getElementById('prop-fog-density');
+    const elFogToggle = document.getElementById('fog-enabled');
+    const elFogCol = document.getElementById('prop-fog-col');
+    const elFogDensity = document.getElementById('prop-fog-density');
 
-        if (elFogToggle) {
-            elFogToggle.addEventListener('change', (e) => {
-                AppState.fog.enabled = e.target.checked;
-                updateFog();
-            });
-        }
-
-        if (elFogCol) {
-            elFogCol.addEventListener('input', (e) => {
-                AppState.fog.color.set(e.target.value);
-                updateFog();
-            });
-        }
-
-        if (elFogDensity) {
-            elFogDensity.addEventListener('input', (e) => {
-                AppState.fog.density = parseFloat(e.target.value);
-                safeSetText('val-fog-density', Math.round(AppState.fog.density));
-                updateFog();
-            });
-        }
+    if (elFogToggle) {
+        elFogToggle.addEventListener('change', (e) => {
+            const snap = captureStateSnapshot();
+            AppState.fog.enabled = e.target.checked;
+            recordUndoStep(snap);
+            updateFog();
+        });
     }
+
+    bindUndoableInput(elFogCol, (e) => {
+        AppState.fog.color.set(e.target.value);
+        updateFog();
+    });
+
+    bindUndoableInput(elFogDensity, (e) => {
+        AppState.fog.density = parseFloat(e.target.value);
+        safeSetText('val-fog-density', Math.round(AppState.fog.density));
+        updateFog();
+    });
+}
+
+function setupSkyControls() {
+    const skyToggle = document.getElementById('sky-enabled');
+    if (skyToggle) {
+        skyToggle.addEventListener('change', (e) => {
+            const snap = captureStateSnapshot();
+            AppState.sky.enabled = e.target.checked;
+            recordUndoStep(snap);
+            updateSkyboxColors();
+        });
+    }
+
+    const bindSkyCol = (id, propKey) => {
+        const el = document.getElementById(id);
+        bindUndoableInput(el, (e) => {
+            AppState.sky[propKey].set(e.target.value);
+            updateSkyboxColors();
+        });
+    };
+
+    bindSkyCol('sky-zenith-col', 'zenith');
+    bindSkyCol('sky-horizon-col', 'horizon');
+    bindSkyCol('sky-ground-col', 'ground');
+
+    const elAmbient = document.getElementById('prop-sky-ambient-int');
+    bindUndoableInput(elAmbient, (e) => {
+        AppState.sky.ambientIntensity = parseFloat(e.target.value);
+        safeSetText('val-sky-ambient-int', AppState.sky.ambientIntensity.toFixed(2));
+        updateSkyboxColors();
+    });
+}
 
     function updateFog() {
         // 1. Áp dụng cho chế độ Preview
@@ -1517,9 +1528,15 @@
 
         AppState.selectionPivotGroup = new THREE.Group();
         AppState.scene.add(AppState.selectionPivotGroup);
-
+		
 		AppState.transformControls = new TransformControls(AppState.camera, AppState.renderer.domElement);
         AppState.transformControls.size = 0.85;
+		
+		let gizmoTransformStartSnapshot = null;
+
+		AppState.transformControls.addEventListener('mouseDown', () => {
+			gizmoTransformStartSnapshot = captureStateSnapshot();
+		});
 		
 		// Tự động vô hiệu hóa OrbitControls khi đang kéo Gizmo
         AppState.transformControls.addEventListener('dragging-changed', (event) => {
@@ -2487,19 +2504,24 @@
 
     // --- Khắc phục triệt để lỗi rỗ khối khi Rotate, lỗi giật scale 1 trục & không deselect sau transform ---
     function applyGizmoTransformToVoxels() {
+	
         if (!AppState.selectionPivotGroup || AppState.selectedVoxels.size === 0 || !AppState.model) return;
 
-        const pivot = AppState.selectionPivotGroup;
-        const pPos = pivot.position.clone();
-        const pRot = pivot.rotation.clone();
-        const pScale = pivot.scale.clone();
+    const pivot = AppState.selectionPivotGroup;
+    const pPos = pivot.position.clone();
+    const pRot = pivot.rotation.clone();
+    const pScale = pivot.scale.clone();
 
-        if (pPos.lengthSq() < 1e-4 && Math.abs(pRot.x) < 1e-4 && Math.abs(pRot.y) < 1e-4 && Math.abs(pRot.z) < 1e-4 &&
-            Math.abs(pScale.x - 1) < 1e-4 && Math.abs(pScale.y - 1) < 1e-4 && Math.abs(pScale.z - 1) < 1e-4) {
-            return;
-        }
+    // Nếu không có sự thay đổi tọa độ, hủy bỏ
+    if (pPos.lengthSq() < 1e-4 && Math.abs(pRot.x) < 1e-4 && Math.abs(pRot.y) < 1e-4 && Math.abs(pRot.z) < 1e-4 &&
+        Math.abs(pScale.x - 1) < 1e-4 && Math.abs(pScale.y - 1) < 1e-4 && Math.abs(pScale.z - 1) < 1e-4) {
+        gizmoTransformStartSnapshot = null;
+        return;
+    }
 
-        const snapshotBefore = captureStateSnapshot();
+    // Lấy snapshot đã lưu lúc mouseDown (nếu không có thì chụp snapshot hiện tại)
+    const snapshotBefore = gizmoTransformStartSnapshot || captureStateSnapshot();
+    gizmoTransformStartSnapshot = null;
        
         if (historyUndo.length > MAX_HISTORY) historyUndo.shift();
         historyRedo.length = 0;
@@ -2635,30 +2657,41 @@
 
       // Tính toán lại Bounding Box thực tế của các khối sau khi dịch chuyển/xoay/co giãn
       let bMinX = Infinity, bMinY = Infinity, bMinZ = Infinity;
-      let bMaxX = -Infinity, bMaxY = -Infinity, bMaxZ = -Infinity;
-      for (const key of newSelectedKeys) {
-          const [kx, ky, kz] = key.split(',').map(Number);
-          if (kx < bMinX) bMinX = kx;
-          if (kx > bMaxX) bMaxX = kx;
-          if (ky < bMinY) bMinY = ky;
-          if (ky > bMaxY) bMaxY = ky;
-          if (kz < bMinZ) bMinZ = kz;
-          if (kz > bMaxZ) bMaxZ = kz;
-      }
-      AppState.selectionBounds = (newSelectedKeys.size > 0) 
-          ? { minX: bMinX, minY: bMinY, minZ: bMinZ, maxX: bMaxX, maxY: bMaxY, maxZ: bMaxZ }
-          : null;
-
-      AppState.isTransformingGizmo = false;
-      recordUndoStep(snapshotBefore);
-      pivot.position.set(0, 0, 0);
-      pivot.rotation.set(0, 0, 0);
-      pivot.scale.set(1, 1, 1);
-
-      rebuildMesh();
-      updateSelectionBoxVisual();
-      showToast("Transformed & maintained selection successfully!", "success");
+    let bMaxX = -Infinity, bMaxY = -Infinity, bMaxZ = -Infinity;
+    for (const key of newSelectedKeys) {
+        const [kx, ky, kz] = key.split(',').map(Number);
+        if (kx < bMinX) bMinX = kx;
+        if (kx > bMaxX) bMaxX = kx;
+        if (ky < bMinY) bMinY = ky;
+        if (ky > bMaxY) bMaxY = ky;
+        if (kz < bMinZ) bMinZ = kz;
+        if (kz > bMaxZ) bMaxZ = kz;
     }
+    AppState.selectionBounds = (newSelectedKeys.size > 0) 
+        ? { minX: bMinX, minY: bMinY, minZ: bMinZ, maxX: bMaxX, maxY: bMaxY, maxZ: bMaxZ }
+        : null;
+
+    AppState.isTransformingGizmo = false;
+
+    // Đẩy snapshot bắt đầu vào lịch sử Undo
+    recordUndoStep(snapshotBefore);
+
+    pivot.position.set(0, 0, 0);
+    pivot.rotation.set(0, 0, 0);
+    pivot.scale.set(1, 1, 1);
+
+    rebuildMesh();
+    updateSelectionBoxVisual();
+    showToast("Transformed successfully!", "success");
+    }
+	
+	function selectColorWithUndo(index) {
+    if (!index || index < 1 || index > 256 || index === AppState.selectedColorIndex) return;
+    const snap = captureStateSnapshot();
+    selectColor(index);
+    recordUndoStep(snap);
+}
+
 
     function updateSelectionCountUI() {
         const badge = document.getElementById('selected-voxel-count-badge');
@@ -3107,39 +3140,31 @@
 
         const btnClear = document.getElementById('btn-clear-scene');
         if (btnClear) {
-            btnClear.addEventListener('click', () => {
+            btnClear.onclick = () => {
                 if (!AppState.model || AppState.model.voxels.length === 0) return;
-                const prevSnapshot = AppState.model.voxels.map(v => ({ ...v }));
-                historyUndo.push(prevSnapshot);
-                if (historyUndo.length > MAX_HISTORY) historyUndo.shift();
-                historyRedo.length = 0;
-                updateUndoRedoUI();
-
+                const snap = captureStateSnapshot();
                 AppState.model.voxels = [];
                 AppState.usedIndices.clear();
                 clearSelection();
+                recordUndoStep(snap); // Ghi nhận Undo chuẩn snapshot
                 rebuildMesh();
                 buildPaletteUI();
                 showToast("Cleared all voxels", "success");
-            });
+            };
         }
 
         const btnFillFull = document.getElementById('btn-fill-full');
         if (btnFillFull) {
-            btnFillFull.addEventListener('click', () => {
+            btnFillFull.onclick = () => {
                 if (!AppState.model) return;
-                const prevSnapshot = AppState.model.voxels.map(v => ({ ...v }));
-                historyUndo.push(prevSnapshot);
-                if (historyUndo.length > MAX_HISTORY) historyUndo.shift();
-                historyRedo.length = 0;
-                updateUndoRedoUI();
-
+                const snap = captureStateSnapshot();
                 fillDefaultFullBox(AppState.model.size, AppState.selectedColorIndex);
                 clearSelection();
+                recordUndoStep(snap); // Ghi nhận Undo chuẩn snapshot
                 rebuildMesh();
                 buildPaletteUI();
                 showToast(`Filled full box ${AppState.model.size.x}x${AppState.model.size.y}x${AppState.model.size.z}`, "success");
-            });
+            };
         }
     }
 
@@ -3444,7 +3469,31 @@
     function onKeyDown(e) {
         AppState.freeKeys[e.code] = true;
 
-        if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+		if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+
+		// --- XỬ LÝ PHÍM TẮT UNDO / REDO (CHỐNG NHẢY 2 LẦN) ---
+		const isCtrlOrCmd = e.ctrlKey || e.metaKey;
+		const isZKey = (e.key && e.key.toLowerCase() === 'z') || e.code === 'KeyZ';
+		const isYKey = (e.key && e.key.toLowerCase() === 'y') || e.code === 'KeyY';
+
+		if (isCtrlOrCmd && isZKey) {
+			e.preventDefault();
+			if (e.repeat) return; // Triệt tiêu key-repeat tự động của hệ điều hành
+			if (e.shiftKey) {
+				executeRedo();
+			} else {
+				executeUndo();
+			}
+			return;
+		}
+
+		if (isCtrlOrCmd && isYKey) {
+			e.preventDefault();
+			if (e.repeat) return; // Triệt tiêu key-repeat tự động của hệ điều hành
+			executeRedo();
+			return;
+		}
+        // -------------------------------------
 
         if (e.code === 'Space' && !AppState.isSpaceDown) {
             AppState.isSpaceDown = true;
@@ -3640,39 +3689,84 @@
     let strokeDidModify = false;
 
 	// Hàm chụp lại trạng thái đầy đủ (gồm cả voxel và danh sách vùng chọn)
-	// Chụp lại toàn bộ trạng thái: Voxel, Vùng chọn, Kích thước khung và 256 Vật liệu
-    function captureStateSnapshot() {
-        if (!AppState.model || !AppState.model.voxels) return null;
-        
-        const matPropsCopy = {};
-        for (let i = 1; i <= 256; i++) {
-            const p = AppState.materialProps[i];
-            matPropsCopy[i] = {
-                type: p.type,
-                colorHex: p.color.getHex(),
-                roughness: p.roughness,
-                metalness: p.metalness,
-                specular: p.specular,
-                transparent: p.transparent,
-                ior: p.ior,
-                emission: p.emission,
-                power: p.power,
-                ldr: p.ldr,
-                density: p.density,
-                phase: p.phase,
-                blendAlpha: p.blendAlpha
-            };
-        }
-
-        return {
-            size: { ...AppState.model.size },
-            voxels: AppState.model.voxels.map(v => ({ x: v.x, y: v.y, z: v.z, i: v.i, l: v.l })),
-            selectedVoxels: Array.from(AppState.selectedVoxels || []),
-            materialProps: matPropsCopy,
-            layers: JSON.parse(JSON.stringify(AppState.layers)),
-            activeLayerId: AppState.activeLayerId
+	// 1. Chụp toàn bộ trạng thái hệ thống
+function captureStateSnapshot() {
+    if (!AppState.model || !AppState.model.voxels) return null;
+    
+    // Sao chép sâu 256 thông số vật liệu
+    const matPropsCopy = {};
+    for (let i = 1; i <= 256; i++) {
+        const p = AppState.materialProps[i];
+        matPropsCopy[i] = {
+            type: p.type,
+            colorHex: p.color.getHex(),
+            roughness: p.roughness,
+            metalness: p.metalness,
+            specular: p.specular,
+            transparent: p.transparent,
+            ior: p.ior,
+            emission: p.emission,
+            power: p.power,
+            ldr: p.ldr,
+            density: p.density,
+            phase: p.phase,
+            blendAlpha: p.blendAlpha
         };
     }
+
+    return {
+        // Mô hình & Vùng chọn
+        size: { ...AppState.model.size },
+        voxels: AppState.model.voxels.map(v => ({ x: v.x, y: v.y, z: v.z, i: v.i, l: v.l })),
+        selectedVoxels: Array.from(AppState.selectedVoxels || []),
+        selectedColorIndex: AppState.selectedColorIndex,
+        
+        // Vật liệu & Bảng màu
+        materialProps: matPropsCopy,
+        usedIndices: Array.from(AppState.usedIndices || [1]),
+
+        // Layer
+        layers: JSON.parse(JSON.stringify(AppState.layers)),
+        activeLayerId: AppState.activeLayerId,
+        autoSelectLayer: AppState.autoSelectLayer,
+
+        // Ánh sáng (Sun, Sky, Fog)
+        sun: {
+            pitch: AppState.sun.pitch,
+            yaw: AppState.sun.yaw,
+            area: AppState.sun.area,
+            intensity: AppState.sun.intensity,
+            colorHex: AppState.sun.color.getHex()
+        },
+        sky: {
+            enabled: AppState.sky.enabled,
+            zenithHex: AppState.sky.zenith.getHex(),
+            horizonHex: AppState.sky.horizon.getHex(),
+            groundHex: AppState.sky.ground.getHex(),
+            ambientIntensity: AppState.sky.ambientIntensity
+        },
+        fog: {
+            enabled: AppState.fog.enabled,
+            colorHex: AppState.fog.color.getHex(),
+            density: AppState.fog.density
+        },
+
+        // Render & Hậu kỳ (Post-processing)
+        sampleOptions: { ...AppState.sampleOptions },
+        postProcess: {
+            filterEnabled: AppState.filterEnabled,
+            exposure: AppState.exposure,
+            saturation: AppState.saturation,
+            vibrance: AppState.vibrance,
+            bloomStrength: AppState.bloomStrength
+        },
+        renderConfig: {
+            width: AppState.resolutionWidth,
+            height: AppState.resolutionHeight,
+            samples: AppState.maxRenderFrames
+        }
+    };
+}
 
     // Hàm lưu vào ngăn xếp Undo chuẩn xác
    // Đẩy một bước vào Undo và cập nhật trạng thái bật/tắt của nút mũi tên
@@ -3707,88 +3801,191 @@
         });
     }
 
-	function restoreStateFromSnapshot(snapshot) {
-        if (!snapshot) return;
-        
-		if (snapshot.layers) {
-            AppState.layers = JSON.parse(JSON.stringify(snapshot.layers));
-            AppState.activeLayerId = snapshot.activeLayerId || AppState.layers[0]?.id;
-            renderLayerUI();
+	// 2. Phục hồi trạng thái và đồng bộ lại 3D Scene cùng UI
+function restoreStateFromSnapshot(snapshot) {
+    if (!snapshot) return;
+
+    // A. Khôi phục Layer
+    if (snapshot.layers) {
+        AppState.layers = JSON.parse(JSON.stringify(snapshot.layers));
+        AppState.activeLayerId = snapshot.activeLayerId || AppState.layers[0]?.id;
+        AppState.autoSelectLayer = !!snapshot.autoSelectLayer;
+        const autoToggle = document.getElementById('layer-auto-select-toggle');
+        if (autoToggle) autoToggle.checked = AppState.autoSelectLayer;
+        renderLayerUI();
+    }
+
+    // B. Khôi phục Kích thước khung Model
+    if (snapshot.size) {
+        AppState.model.size = { ...snapshot.size };
+        safeSetVal('input-size-x', snapshot.size.x);
+        safeSetVal('input-size-y', snapshot.size.y);
+        safeSetVal('input-size-z', snapshot.size.z);
+        updateBoundingBoxFrame(snapshot.size);
+        buildMagicaVoxelGrids(snapshot.size);
+    }
+
+    // C. Khôi phục Voxel & Vùng chọn
+    AppState.model.voxels = snapshot.voxels.map(v => ({ x: v.x, y: v.y, z: v.z, i: v.i, l: v.l }));
+    AppState.selectedVoxels = new Set(snapshot.selectedVoxels || []);
+
+    // D. Khôi phục Vật liệu & Bảng màu
+    if (snapshot.materialProps) {
+        for (let i = 1; i <= 256; i++) {
+            const src = snapshot.materialProps[i];
+            if (src && AppState.materialProps[i]) {
+                const p = AppState.materialProps[i];
+                p.type = src.type;
+                p.color.setHex(src.colorHex);
+                p.roughness = src.roughness;
+                p.metalness = src.metalness;
+                p.specular = src.specular;
+                p.transparent = src.transparent;
+                p.ior = src.ior;
+                p.emission = src.emission;
+                p.power = src.power;
+                p.ldr = src.ldr;
+                p.density = src.density;
+                p.phase = src.phase;
+                p.blendAlpha = src.blendAlpha;
+            }
         }
-		
-        // 1. Khôi phục kích thước khung Model
-        if (snapshot.size) {
-            AppState.model.size = { ...snapshot.size };
-            safeSetVal('input-size-x', snapshot.size.x);
-            safeSetVal('input-size-y', snapshot.size.y);
-            safeSetVal('input-size-z', snapshot.size.z);
-            updateBoundingBoxFrame(snapshot.size);
-            buildMagicaVoxelGrids(snapshot.size);
-        }
+    }
+    AppState.usedIndices = new Set(snapshot.usedIndices || [1]);
+    AppState.selectedColorIndex = snapshot.selectedColorIndex || 1;
 
-        // 2. Khôi phục Voxel & Vùng chọn
-        AppState.model.voxels = snapshot.voxels.map(v => ({ x: v.x, y: v.y, z: v.z, i: v.i, l: v.l }));
-        AppState.selectedVoxels = new Set(snapshot.selectedVoxels || []);
+    // E. Khôi phục Ánh sáng
+    if (snapshot.sun) {
+        AppState.sun.pitch = snapshot.sun.pitch;
+        AppState.sun.yaw = snapshot.sun.yaw;
+        AppState.sun.area = snapshot.sun.area;
+        AppState.sun.intensity = snapshot.sun.intensity;
+        AppState.sun.color.setHex(snapshot.sun.colorHex);
+    }
+    if (snapshot.sky) {
+        AppState.sky.enabled = snapshot.sky.enabled;
+        AppState.sky.zenith.setHex(snapshot.sky.zenithHex);
+        AppState.sky.horizon.setHex(snapshot.sky.horizonHex);
+        AppState.sky.ground.setHex(snapshot.sky.groundHex);
+        AppState.sky.ambientIntensity = snapshot.sky.ambientIntensity;
+    }
+    if (snapshot.fog) {
+        AppState.fog.enabled = snapshot.fog.enabled;
+        AppState.fog.color.setHex(snapshot.fog.colorHex);
+        AppState.fog.density = snapshot.fog.density;
+    }
 
-        // 3. Khôi phục bảng màu Palette & Thuộc tính vật liệu
-		// 3. Khôi phục bảng màu Palette & Thuộc tính vật liệu
-		if (snapshot.materialProps) {
-			for (let i = 1; i <= 256; i++) {
-				const src = snapshot.materialProps[i];
-				if (src && AppState.materialProps[i]) {
-					const p = AppState.materialProps[i];
-					p.type = src.type;
-					p.color.setHex(src.colorHex);
-					p.roughness = src.roughness;
-					p.metalness = src.metalness;
-					p.specular = src.specular;
-					p.transparent = src.transparent;
-					p.ior = src.ior;
-					p.emission = src.emission;
-					p.power = src.power;
-					p.ldr = src.ldr;
-					p.density = src.density;
-					p.phase = src.phase;
-					p.blendAlpha = src.blendAlpha;
-				}
-			}
-		}
+    // F. Khôi phục Render & Post-Processing
+    if (snapshot.sampleOptions) {
+        AppState.sampleOptions = { ...snapshot.sampleOptions };
+        setupSampleOptionControls();
+    }
+    if (snapshot.postProcess) {
+        AppState.filterEnabled = snapshot.postProcess.filterEnabled;
+        AppState.exposure = snapshot.postProcess.exposure;
+        AppState.saturation = snapshot.postProcess.saturation;
+        AppState.vibrance = snapshot.postProcess.vibrance;
+        AppState.bloomStrength = snapshot.postProcess.bloomStrength;
+    }
+    if (snapshot.renderConfig) {
+        AppState.resolutionWidth = snapshot.renderConfig.width;
+        AppState.resolutionHeight = snapshot.renderConfig.height;
+        AppState.maxRenderFrames = snapshot.renderConfig.samples;
+    }
 
-        AppState.usedIndices.clear();
-        AppState.model.voxels.forEach(v => {
-            if (v.i > 0) AppState.usedIndices.add(v.i);
-        });
+    // G. Đồng bộ giao diện (Sliders, Color pickers, Inputs) & Viewport
+    syncUIFromState();
+    selectColor(AppState.selectedColorIndex);
+    buildPaletteUI();
+    rebuildMesh();
+    updateSelectionBoxVisual();
+    updateSkyboxColors();
+    updateFog();
+    updateSunPosition();
+    updateFilterUniforms();
+    updateUndoRedoUI();
 
-        selectColor(AppState.selectedColorIndex);
-        rebuildMesh();
-        buildPaletteUI();
-        updateSelectionBoxVisual();
-        updateUndoRedoUI();
+    // H. Đồng bộ Shader Path Tracing
+    updateVoxel3DTexture();
+    updateDynamicEmitLights();
+    if (AppState.renderMode === 'pathtrace') {
+        AppState.latestAccumTarget = null;
+        AppState.needsAccumulationReset = true;
     }
 	
+}
+
+
+let activeInputTransactionSnapshot = null;
+let activeInputInitialValue = null;
+
+function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
+    if (!element) return;
+
+    const startTransaction = () => {
+        if (!activeInputTransactionSnapshot) {
+            activeInputTransactionSnapshot = captureStateSnapshot();
+            activeInputInitialValue = element.value;
+        }
+    };
+
+    element.addEventListener('pointerdown', startTransaction);
+    element.addEventListener('focus', startTransaction);
+
+    element.addEventListener('input', (e) => {
+        if (onInputCallback) onInputCallback(e);
+    });
+
+    const commitTransaction = (e) => {
+        if (activeInputTransactionSnapshot) {
+            // Chỉ ghi nhận Undo khi giá trị thực sự có biến động
+            if (element.value !== activeInputInitialValue) {
+                if (onCommitCallback) onCommitCallback(e);
+                recordUndoStep(activeInputTransactionSnapshot);
+            }
+            activeInputTransactionSnapshot = null;
+            activeInputInitialValue = null;
+        }
+    };
+
+    element.addEventListener('change', commitTransaction);
+    element.addEventListener('blur', commitTransaction);
+}
+
+
+	let lastUndoTime = 0;
+	let lastRedoTime = 0;
+	const UNDO_REDO_COOLDOWN = 150; // ms: chặn hoàn toàn double-event từ bộ gõ và phím nảy
+
 	function executeUndo() {
-        if (!AppState.model || historyUndo.length === 0) return;
+		const now = performance.now();
+		if (now - lastUndoTime < UNDO_REDO_COOLDOWN) return;
+		if (!AppState.model || historyUndo.length === 0) return;
+		lastUndoTime = now;
 
-        const currentSnapshot = captureStateSnapshot();
-        historyRedo.push(currentSnapshot);
-        if (historyRedo.length > MAX_HISTORY) historyRedo.shift();
+		const currentSnapshot = captureStateSnapshot();
+		historyRedo.push(currentSnapshot);
+		if (historyRedo.length > MAX_HISTORY) historyRedo.shift();
 
-        const prevSnapshot = historyUndo.pop();
-        restoreStateFromSnapshot(prevSnapshot);
-        showToast("Undo performed", "success");
-    }
+		const prevSnapshot = historyUndo.pop();
+		restoreStateFromSnapshot(prevSnapshot);
+		showToast("Undo performed", "success");
+	}
 
 	function executeRedo() {
-        if (!AppState.model || historyRedo.length === 0) return;
+		const now = performance.now();
+		if (now - lastRedoTime < UNDO_REDO_COOLDOWN) return;
+		if (!AppState.model || historyRedo.length === 0) return;
+		lastRedoTime = now;
 
-        const currentSnapshot = captureStateSnapshot();
-        historyUndo.push(currentSnapshot);
-        if (historyUndo.length > MAX_HISTORY) historyUndo.shift();
+		const currentSnapshot = captureStateSnapshot();
+		historyUndo.push(currentSnapshot);
+		if (historyUndo.length > MAX_HISTORY) historyUndo.shift();
 
-        const nextSnapshot = historyRedo.pop();
-        restoreStateFromSnapshot(nextSnapshot);
-        showToast("Redo performed", "success");
-    }
+		const nextSnapshot = historyRedo.pop();
+		restoreStateFromSnapshot(nextSnapshot);
+		showToast("Redo performed", "success");
+	}
 	
 	
 
@@ -3971,6 +4168,12 @@
 
     function fillEntireGridPlaneLayer(gridHit) {
         if (!AppState.model || !gridHit) return false;
+
+        // Bổ sung: Chặn nếu Layer hiện tại đang bị khóa
+        if (getActiveLayer().locked) {
+            showToast(`Layer "${getActiveLayer().name}" đang bị khóa, không thể Attach!`, "error");
+            return false;
+        }
 
         const sx = AppState.model.size.x;
         const sy = AppState.model.size.y;
@@ -4507,7 +4710,7 @@
 
 				const targetColorIdx = (ray.voxel && ray.voxel.i) ? ray.voxel.i : (ray.colorIndex || 1);
 				if (targetColorIdx >= 1 && targetColorIdx <= 256) {
-					selectColor(targetColorIdx);
+					selectColorWithUndo(targetColorIdx);
 
 					const matTabBtn = document.querySelector('.tab-btn[data-tab="material"]');
 					if (matTabBtn) matTabBtn.click();
@@ -4716,10 +4919,21 @@
                     event.stopImmediatePropagation();
                     if (AppState.controls) AppState.controls.enabled = false;
 
-                    strokeSnapshot = captureStateSnapshot();
-                    strokeDidModify = false;
+                    // 1. Chụp lại snapshot toàn bộ trạng thái TRƯỚC KHI phủ mặt phẳng
+                    const snapBefore = captureStateSnapshot();
 
-                    fillEntireGridPlaneLayer(gridHit);
+                    // 2. Thực hiện phủ mặt phẳng voxel
+                    const wasModified = fillEntireGridPlaneLayer(gridHit);
+
+                    // 3. Nếu có thay đổi, ghi nhận Undo ngay lập tức!
+                    if (wasModified) {
+                        recordUndoStep(snapBefore);
+                    }
+
+                    // 4. Reset các cờ tương tác để onPointerUp không ghi đè lặp lại
+                    strokeSnapshot = null;
+                    strokeDidModify = false;
+                    AppState.isInteracting = false;
                     return;
                 }
             }
@@ -6331,35 +6545,50 @@
     }
 
     function setupFilterControls() {
-        const elFilterToggle = document.getElementById('filter-enabled');
-        if (elFilterToggle) {
-            elFilterToggle.addEventListener('change', e => {
-                AppState.filterEnabled = e.target.checked;
-                updateFilterUniforms();
-                if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
-            });
-        }
-
-        const elSat = document.getElementById('prop-render-saturation');
-        if (elSat) {
-            elSat.addEventListener('input', e => {
-                AppState.saturation = parseFloat(e.target.value);
-                safeSetText('val-render-saturation', AppState.saturation.toFixed(2));
-                updateFilterUniforms();
-                if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
-            });
-        }
-
-        const elVib = document.getElementById('prop-render-vibrance');
-        if (elVib) {
-            elVib.addEventListener('input', e => {
-                AppState.vibrance = parseFloat(e.target.value);
-                safeSetText('val-render-vibrance', AppState.vibrance.toFixed(2));
-                updateFilterUniforms();
-                if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
-            });
-        }
+    const elFilterToggle = document.getElementById('filter-enabled');
+    if (elFilterToggle) {
+        elFilterToggle.addEventListener('change', e => {
+            const snap = captureStateSnapshot();
+            AppState.filterEnabled = e.target.checked;
+            recordUndoStep(snap);
+            updateFilterUniforms();
+            if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
+        });
     }
+
+    const elSat = document.getElementById('prop-render-saturation');
+    bindUndoableInput(elSat, e => {
+        AppState.saturation = parseFloat(e.target.value);
+        safeSetText('val-render-saturation', AppState.saturation.toFixed(2));
+        updateFilterUniforms();
+        if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
+    });
+
+    const elVib = document.getElementById('prop-render-vibrance');
+    bindUndoableInput(elVib, e => {
+        AppState.vibrance = parseFloat(e.target.value);
+        safeSetText('val-render-vibrance', AppState.vibrance.toFixed(2));
+        updateFilterUniforms();
+        if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
+    });
+
+    const elExposure = document.getElementById('prop-render-exposure');
+    bindUndoableInput(elExposure, e => {
+        AppState.exposure = parseFloat(e.target.value);
+        safeSetText('val-render-exposure', AppState.exposure.toFixed(2));
+        updateFilterUniforms();
+        AppState.renderer.toneMappingExposure = AppState.exposure;
+        if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
+    });
+
+    const elBloom = document.getElementById('prop-bloom-strength');
+    bindUndoableInput(elBloom, e => {
+        AppState.bloomStrength = parseFloat(e.target.value);
+        safeSetText('val-bloom-strength', AppState.bloomStrength.toFixed(2));
+        if (AppState.bloomPass) AppState.bloomPass.strength = AppState.bloomStrength;
+        updateFilterUniforms();
+    });
+}
 	
 	
 	function getActiveLayer() {
@@ -6382,65 +6611,42 @@
     }
 	
 	function setupResolutionControls() {
-		  const inputW = document.getElementById('render-width');
-		  const inputH = document.getElementById('render-height');
-		  const inputSamples = document.getElementById('render-samples');
-		  const btnFit = document.getElementById('btn-fit-screen');
+    const inputW = document.getElementById('render-width');
+    const inputH = document.getElementById('render-height');
+    const inputSamples = document.getElementById('render-samples');
 
-		  const onResChange = () => {
-			  const w = Math.max(64, Math.min(4096, parseInt(inputW.value) || 1280));
-			  const h = Math.max(64, Math.min(4096, parseInt(inputH.value) || 720));
-			  inputW.value = w;
-			  inputH.value = h;
-			  inputW.dataset.custom = 'true';
+    const bindNumericConfig = (el, onApply) => {
+        if (!el) return;
+        let snap = null;
+        el.addEventListener('focus', () => { snap = captureStateSnapshot(); });
+        el.addEventListener('change', () => {
+            if (snap) {
+                recordUndoStep(snap);
+                snap = null;
+            }
+            onApply();
+        });
+    };
 
-			  AppState.resolutionWidth = w;
-			  AppState.resolutionHeight = h;
+    bindNumericConfig(inputW, () => {
+        AppState.resolutionWidth = Math.max(64, Math.min(4096, parseInt(inputW.value) || 1280));
+        inputW.dataset.custom = 'true';
+        updateRenderViewportSize();
+        if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
+    });
 
-			  updateRenderViewportSize();
-			  if (AppState.renderMode === 'pathtrace') {
-				  AppState.needsAccumulationReset = true;
-			  }
-		  };
+    bindNumericConfig(inputH, () => {
+        AppState.resolutionHeight = Math.max(64, Math.min(4096, parseInt(inputH.value) || 720));
+        inputH.dataset.custom = 'true';
+        updateRenderViewportSize();
+        if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
+    });
 
-		  if (inputW) {
-			  inputW.addEventListener('change', onResChange);
-			  inputW.addEventListener('keydown', (e) => { if (e.key === 'Enter') onResChange(); });
-		  }
-		  if (inputH) {
-			  inputH.addEventListener('change', onResChange);
-			  inputH.addEventListener('keydown', (e) => { if (e.key === 'Enter') onResChange(); });
-		  }
-
-		  if (inputSamples) {
-			  inputSamples.addEventListener('change', (e) => {
-				  const s = Math.max(1, Math.min(4096, parseInt(e.target.value) || 64));
-				  inputSamples.value = s;
-				  AppState.maxRenderFrames = s;
-				  if (AppState.renderMode === 'pathtrace') {
-					  AppState.needsAccumulationReset = true;
-				  }
-			  });
-		  }
-
-		  if (btnFit && inputW && inputH) {
-			  btnFit.addEventListener('click', (e) => {
-				  e.preventDefault();
-				  delete inputW.dataset.custom;
-				  const sw = window.innerWidth;
-				  const sh = window.innerHeight;
-				  AppState.resolutionWidth = sw;
-				  AppState.resolutionHeight = sh;
-				  inputW.value = sw;
-				  inputH.value = sh;
-				  updateRenderViewportSize();
-				  if (AppState.renderMode === 'pathtrace') {
-					  AppState.needsAccumulationReset = true;
-				  }
-				  showToast("Fitted to screen!", "success");
-			  });
-		  }
-	  }
+    bindNumericConfig(inputSamples, () => {
+        AppState.maxRenderFrames = Math.max(1, Math.min(4096, parseInt(inputSamples.value) || 64));
+        if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
+    });
+}
 
     function updateFilterUniforms() {
 		if (AppState.displayMaterial) {
@@ -7815,7 +8021,7 @@
                 swatch.classList.add('selected');
             }
 
-            swatch.addEventListener('click', () => selectColor(i));
+            swatch.addEventListener('click', () => selectColorWithUndo(i));
             grid.appendChild(swatch);
         }
 
