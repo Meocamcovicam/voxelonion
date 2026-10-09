@@ -306,7 +306,7 @@
             <button class="cam-btn" id="cam-iso" data-mode="iso">Iso</button>
             <button class="cam-btn" id="cam-ortho" data-mode="ortho">Ortho</button>
 
-            <button id="btn-touch-nav-toggle" class="cam-btn flex items-center gap-1 text-amber-400 border-amber-600/60 ml-1 shrink-0" title="Chuyển chế độ xoay / pan">
+            <button id="btn-touch-nav-toggle" class="cam-btn flex items-center gap-1 text-amber-400 border-amber-600/60 ml-1 shrink-0" title="Toggle Orbit / Pan mode">
                 <span id="touch-nav-icon">🔄</span>
                 <span id="touch-nav-text" class="text-[10px]">Orbit</span>
             </button>
@@ -418,12 +418,12 @@
             <div class="flex justify-between items-center mt-1 shrink-0 border-t border-gray-700 pt-1.5">
                 <div class="flex items-center gap-1.5">
                     <h3 class="text-[10px] uppercase tracking-widest font-bold text-gray-400">Palette</h3>
-                    <label for="color-picker" class="flex items-center gap-1 bg-[#141418] hover:bg-[#22222c] px-1.5 py-0.5 rounded border border-gray-700 cursor-pointer transition-colors shadow-sm" title="Bấm để đổi mã màu">
+                    <label for="color-picker" class="flex items-center gap-1 bg-[#141418] hover:bg-[#22222c] px-1.5 py-0.5 rounded border border-gray-700 cursor-pointer transition-colors shadow-sm" title="Click to change color">
                         <span class="text-[9px] text-gray-400 font-bold uppercase">Color:</span>
                         <input type="color" id="color-picker" value="#ffffff" class="w-5 h-4 p-0 border-0 cursor-pointer bg-transparent rounded">
                     </label>
                     <!-- Nút thêm màu nổi bật trên thanh tiêu đề -->
-                    <button id="btn-header-add-color" class="bg-blue-600 hover:bg-blue-500 text-white font-black px-2 py-0.5 rounded text-xs leading-none shadow flex items-center justify-center transition-transform active:scale-95" title="Thêm ô màu mới">+</button>
+                    <button id="btn-header-add-color" class="bg-blue-600 hover:bg-blue-500 text-white font-black px-2 py-0.5 rounded text-xs leading-none shadow flex items-center justify-center transition-transform active:scale-95" title="Add new color slot">+</button>
                 </div>
                 <span class="text-[10px] bg-[#141418] px-2 py-0.5 rounded text-gray-300 border border-gray-700 font-mono">Idx: <span id="current-color-index">1</span></span>
             </div>
@@ -1775,13 +1775,13 @@ function setupSkyControls() {
             // 1. Drag handle (Thêm touch-none và padding để ngón tay dễ chạm)
             const dragIcon = document.createElement('span');
             dragIcon.className = "text-gray-400 hover:text-white cursor-grab text-xs select-none touch-none px-1.5 py-0.5 -ml-1 flex items-center justify-center shrink-0";
-            dragIcon.title = "Kéo để đổi thứ tự";
+            dragIcon.title = "Drag to reorder";
             dragIcon.innerHTML = `&#10247;`; // ⠿ dots
 
             // 2. Eye button (Visibility)
             const btnEye = document.createElement('button');
             btnEye.className = `p-0.5 rounded hover:bg-gray-700 transition-colors ${layer.visible ? 'text-gray-300' : 'text-gray-500 opacity-40'}`;
-            btnEye.title = layer.visible ? "Ẩn layer" : "Hiện layer";
+            btnEye.title = layer.visible ? "Hide layer" : "Show layer";
             btnEye.innerHTML = layer.visible 
                 ? `<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`
                 : `<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>`;
@@ -1793,7 +1793,7 @@ function setupSkyControls() {
             // 3. Lock button
             const btnLock = document.createElement('button');
             btnLock.className = `p-0.5 rounded hover:bg-gray-700 transition-colors ${layer.locked ? 'text-amber-400' : 'text-gray-400'}`;
-            btnLock.title = layer.locked ? "Mở khóa layer" : "Khóa layer";
+            btnLock.title = layer.locked ? "Unlock layer" : "Lock layer";
             btnLock.innerHTML = layer.locked 
                 ? `<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>`
                 : `<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>`;
@@ -1811,7 +1811,7 @@ function setupSkyControls() {
             const nameEl = document.createElement('span');
             nameEl.className = "text-xs font-semibold text-gray-200 flex-1 truncate select-none cursor-pointer hover:text-blue-300 py-0.5 px-1 rounded transition-colors";
             nameEl.textContent = layer.name;
-            nameEl.title = "Click khi đang chọn (hoặc click đúp) để đổi tên";
+            nameEl.title = "Click when selected (or double-click) to rename";
             nameEl.draggable = false; // Ngăn kéo rê nhầm text thay vì click
 
             const triggerRename = (e) => {
@@ -1843,7 +1843,7 @@ function setupSkyControls() {
             // Nút bút chì nhỏ gọn (Giúp người dùng Mobile chạm 1 chạm là đổi tên được ngay)
             const btnEdit = document.createElement('button');
             btnEdit.className = `p-1 rounded text-gray-400 hover:text-blue-400 hover:bg-gray-700/60 transition-colors shrink-0 ${isSelected ? 'opacity-80' : 'opacity-0 hover:opacity-100'}`;
-            btnEdit.title = "Đổi tên layer";
+            btnEdit.title = "Rename layer";
             btnEdit.innerHTML = `<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>`;
             btnEdit.addEventListener('click', triggerRename);
 
@@ -2828,7 +2828,7 @@ function setupSkyControls() {
         if (btnFill) {
            btnFill.addEventListener('click', () => {
              if (getActiveLayer().locked) {
-                 showToast(`Layer "${getActiveLayer().name}" đang bị khóa, không thể Fill!`, "error");
+                 showToast(`Layer "${getActiveLayer().name}" is locked, cannot Fill!`, "error");
                  return;
              }
                 const snapshotBefore = captureStateSnapshot(); // Chụp snapshot trước khi Fill
@@ -4175,7 +4175,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
         // Bổ sung: Chặn nếu Layer hiện tại đang bị khóa
         if (getActiveLayer().locked) {
-            showToast(`Layer "${getActiveLayer().name}" đang bị khóa, không thể Attach!`, "error");
+            showToast(`Layer "${getActiveLayer().name}" is locked, cannot Attach!`, "error");
             return false;
         }
 
@@ -4284,7 +4284,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
         // KIỂM TRA KHÓA:
         if (isVoxelLocked(targetVoxel)) {
-            showToast(`Khối thuộc layer "${getLayerOfVoxel(targetVoxel).name}" đang bị khóa!`, "error");
+            showToast(`Layer "${getLayerOfVoxel(targetVoxel).name}" is locked!`, "error");
             return;
         }
 
@@ -4436,7 +4436,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
         if (AppState.action === 'attach') {
 			if (getActiveLayer().locked) {
-             showToast(`Layer "${getActiveLayer().name}" đang bị khóa!`, "error");
+             showToast(`Layer "${getActiveLayer().name}" is locked!`, "error");
              return false;
          }
             for (let x = minX; x <= maxX; x++) {
@@ -5035,7 +5035,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
       // 2. ATTACH FACE
       if (AppState.action === 'attach') {
 	  if (getActiveLayer().locked) {
-           showToast(`Layer "${getActiveLayer().name}" đang bị khóa!`, "error");
+           showToast(`Layer "${getActiveLayer().name}" is locked!`, "error");
            return false;
        }
           const vMap = getVoxelMap();
