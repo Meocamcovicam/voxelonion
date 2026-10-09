@@ -2,6 +2,91 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+	<!-- 1. KHÓA TẠM TOÀN BỘ GIAO DIỆN NGAY KHI NẠP TRANG -->
+    <style id="app-cloak">
+        #ui-container, #canvas-container, .side-panels, .top-bar, #bottom-controls-wrapper, 
+        #mobile-history-controls, #mobile-save-control, #toggle-left-wrapper, #toggle-right-wrapper {
+            display: none !important;
+        }
+        body { background-color: #18181c !important; }
+    </style>
+
+    <!-- 2. KIỂM TRA BẢN QUYỀN DOMAIN & CHẶN FILE OFFLINE TRIỆT ĐỂ -->
+    <script>
+        (function() {
+            // Kiểm tra chính xác giao thức, tên miền và đường dẫn
+            var isOffline = (window.location.protocol === 'file:' || !window.location.hostname);
+            var isCorrectHost = (window.location.hostname === 'meocamcovicam.github.io');
+            var isCorrectPath = window.location.pathname.startsWith('/voxelonion');
+
+            // (Mẹo: Nếu bạn muốn chạy thử nghiệm trên máy tính qua Live Server / localhost thì mở thêm dòng dưới)
+            // var isLocalDebug = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+            var isAuthorized = !isOffline && isCorrectHost && isCorrectPath;
+
+            if (!isAuthorized) {
+                var errorNotice = isOffline 
+                    ? "Ứng dụng không được phép chạy ngoại tuyến từ tệp lưu cục bộ!" 
+                    : "Vi phạm bản quyền! Ứng dụng chỉ được phép hoạt động tại trang chính thức.";
+
+                // Hàm xóa sạch toàn bộ giao diện và hiển thị thông báo khóa
+                function renderBlockScreen() {
+                    document.title = "Truy cập bị chặn";
+                    document.documentElement.innerHTML = `
+                        <head>
+                            <meta charset="UTF-8">
+                            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                            <title>Truy cập bị chặn</title>
+                        </head>
+                        <body style="margin:0;padding:0;background:#141418;color:#f87171;height:100vh;height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;text-align:center;box-sizing:border-box;padding:24px;">
+                            <div style="font-size:64px;margin-bottom:16px;">🚫</div>
+                            <div style="font-size:22px;font-weight:900;color:#ffffff;margin-bottom:8px;letter-spacing:0.5px;">TRUY CẬP BỊ TỪ CHỐI</div>
+                            <div style="font-size:14px;color:#94a3b8;max-width:480px;line-height:1.6;margin-bottom:24px;">${errorNotice}</div>
+                            <a href="https://meocamcovicam.github.io/voxelonion/" style="background:#2563eb;color:#ffffff;text-decoration:none;font-size:13px;font-weight:bold;padding:10px 20px;border-radius:6px;box-shadow:0 4px 14px rgba(37,99,235,0.4);">
+                                Mở trang web chính thức
+                            </a>
+                        </body>`;
+                }
+
+                // Ghi đè ngay lập tức và chặn lại sau khi parser đọc xong DOM
+                if (document.body) renderBlockScreen();
+                document.addEventListener('DOMContentLoaded', renderBlockScreen);
+                window.addEventListener('load', renderBlockScreen);
+
+                // Dừng kịch bản của trang
+                try { window.stop(); } catch(e){}
+                throw new Error("Blocked unauthorized execution.");
+            } else {
+                // XÁC THỰC THÀNH CÔNG: Mở khóa lớp phủ giao diện
+                document.addEventListener('DOMContentLoaded', function() {
+                    var cloak = document.getElementById('app-cloak');
+                    if (cloak) cloak.remove();
+                });
+            }
+
+            // 3. CHẶN TRIỆT ĐỂ CTRL + S VÀ CHUỘT PHẢI CỦA TRÌNH DUYỆT NGAY TỪ ĐẦU
+            function preventBrowserSave(e) {
+                var isSaveCombo = (e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S' || e.code === 'KeyS' || e.keyCode === 83);
+                if (isSaveCombo) {
+                    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+                    // Kích hoạt nút Lưu nội bộ của ứng dụng
+                    var btnSave = document.getElementById('btn-save-vox');
+                    if (btnSave) btnSave.click();
+                    return false;
+                }
+            }
+            window.addEventListener('keydown', preventBrowserSave, { capture: true, passive: false });
+            document.addEventListener('keydown', preventBrowserSave, { capture: true, passive: false });
+
+            window.addEventListener('contextmenu', function(e) {
+                e.preventDefault();
+            }, { capture: true, passive: false });
+        })();
+    </script>
+	
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Web Voxel Editor & Renderer - MagicaVoxel Edition</title>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -899,6 +984,12 @@
 	import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 	import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 	import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js'; // Thêm dòng này
+	
+	// --- CHỐT CHẶN BẢO VỆ MODULE ---
+    if (window.location.protocol === 'file:' || window.location.hostname !== 'meocamcovicam.github.io') {
+        throw new Error("Execution blocked: Offline or unauthorized domain.");
+    }
+    // --------------------------------
 
 	// Khởi tạo thư viện LTC để tính toán phản chiếu diện mạo hình chữ nhật
 	RectAreaLightUniformsLib.init();
@@ -1831,6 +1922,8 @@ function setupSkyControls() {
             isTwoFingerGesture = false;
             if (AppState.controls) AppState.controls.enabled = true;
         });
+		
+		
 
         syncCameraState();
 
@@ -6466,6 +6559,8 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
         window.addEventListener('keydown', (e) => {
             if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+            if (e.ctrlKey || e.metaKey) return; // Không đổi công cụ khi đang bấm Ctrl+S
+
             const key = e.key.toLowerCase();
             if (key === 's') setMagicaAction('select');
             else if (key === 't') setMagicaAction('attach');
