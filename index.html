@@ -2,6 +2,38 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+	<script>
+        (function() {
+            // Danh sách domain hợp lệ được phép chạy web của bạn
+            var ALLOWED_HOSTS = ['https://meocamcovicam.github.io/'];
+
+            // 1. Chặn mở trực tiếp từ file đã lưu trên máy (file:///)
+            if (window.location.protocol === 'file:') {
+                document.documentElement.innerHTML = `
+                    <div style="background:#181818;color:#ff4444;height:100vh;display:flex;align-items:center;justify-content:center;font-family:sans-serif;font-weight:bold;font-size:18px;">
+                        Ứng dụng không được phép chạy ngoại tuyến từ tệp lưu cục bộ!
+                    </div>`;
+                window.stop();
+                throw new Error("Blocked: Local file execution.");
+            }
+
+            // 2. Chặn chạy ở tên miền mạo danh khác
+            var currentHost = window.location.hostname;
+            var isValid = ALLOWED_HOSTS.some(function(h) {
+                return currentHost === h || currentHost.endsWith('.' + h);
+            });
+
+            if (!isValid) {
+                document.documentElement.innerHTML = `
+                    <div style="background:#181818;color:#ff4444;height:100vh;display:flex;align-items:center;justify-content:center;font-family:sans-serif;font-weight:bold;font-size:18px;">
+                        Vi phạm bản quyền ứng dụng!
+                    </div>`;
+                window.location.replace("https://meocamcovicam.github.io/");
+                window.stop();
+                throw new Error("Blocked: Unauthorized domain.");
+            }
+        })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Web Voxel Editor & Renderer - MagicaVoxel Edition</title>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -1831,6 +1863,25 @@ function setupSkyControls() {
             isTwoFingerGesture = false;
             if (AppState.controls) AppState.controls.enabled = true;
         });
+		
+		// --- CHẶN LƯU WEB VÀ CHẶN CHUỘT PHẢI ---
+        // 1. Chặn Ctrl + S / Cmd + S của trình duyệt, đồng thời kích hoạt Save của app
+        window.addEventListener('keydown', function(e) {
+            if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
+                if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // Gọi nút Save nội bộ của ứng dụng thay vì hộp thoại lưu của trình duyệt
+                    document.getElementById('btn-save-vox')?.click();
+                }
+            }
+        }, { capture: true });
+
+        // 2. Chặn menu chuột phải toàn trang để hạn chế bấm "Save page as..."
+        window.addEventListener('contextmenu', function(e) {
+            e.preventDefault();
+        });
+        // ----------------------------------------
 
         syncCameraState();
 
