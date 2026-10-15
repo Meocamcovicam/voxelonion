@@ -4180,6 +4180,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
     let boxDragStart = null;
     let boxDragNormal = null;
     let boxDragCurrent = null;
+	
+	let pendingGridPlaneHit = null; // Lưu toạ độ sàn/vách grid chờ xác nhận Tap hợp lệ
+    let pointerDownStartPos = new THREE.Vector2(); // Lưu vị trí chạm ban đầu để phân biệt Tap với Drag
 
     // Tính tọa độ trung bình (tâm) của 3 ngón tay
     function getThreeFingerCenter(touches) {
@@ -4240,10 +4243,14 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         AppState.faceExtrudeOrigin = null;
         AppState.faceExtrudePlane = null;
         AppState.faceExtrudeSteps = 0;
+		
         boxDragStart = null;
         boxDragCurrent = null;
         boxDragNormal = null;
+        pendingGridPlaneHit = null; // Huỷ bỏ lệnh thêm mặt phẳng khi có cử chỉ 2 ngón
         if (AppState.ghostBoxMesh) AppState.ghostBoxMesh.visible = false;
+		
+		
         AppState.isInteracting = false;
         strokeDidModify = false;
         if (AppState.controls && !isThreeFingerRotating && touchCount < 3) {
@@ -5020,6 +5027,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             if (ray && ray.voxel) {
                 if (event.pointerType === 'mouse') event.stopImmediatePropagation();
                 if (AppState.controls) AppState.controls.enabled = false;
+				
 
                 AppState.isInteracting = true;
                 strokeSnapshot = captureStateSnapshot();
@@ -5056,6 +5064,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 AppState.faceExtrudeNormal = ray.normal.clone();
                 AppState.faceExtrudeActive = true;
                 AppState.faceExtrudeSteps = 0;
+                pointerDownStartPos.set(event.clientX, event.clientY);
 
                 AppState.faceExtrudeVoxelDir = {
                     nx: Math.round(ray.normal.x),
@@ -5086,29 +5095,26 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 }
 
                 AppState.faceExtrudePlane = new THREE.Plane().setFromNormalAndCoplanarPoint(planeNorm, originWorld);
-                applyFaceExtrudeOffset(1);
+
+                // Trên PC (dùng chuột) thì đùn 1 lớp ngay.
+                // Trên Mobile (cảm ứng) thì KHÔNG đùn ngay ở pointerdown để bảo vệ cử chỉ 2 ngón zoom/pan
+                if (event.pointerType === 'mouse') {
+                    applyFaceExtrudeOffset(1);
+                }
                 return;
             } else if (AppState.action === 'attach') {
                 const gridHit = getGridPlaneIntersection(event);
                 if (gridHit && gridHit.isInsideBase) {
-                    event.stopImmediatePropagation();
+                    if (event.pointerType === 'mouse') event.stopImmediatePropagation();
                     if (AppState.controls) AppState.controls.enabled = false;
 
-                    // 1. Chụp lại snapshot toàn bộ trạng thái TRƯỚC KHI phủ mặt phẳng
-                    const snapBefore = captureStateSnapshot();
-
-                    // 2. Thực hiện phủ mặt phẳng voxel
-                    const wasModified = fillEntireGridPlaneLayer(gridHit);
-
-                    // 3. Nếu có thay đổi, ghi nhận Undo ngay lập tức!
-                    if (wasModified) {
-                        recordUndoStep(snapBefore);
-                    }
-
-                    // 4. Reset các cờ tương tác để onPointerUp không ghi đè lặp lại
-                    strokeSnapshot = null;
+                    AppState.isInteracting = true;
+                    strokeSnapshot = captureStateSnapshot();
                     strokeDidModify = false;
-                    AppState.isInteracting = false;
+                    pointerDownStartPos.set(event.clientX, event.clientY);
+
+                    // KHÔNG tạo khối ở pointerdown. Lưu lại toạ độ chờ đến pointerup xác nhận cú Tap hợp lệ
+                    pendingGridPlaneHit = gridHit;
                     return;
                 }
             }
@@ -5308,6 +5314,14 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             if (AppState.controls) AppState.controls.enabled = (touchCount < 3 && !isThreeFingerRotating);
             return;
         }
+		
+		// Nếu ngón tay di chuyển lệch quá 8px (đang xoay hoặc pan camera) thì huỷ lệnh tạo mặt phẳng
+        if (pendingGridPlaneHit) {
+            const distMoved = Math.hypot(event.clientX - pointerDownStartPos.x, event.clientY - pointerDownStartPos.y);
+            if (distMoved > 8) {
+                pendingGridPlaneHit = null;
+            }
+        }
 
         // Khi dùng 1 ngón tay vẽ trên màn hình cảm ứng: Tạm khóa OrbitControls để không bị giật camera
         if (event.pointerType !== 'mouse' && AppState.isInteracting) {
@@ -5392,12 +5406,52 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         }
     }
 
-    function onPointerUp(event) {
-	
-		
+ function onPointerUp(event) {
         stopContinuousFaceAction();
-		
-		// Reset trạng thái Extrude Face
+
+        // Ghi nhớ cử chỉ 2 ngón tay trước khi bị xoá danh sách con trỏ
+        const wasTwoFinger = isTwoFingerGesture;
+
+        if (event && event.pointerId !== undefined) {
+            activePointers.delete(event.pointerId);
+        } else {
+            activePointers.clear();
+        }
+
+        // Khi đã nhấc hết tất cả ngón tay ra khỏi màn hình
+        if (activePointers.size === 0 && touchCount === 0) {
+            isTwoFingerGesture = false;
+        }
+
+        // Nếu vừa thực hiện thao tác 2 ngón tay (zoom/pan): Huỷ bỏ 100% mọi hành động vẽ dở dang
+        if (wasTwoFinger) {
+            cancelActiveVoxelAction();
+            if (AppState.controls) AppState.controls.enabled = true;
+            return;
+        }
+
+        // 1. Thực hiện tạo mặt phẳng trên Grid chỉ khi là cú Tap 1 ngón hợp lệ
+        if (pendingGridPlaneHit && AppState.isInteracting && AppState.brushShape === 'face' && AppState.action === 'attach') {
+            const hitToApply = pendingGridPlaneHit;
+            pendingGridPlaneHit = null;
+            const snapBefore = strokeSnapshot || captureStateSnapshot();
+            const wasModified = fillEntireGridPlaneLayer(hitToApply);
+            if (wasModified) {
+                recordUndoStep(snapBefore);
+            }
+            strokeSnapshot = null;
+            strokeDidModify = false;
+            AppState.isInteracting = false;
+            if (AppState.controls) AppState.controls.enabled = true;
+            return;
+        }
+
+        // 2. Thực hiện đùn 1 lớp Face trên Voxel khi người dùng mobile chạm nhẹ (Tap) nhấc tay lên
+        if (AppState.faceExtrudeActive && AppState.faceExtrudeSteps === 0 && AppState.isInteracting) {
+            applyFaceExtrudeOffset(1);
+        }
+
+        // Reset trạng thái Extrude Face
         AppState.faceExtrudeActive = false;
         AppState.faceBaseVoxels = [];
         AppState.faceBaseSnapshot = [];
@@ -5406,31 +5460,15 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         AppState.faceExtrudeOrigin = null;
         AppState.faceExtrudePlane = null;
         AppState.faceExtrudeSteps = 0;
-		
+        pendingGridPlaneHit = null;
+
         // Nhả chuột: Bật lại OrbitControls nếu vừa kéo Gizmo xong
         if (AppState.isTransformingGizmo) {
             AppState.isTransformingGizmo = false;
             if (AppState.controls) AppState.controls.enabled = true;
         }
 		
-
-        if (event && event.pointerId !== undefined) {
-            activePointers.delete(event.pointerId);
-        } else {
-            activePointers.clear();
-        }
-
-        // Khi đã nhấc tất cả ngón tay ra khỏi màn hình
-        if (activePointers.size === 0) {
-            isTwoFingerGesture = false;
-        }
-
-        // Nếu vừa kết thúc cử chỉ 2 ngón tay: Hủy mọi tác vụ vẽ dở dang và mở lại Camera
-        if (isTwoFingerGesture) {
-            cancelActiveVoxelAction();
-            if (AppState.controls) AppState.controls.enabled = true;
-            return;
-        }
+		
 
 		if (boxDragStart && AppState.isInteracting && AppState.brushShape === 'box') {
             // Lấy tọa độ đích cuối cùng (kể cả khi chuột nhả ngoài màn hình / ngoài grid)
