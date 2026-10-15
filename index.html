@@ -668,6 +668,7 @@
                         </div>
 
                         <!-- 6. EMISSION CONTROLS -->
+                        <!-- 6. EMISSION CONTROLS -->
                         <div id="group-emission-controls" class="prop-group hidden space-y-2.5">
                             <div>
                                 <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>Emission</label><span id="val-emission">10.00</span></div>
@@ -681,7 +682,15 @@
                                 <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>Ldr</label><span id="val-ldr">0</span></div>
                                 <input type="range" id="prop-ldr" min="0" max="100" step="1" value="0">
                             </div>
+                            <div class="pt-1.5 border-t border-gray-700/60">
+                                <label class="flex items-center justify-between text-xs text-amber-300 font-bold cursor-pointer py-0.5" title="Cho phép ánh nắng Mặt Trời và Godray xuyên qua khối Emit này (dùng khi làm ô cửa sổ phát sáng)">
+                                    <span>☀️ Light Source (Sun Pass)</span>
+                                    <input type="checkbox" id="prop-emit-light-source" class="rounded bg-gray-800 border-gray-700 text-amber-500 focus:ring-0">
+                                </label>
+                            </div>
                         </div>
+						
+						
 
                         <!-- 7. CLOUD & BLEND MEDIA (DENSITY & PHASE) -->
                         <div id="group-cloud-controls" class="prop-group hidden space-y-2.5">
@@ -738,8 +747,26 @@
                             <div class="flex items-center gap-2">
                                 <input type="range" id="prop-sun-int" min="0" max="5" step="0.05" value="1.80" class="!mb-0 flex-1">
                                 <input type="color" id="prop-sun-col" value="#fff5e6" class="w-8 h-6 p-0 border-0 cursor-pointer bg-transparent rounded shrink-0">
+                            </div>	
+                        </div>
+							<!-- CỤM ĐIỀU KHIỂN GODRAY DƯỚI SUN LIGHT -->
+                        <div class="mt-2.5 pt-2 border-t border-gray-700/60">
+                            <div class="flex items-center justify-between mb-1.5">
+                                <label class="flex items-center text-xs text-amber-300 font-bold gap-1.5 cursor-pointer">
+                                    <input type="checkbox" id="prop-sun-godray" class="rounded bg-gray-800 border-gray-700 text-amber-500 focus:ring-0">
+                                    <span>✨ Sun Godray (Light Shafts)</span>
+                                </label>
+                                <span id="val-sun-godray" class="font-mono text-[10px] text-gray-400">Off</span>
+                            </div>
+                            <div id="godray-controls" class="hidden">
+                                <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5">
+                                    <label>Godray Density</label>
+                                    <span id="val-godray-density" class="font-mono text-gray-400">0.35</span>
+                                </div>
+                                <input type="range" id="prop-godray-density" min="0.0" max="1.0" step="0.01" value="0.35" class="!mb-1">
                             </div>
                         </div>
+						
                     </div>
                     
                     <div class="border-t border-gray-700 pt-3">
@@ -1035,8 +1062,16 @@
 			yaw: 50, 
 			area: 0,              // Đặt mặc định 0 để bóng đổ sắc nét tuyệt đối
 			intensity: 2.80,      // Cường độ nắng mạnh mẽ
-			color: new THREE.Color(0xfff5e6) 
+			color: new THREE.Color(0xfff5e6),
+			godray: false,
+			godrayDensity: 0.35
 		},
+		modelCenter: new THREE.Vector3(0, 15, 0),
+		modelRadius: 25.0,
+		modelMin: new THREE.Vector3(-20, 0, -20),
+		modelMax: new THREE.Vector3(20, 30, 20),
+		
+		
 		sky: {
 			enabled: true,
 			zenith: new THREE.Color(0x4287f5),
@@ -1136,6 +1171,7 @@
 			  type: 'diffuse', color: new THREE.Color(0xffffff),
 			  roughness: 0.0, metalness: 0.0, specular: 0.5,
 			  transparent: 0.0, ior: 1.30, emission: 0.0, power: 1.0, ldr: 0.0,
+			  lightSource: false,
 			  density: 79, phase: 0.0, blendAlpha: 0.6
 		  };
 	  }
@@ -1310,6 +1346,22 @@
     bindMatRange('prop-emission', 'emission', false);
     bindMatRange('prop-power', 'power', false);
     bindMatRange('prop-ldr', 'ldr', true);
+	
+	const elEmitLightSource = document.getElementById('prop-emit-light-source');
+    if (elEmitLightSource) {
+        elEmitLightSource.addEventListener('change', (e) => {
+            const p = AppState.materialProps[AppState.selectedColorIndex];
+            if (p) {
+                const snap = captureStateSnapshot();
+                p.lightSource = e.target.checked;
+                recordUndoStep(snap);
+                updateVoxel3DTexture();
+                updateDynamicEmitLights();
+                if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
+            }
+        });
+    }
+	
     bindMatRange('prop-roughness', 'roughness', false);
     bindMatRange('prop-metallic', 'metalness', false);
     bindMatRange('prop-specular', 'specular', false);
@@ -1368,6 +1420,10 @@
     const elArea = document.getElementById('prop-sun-area');
     const elInt = document.getElementById('prop-sun-int');
     const elCol = document.getElementById('prop-sun-col');
+    const elGodray = document.getElementById('prop-sun-godray');
+    const elGodrayWrap = document.getElementById('godray-controls');
+    const elGodrayTxt = document.getElementById('val-sun-godray');
+    const elGodrayDensity = document.getElementById('prop-godray-density');
 
     const updateSun = () => {
         updateSunPosition();
@@ -1379,6 +1435,23 @@
     bindUndoableInput(elArea, (e) => { AppState.sun.area = parseFloat(e.target.value); safeSetText('val-sun-area', AppState.sun.area); updateSun(); });
     bindUndoableInput(elInt, (e) => { AppState.sun.intensity = parseFloat(e.target.value); safeSetText('val-sun-int', AppState.sun.intensity.toFixed(2)); updateSun(); });
     bindUndoableInput(elCol, (e) => { AppState.sun.color.set(e.target.value); updateSun(); });
+
+    if (elGodray) {
+        elGodray.addEventListener('change', (e) => {
+            const snap = captureStateSnapshot();
+            AppState.sun.godray = e.target.checked;
+            if (elGodrayWrap) elGodrayWrap.classList.toggle('hidden', !AppState.sun.godray);
+            if (elGodrayTxt) elGodrayTxt.textContent = AppState.sun.godray ? 'On' : 'Off';
+            recordUndoStep(snap);
+            if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
+        });
+    }
+
+    bindUndoableInput(elGodrayDensity, (e) => {
+        AppState.sun.godrayDensity = parseFloat(e.target.value);
+        safeSetText('val-godray-density', AppState.sun.godrayDensity.toFixed(2));
+        if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
+    });
 }
 	
 	function setupFogControls() {
@@ -2573,9 +2646,12 @@ function setupSkyControls() {
                             if (dx === 0 && dy === 0 && dz === 0) continue;
                             const nKey = `${curr.x + dx},${curr.y + dy},${curr.z + dz}`;
                             if (vKeyMap.has(nKey) && !visited.has(nKey)) {
-                                visited.add(nKey);
-                                queue.push(vKeyMap.get(nKey));
-                            }
+                                const neighborVox = vKeyMap.get(nKey);
+                                if (neighborVox.i === curr.i) { // Chỉ gộp chung cụm nếu cùng slot vật liệu Emit
+                                    visited.add(nKey);
+                                    queue.push(neighborVox);
+                                }
+                            } // <--- Bổ sung dấu ngoặc nhọn bị thiếu tại đây
                         }
                     }
                 }
@@ -3921,10 +3997,12 @@ function captureStateSnapshot() {
         // Ánh sáng (Sun, Sky, Fog)
         sun: {
             pitch: AppState.sun.pitch,
-            yaw: AppState.sun.yaw,
-            area: AppState.sun.area,
-            intensity: AppState.sun.intensity,
-            colorHex: AppState.sun.color.getHex()
+			 yaw: AppState.sun.yaw,
+			 area: AppState.sun.area,
+			 intensity: AppState.sun.intensity,
+			 colorHex: AppState.sun.color.getHex(),
+			 godray: AppState.sun.godray,
+			 godrayDensity: AppState.sun.godrayDensity
         },
         sky: {
             enabled: AppState.sky.enabled,
@@ -4033,6 +4111,7 @@ function restoreStateFromSnapshot(snapshot) {
                 p.emission = src.emission;
                 p.power = src.power;
                 p.ldr = src.ldr;
+				p.lightSource = !!src.lightSource;
                 p.density = src.density;
                 p.phase = src.phase;
                 p.blendAlpha = src.blendAlpha;
@@ -4045,10 +4124,12 @@ function restoreStateFromSnapshot(snapshot) {
     // E. Khôi phục Ánh sáng
     if (snapshot.sun) {
         AppState.sun.pitch = snapshot.sun.pitch;
-        AppState.sun.yaw = snapshot.sun.yaw;
-        AppState.sun.area = snapshot.sun.area;
-        AppState.sun.intensity = snapshot.sun.intensity;
-        AppState.sun.color.setHex(snapshot.sun.colorHex);
+		 AppState.sun.yaw = snapshot.sun.yaw;
+		 AppState.sun.area = snapshot.sun.area;
+		 AppState.sun.intensity = snapshot.sun.intensity;
+		 AppState.sun.color.setHex(snapshot.sun.colorHex);
+		 AppState.sun.godray = !!snapshot.sun.godray;
+		 AppState.sun.godrayDensity = snapshot.sun.godrayDensity ?? 0.35;
     }
     if (snapshot.sky) {
         AppState.sky.enabled = snapshot.sky.enabled;
@@ -6367,6 +6448,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     if (src.emission !== undefined) p.emission = parseSafeFloat(src.emission, p.emission);
                     if (src.power !== undefined) p.power = parseSafeFloat(src.power, p.power);
                     if (src.ldr !== undefined) p.ldr = parseSafeFloat(src.ldr, p.ldr);
+					if (src.lightSource !== undefined) p.lightSource = !!src.lightSource;
                     if (src.density !== undefined) p.density = parseSafeFloat(src.density, p.density);
                     if (src.phase !== undefined) p.phase = parseSafeFloat(src.phase, p.phase);
                     if (src.blendAlpha !== undefined) p.blendAlpha = parseSafeFloat(src.blendAlpha, p.blendAlpha);
@@ -6376,10 +6458,12 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
         if (settings.sun) {
             AppState.sun.pitch = parseSafeFloat(settings.sun.pitch, AppState.sun.pitch);
-            AppState.sun.yaw = parseSafeFloat(settings.sun.yaw, AppState.sun.yaw);
-            AppState.sun.area = parseSafeFloat(settings.sun.area, AppState.sun.area);
-            AppState.sun.intensity = parseSafeFloat(settings.sun.intensity, AppState.sun.intensity);
-            if (settings.sun.color) AppState.sun.color = new THREE.Color(settings.sun.color);
+			 AppState.sun.yaw = parseSafeFloat(settings.sun.yaw, AppState.sun.yaw);
+			 AppState.sun.area = parseSafeFloat(settings.sun.area, AppState.sun.area);
+			 AppState.sun.intensity = parseSafeFloat(settings.sun.intensity, AppState.sun.intensity);
+			 AppState.sun.godray = !!settings.sun.godray;
+			 AppState.sun.godrayDensity = parseSafeFloat(settings.sun.godrayDensity, 0.35);
+			 if (settings.sun.color) AppState.sun.color = new THREE.Color(settings.sun.color);
         }
 
         if (settings.sky) {
@@ -6444,7 +6528,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             centerCamera(AppState.model.size);
         }
 
-        if (settings.renderMode) setRenderMode(settings.renderMode);
+        setRenderMode('preview');
     }
     
     function syncUIFromState() {
@@ -6457,6 +6541,16 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         syncUI('prop-sun-area', AppState.sun.area); syncTxt('val-sun-area', AppState.sun.area);
         syncUI('prop-sun-int', AppState.sun.intensity); syncTxt('val-sun-int', AppState.sun.intensity.toFixed(2));
         syncCol('prop-sun-col', AppState.sun.color);
+		
+		const elGodray = document.getElementById('prop-sun-godray');
+     const elGodrayWrap = document.getElementById('godray-controls');
+     if (elGodray) {
+         elGodray.checked = !!AppState.sun.godray;
+         if (elGodrayWrap) elGodrayWrap.classList.toggle('hidden', !AppState.sun.godray);
+         safeSetText('val-sun-godray', AppState.sun.godray ? 'On' : 'Off');
+     }
+     safeSetVal('prop-godray-density', AppState.sun.godrayDensity ?? 0.35);
+     safeSetText('val-godray-density', (AppState.sun.godrayDensity ?? 0.35).toFixed(2));
 
         const skyToggle = document.getElementById('sky-enabled');
         if (skyToggle) skyToggle.checked = AppState.sky.enabled;
@@ -6894,15 +6988,28 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
     function updateVoxel3DTexture() {
         if (!AppState.model || !AppState.renderer) return;
+		
         const sx = AppState.model.size.x;
         const sy = AppState.model.size.y;
         const sz = AppState.model.size.z;
         const size = sx * sy * sz * 4;
         const data = new Uint8Array(size);
 
+        let minVx = Infinity, maxVx = -Infinity;
+        let minVy = Infinity, maxVy = -Infinity;
+        let minVz = Infinity, maxVz = -Infinity;
+
         for (const v of AppState.model.voxels) {
             if (v.x >= 0 && v.x < sx && v.y >= 0 && v.y < sy && v.z >= 0 && v.z < sz) {
 				if (!isVoxelVisible(v)) continue; // Không đưa vào texture 3D nếu layer bị ẩn
+				if (v.x < minVx) minVx = v.x;
+				if (v.x > maxVx) maxVx = v.x;
+				if (v.y < minVy) minVy = v.y;
+				if (v.y > maxVy) maxVy = v.y;
+				if (v.z < minVz) minVz = v.z;
+				if (v.z > maxVz) maxVz = v.z;
+				
+				
                 const idx = (v.x + v.y * sx + v.z * sx * sy) * 4;
                 const p = AppState.materialProps[v.i];
                 if (p) {
@@ -6917,12 +7024,15 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 					if (p.type === 'emit') {
 						const em = p.emission !== undefined ? p.emission : 0.0;
 						const fl = p.power !== undefined ? p.power : 1.0;
-						// Nếu Emission = 0: Trả về 50 (Diffuse chuẩn), khối sẽ là màu sơn bình thường không phát sáng
 						if (em <= 0.01) {
 							data[idx + 3] = 50;
+						} else if (p.lightSource) {
+							// Tag 225..255: Emit có tích chọn Light Source (Cửa sổ phát sáng -> Cho phép nắng & Godray xuyên qua)
+							const emitLevel = Math.min(30, Math.round((em / 100.0) * (15.0 + fl * 3.0)));
+							data[idx + 3] = 225 + emitLevel;
 						} else {
-							// Dải đo tỷ lệ chuẩn MagicaVoxel: 195 đến 255
-							const emitLevel = Math.min(60, Math.round((em / 100.0) * (20.0 + fl * 8.0)));
+							// Tag 195..220: Emit nội thất (Đèn bàn, đèn ngủ -> Phát sáng nhưng không cho nắng xuyên qua)
+							const emitLevel = Math.min(25, Math.round((em / 100.0) * (12.0 + fl * 2.5)));
 							data[idx + 3] = 195 + emitLevel;
 						}
 					}
@@ -6970,6 +7080,26 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 pathTraceMaterial.uniforms.uGridSize.value.set(sx, sy, sz);
             }
         }
+		
+		if (minVx !== Infinity) {
+            const cx = sx * 0.5, cy = sy * 0.5;
+            const minWx = minVx - cx, maxWx = maxVx - cx + 1.0;
+            const minWy = Math.max(0.0, minVz), maxWy = maxVz + 1.0;
+            const minWz = minVy - cy, maxWz = maxVy - cy + 1.0;
+            AppState.modelMin.set(minWx, minWy, minWz);
+            AppState.modelMax.set(maxWx, maxWy, maxWz);
+            AppState.modelCenter.set((minWx + maxWx) * 0.5, (minWy + maxWy) * 0.5, (minWz + maxWz) * 0.5);
+            const rx = (maxWx - minWx) * 0.5, ry = (maxWy - minWy) * 0.5, rz = (maxWz - minWz) * 0.5;
+            AppState.modelRadius = Math.max(Math.sqrt(rx * rx + ry * ry + rz * rz), 15.0);
+        } else {
+            const cx = sx * 0.5, cy = sy * 0.5;
+            AppState.modelMin.set(-cx, 0, -cy);
+            AppState.modelMax.set(cx, sz, cy);
+            AppState.modelCenter.set(0, sz * 0.5, 0);
+            AppState.modelRadius = 20.0;
+        }
+		
+		
     }
 
     // Shader DDA Path Tracing lấy cảm hứng từ cấu trúc của erichlof/THREE.js-PathTracing-Renderer
@@ -7000,6 +7130,13 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 uSunCol: { value: new THREE.Vector3(1, 1, 1) },
                 uSunInt: { value: 1.5 },
                 uSunArea: { value: 4.0 }, // <-- THÊM DÒNG NÀY ĐỂ ĐIỀU KHIỂN ĐỘ NÉT BÓNG ĐỔ
+				
+				uSunGodray: { value: 0.0 },
+                uGodrayDensity: { value: 0.35 },
+                uModelCenter: { value: new THREE.Vector3(0, 15, 0) },
+                uModelRadius: { value: 25.0 },
+                uModelMin: { value: new THREE.Vector3(-20, 0, -20) },
+                uModelMax: { value: new THREE.Vector3(20, 30, 20) },
 				
 				uBlendIOR: { value: 1.30 },
 				uBlendRoughness: { value: 0.10 },
@@ -7079,6 +7216,14 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 uniform vec3 uSunCol;
                 uniform float uSunInt;
                 uniform float uSunArea; // <-- THÊM DÒNG NÀY
+				
+				
+                uniform float uSunGodray;
+                uniform float uGodrayDensity;
+                uniform vec3 uModelCenter;
+                uniform float uModelRadius;
+                uniform vec3 uModelMin;
+                uniform vec3 uModelMax;
 				
 				uniform float uFogEnabled;
                 uniform vec3 uFogCol;
@@ -7240,8 +7385,10 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 							
 							
 							
-							else if (tag >= 190.0) {
-                                // Nguồn emit không cản bóng
+							else if (tag >= 225.0) {
+                                // Emit có bật Light Source (Cửa sổ): Cho phép ánh nắng Mặt Trời xuyên qua
+                            } else if (tag >= 190.0 && maxDist < 500.0) {
+                                // Tia kiểm tra bóng của đèn nội thất không tự chặn chính nó
                             } else {
                                 return vec3(0.0);
                             }
@@ -7261,6 +7408,96 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     }
                     return transmittance;
                 }
+				
+				// Hàm kiểm tra tia nắng chuyên biệt cho Godray (Nhanh gấp 3 lần shadowTraversal)
+                // Hàm kiểm tra tia nắng xuyên cửa sổ / khe hở chuẩn Unity (Window Light Shafts)
+                // Hàm kiểm tra tia nắng xuyên cửa sổ siêu nhẹ (Chỉ 1 lần đọc Texture/bước, tối đa 28 bước)
+                // Kiểm tra tia Godray xuyên qua: Cửa sổ trống, Glass, Cloud/Blend, hoặc Emit có bật Light Source
+                float fastGodrayShadow(vec3 ro, vec3 rd, out float distToWindow) {
+                    distToWindow = 0.0;
+                    if (uShowFloorPlane > 0.5 && rd.y < -0.0001 && (-ro.y / rd.y) > 0.001) return 0.0;
+
+                    vec3 boxMin = vec3(-uGridSize.x * 0.5, 0.0, -uGridSize.y * 0.5);
+                    vec3 boxMax = vec3(uGridSize.x * 0.5, uGridSize.z, uGridSize.y * 0.5);
+                    float tNear, tFar;
+                    vec3 normNear;
+                    if (!intersectBoxExt(ro, rd, boxMin, boxMax, tNear, tFar, normNear)) return 0.0;
+
+                    float tBox = max(0.0, tNear);
+                    float tCurrent = tBox;
+                    vec3 pStart = ro + rd * (tBox + 0.001);
+                    vec3 localPos = vec3(pStart.x - boxMin.x, pStart.z - boxMin.z, pStart.y - boxMin.y);
+                    ivec3 mapPos = clamp(ivec3(floor(localPos)), ivec3(0), ivec3(uGridSize) - ivec3(1));
+
+                    vec3 rdGrid = vec3(rd.x, rd.z, rd.y);
+                    vec3 deltaDist = abs(vec3(1.0) / max(abs(rdGrid), vec3(0.00001)));
+                    vec3 raySign = sign(rdGrid);
+                    raySign = vec3(raySign.x == 0.0 ? 1.0 : raySign.x, raySign.y == 0.0 ? 1.0 : raySign.y, raySign.z == 0.0 ? 1.0 : raySign.z);
+                    ivec3 rayStep = ivec3(raySign);
+                    vec3 sideDist = (raySign * (vec3(mapPos) - localPos) + (raySign * 0.5) + 0.5) * deltaDist;
+
+                    float trans = 1.0;
+                    bool passedWindow = false;
+                    int maxZ = int(uGridSize.z) - 1;
+                    int topWallZ = clamp(int(uModelMax.y) - 1, 0, maxZ);
+
+                    // Duyệt hết chiều dài phòng (tối đa 384 bước) để không bao giờ bị đứt giữa chừng ở phòng lớn 91x120x91
+                    int maxSteps = int(uGridSize.x + uGridSize.y + uGridSize.z);
+                    for (int i = 0; i < 384; i++) {
+                        if (i >= maxSteps) break;
+
+                        float aVal = texture(tVoxelGrid, (vec3(mapPos) + 0.5) / uGridSize).a;
+                        if (aVal > 0.01) {
+                            float tag = floor(aVal * 255.0 + 0.5);
+                            if (tag >= 225.0) {
+                                // 1. Emit có bật Light Source (Tấm nguồn sáng cửa sổ)
+                                if (!passedWindow) {
+                                    passedWindow = true;
+                                    distToWindow = tCurrent;
+                                }
+                            } else if (tag >= 140.0 && tag <= 189.0) {
+                                // 2. Cửa kính (Glass)
+                                trans *= clamp((tag - 140.0) / 45.0, 0.30, 0.98);
+                                if (!passedWindow) {
+                                    passedWindow = true;
+                                    distToWindow = tCurrent;
+                                }
+                            } else if (tag >= 60.0 && tag <= 99.0) {
+                                // 3. Rèm mỏng / Cloud / Blend
+                                trans *= 0.82;
+                                if (!passedWindow) {
+                                    passedWindow = true;
+                                    distToWindow = tCurrent;
+                                }
+                            } else {
+                                // Tường đặc, đồ vật hoặc đèn Emit thường trong phòng -> Chặn tia nắng ngay lập tức
+                                return 0.0;
+                            }
+                            if (trans < 0.05) return 0.0;
+                        } else if (!passedWindow && mapPos.z < topWallZ - 1) {
+                            // 4. Cửa sổ trống (ô trống xuyên qua tường có đà tường/rèm ở đỉnh tường thẳng phía trên)
+                            float aTop = texture(tVoxelGrid, (vec3(float(mapPos.x), float(mapPos.y), float(topWallZ)) + 0.5) / uGridSize).a;
+                            if (aTop > 0.01) {
+                                passedWindow = true;
+                                distToWindow = tCurrent;
+                            }
+                        }
+
+                        vec3 mask = step(sideDist.xyz, sideDist.yzx) * step(sideDist.xyz, sideDist.zxy);
+                        tCurrent = tBox + min(min(sideDist.x, sideDist.y), sideDist.z);
+                        sideDist += mask * deltaDist;
+                        mapPos += ivec3(mask) * rayStep;
+
+                        if (mapPos.x < 0 || mapPos.x >= int(uGridSize.x) || 
+                            mapPos.y < 0 || mapPos.y >= int(uGridSize.y) || 
+                            mapPos.z < 0 || mapPos.z >= int(uGridSize.z)) break;
+                    }
+
+                    // Bắt buộc tia phải đi xuyên qua cửa sổ (Trống, Glass, hoặc Emit Light Source) mới tạo Godray
+                    return passedWindow ? trans : 0.0;
+                }
+				
+				
 
 			    bool voxelTraversal(vec3 ro, vec3 rd, out vec3 hitNormal, out vec4 hitColor, out vec3 hitPos, out bool isVolume, inout uint seed) {
                     isVolume = false;
@@ -7417,12 +7654,16 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     // thì kéo ro ngược lại lên cao trên mô hình dọc theo -rd để không bao giờ bị đứt sàn ở nửa dưới
                     
 
+                   vec3 primaryRo = ro;
+                    vec3 primaryRd = rd;
+
                     vec3 radiance = vec3(0.0);
                     vec3 throughput = vec3(1.0);
                     bool rayInGlass = false;
-                    float primaryHitDist = -1.0; // <-- Thêm biến này
+                    float primaryHitDist = -1.0;
 
                     // Giảm từ 8 xuống 4 bounces
+                   // Giảm từ 8 xuống 4 bounces
                     for (int bounce = 0; bounce < 4; bounce++) {
                         vec3 hitNormal, hitPos;
                         vec4 hitColor;
@@ -7432,7 +7673,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                         bool hit = voxelTraversal(ro, rd, hitNormal, hitColor, hitPos, isVolume, seed);
 
                         if (bounce == 0 && hit) {
-                            primaryHitDist = length(hitPos - ro); // <-- Ghi nhận cự ly va chạm tia gốc
+                            primaryHitDist = length(hitPos - ro);
                         }
 
                         if (hit) {
@@ -7482,33 +7723,45 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                 vec3 emitBaseColor = pow(hitColor.rgb, vec3(2.2));
                                 
                                 int bestLi = 0;
-                                float bestDist = 1e9;
-                                for (int li = 0; li < MAX_EMIT_LIGHTS; li++) {
-                                    if (li >= uNumEmitLights) break;
-                                    vec3 lCenter = (uEmitMin[li] + uEmitMax[li]) * 0.5;
-                                    float d = length(hitPos - lCenter);
-                                    if (d < bestDist) {
-                                        bestDist = d;
-                                        bestLi = li;
-                                    }
-                                }
+								float bestScore = 1e9;
+								for (int li = 0; li < MAX_EMIT_LIGHTS; li++) {
+									if (li >= uNumEmitLights) break;
+									// Đo khoảng cách từ điểm va chạm tới hộp giới hạn (AABB) của cụm đèn thay vì tâm điểm
+									vec3 clampedPos = clamp(hitPos, uEmitMin[li], uEmitMax[li]);
+									float boxDist = length(hitPos - clampedPos);
+									
+									// Kết hợp độ khớp màu để phân biệt chính xác nếu 2 cụm đèn khác màu đặt sát nhau
+									float colDiff = length(hitColor.rgb - uEmitCol[li]);
+									float score = boxDist + colDiff * 2.0;
+									
+									if (score < bestScore) {
+										bestScore = score;
+										bestLi = li;
+									}
+								}
+								
                                 float emitPwr = (uNumEmitLights > 0) ? uEmitPwr[bestLi] : 16.0;
                                 float ldrVal = clamp((uNumEmitLights > 0) ? uEmitLdr[bestLi] : 0.0, 0.0, 1.0);
 
                                 // Bù sắc vàng ấm cho nguồn phát xạ nhiệt độ cao chuẩn MagicaVoxel
-                                vec3 warmEmitColor = pow(hitColor.rgb, vec3(1.85));
-                                if (warmEmitColor.r > warmEmitColor.g && warmEmitColor.g > 0.05) {
-                                    warmEmitColor.g = mix(warmEmitColor.g, warmEmitColor.r * 0.85, 0.35);
-                                }
+                                // Giữ đúng tỷ lệ RGB của màu gốc, tránh bị sập kênh màu phụ qua ACES Tone Mapping
+                                vec3 trueEmitColor = mix(emitBaseColor, hitColor.rgb, 0.35);
 
                                 if (bounce == 0) {
-                                    vec3 colHDR = warmEmitColor * (1.0 + emitPwr * 2.5);
-                                    vec3 colLDR = emitBaseColor * 0.90;
+                                    // HDR (khi Ldr thấp): tăng sáng đúng tông màu gốc và làm rực tâm sáng tự nhiên như MagicaVoxel
+                                    vec3 rawHDR = trueEmitColor * (1.0 + emitPwr * 1.6);
+                                    float maxCh = max(rawHDR.r, max(rawHDR.g, rawHDR.b));
+                                    float coreGlow = clamp((maxCh - 1.2) / (maxCh + 8.0), 0.0, 0.55);
+                                    vec3 colHDR = mix(rawHDR, vec3(maxCh), coreGlow * 0.30);
+
+                                    // LDR (khi kéo Ldr cao): hiển thị đúng 100% sắc độ màu đã pick trên Palette, không bị đỏ sậm
+                                    vec3 colLDR = mix(emitBaseColor, hitColor.rgb, 0.50) * 1.15;
+
                                     vec3 finalDirect = mix(colHDR, colLDR, ldrVal);
                                     radiance += throughput * finalDirect;
                                 } else {
                                     float bouncePwr = emitPwr * mix(0.85, 0.45, ldrVal);
-                                    radiance += throughput * warmEmitColor * bouncePwr;
+                                    radiance += throughput * trueEmitColor * bouncePwr;
                                 }
 								
                                 break;
@@ -7575,10 +7828,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                         geomTerm = min(geomTerm, 2.6);
 
                                         // Chuyển sang Linear với gamma 1.85 và đẩy nhẹ kênh Green khi năng lượng cao (chuẩn Blackbody MagicaVoxel)
-                                        vec3 emitCol = pow(uEmitCol[li], vec3(1.85));
-                                        if (emitCol.r > emitCol.g && emitCol.g > 0.05) {
-                                            emitCol.g = mix(emitCol.g, emitCol.r * 0.82, 0.38);
-                                        }
+                                        vec3 emitCol = mix(pow(uEmitCol[li], vec3(2.2)), uEmitCol[li], 0.30);
 
                                         float emitPower = uEmitPwr[li];
                                         float ldrVal = clamp(uEmitLdr[li], 0.0, 1.0);
@@ -7923,11 +8173,8 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 								: mix(pow(uSkyHorizon, vec3(2.2)), pow(uSkyGround, vec3(2.2)), pow(clamp(-rd.y, 0.0, 1.0), 0.7));
 
 							if (uSkyEnabled > 0.5) {
-                                // bounce == 0: Camera nhìn thẳng vào bầu trời
-                                // bounce > 0: Tia phản chiếu từ kim loại/gương
 								radiance += (bounce == 0) ? skyCol : (skyCol * (uSkyAmbientInt * 0.25) * throughput);
 							} else {
-                                // Phản chiếu khoảng tối studio chuẩn MagicaVoxel (#1e1e24)
                                 vec3 darkStudioBg = vec3(0.015, 0.015, 0.018);
 								if (bounce == 0) radiance += darkStudioBg;
                                 else radiance += darkStudioBg * throughput;
@@ -7935,6 +8182,72 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 							break;
 						}
                     }
+
+                    // --- UNITY-STYLE WINDOW GODRAY (ĐẶT NGOÀI VÒNG LẶP BOUNCE ĐỂ CHỐNG CRASH GPU) ---
+                    // --- UNITY-STYLE WINDOW GODRAY (CHUẨN XÁC CHO CỬA SỔ TRỐNG, GLASS & EMIT LIGHT SOURCE) ---
+                    if (uSunGodray > 0.5 && uSunInt > 0.01 && uGodrayDensity > 0.001) {
+                        vec3 lDir = normalize(uSunDir);
+
+                        // Giới hạn vùng thể tích bên trong lòng căn phòng
+                        vec3 volMin = uModelMin + vec3(0.3, 0.05, 0.3);
+                        vec3 volMax = vec3(uModelMax.x - 0.3, max(uModelMin.y + 1.0, uModelMax.y - 0.8), uModelMax.z - 0.3);
+
+                        float tEntry, tExit;
+                        vec3 normBox;
+                        if (intersectBoxExt(primaryRo, primaryRd, volMin, volMax, tEntry, tExit, normBox)) {
+                            float tRayStart = max(0.1, tEntry);
+                            float tRayEnd = (primaryHitDist > 0.0) ? min(primaryHitDist, tExit) : tExit;
+
+                            if (tRayEnd > tRayStart + 0.1) {
+                                const int NUM_STEPS = 8;
+                                float marchDist = tRayEnd - tRayStart;
+                                float stepSize = marchDist / float(NUM_STEPS);
+                                float jitterVal = rand(seed);
+
+                                float godrayAcc = 0.0;
+
+                                for (int s = 0; s < NUM_STEPS; s++) {
+                                    float tSample = tRayStart + (float(s) + jitterVal) * stepSize;
+                                    vec3 pSample = primaryRo + primaryRd * tSample;
+
+                                    // Kiểm tra tia có đi qua vách phòng không (loại bỏ các tia bay vọt lên nóc phòng mở)
+                                    float tWallNear, tWallFar;
+                                    vec3 nWall;
+                                    if (!intersectBoxExt(pSample, lDir, uModelMin, uModelMax, tWallNear, tWallFar, nWall)) continue;
+
+                                    vec3 exitPt = pSample + lDir * tWallFar;
+                                    if (exitPt.y >= uModelMax.y - 1.0 || tWallFar <= 0.1) continue;
+
+                                    float distToWin = 0.0;
+                                    float vis = fastGodrayShadow(pSample + lDir * 0.05, lDir, distToWin);
+
+                                    if (vis > 0.001 && distToWin > 0.05) {
+                                        // Tạo vân tia nắng chạy song song theo hướng chiếu của Mặt Trời
+                                        vec3 beamCoord = pSample - lDir * dot(pSample, lDir);
+                                        float w1 = sin(beamCoord.x * 1.8 + beamCoord.y * 2.3 + beamCoord.z * 2.0);
+                                        float w2 = sin(beamCoord.x * 4.5 - beamCoord.y * 3.7 + beamCoord.z * 4.1);
+                                        float streak = clamp(0.74 + 0.26 * (w1 * 0.6 + w2 * 0.4), 0.40, 1.30);
+
+                                        // Sáng rực ngay tại khung cửa sổ và suy giảm mượt mà khi đi sâu vào phòng
+                                        float windowGlow = exp(-distToWin * 0.025) * (1.0 + 1.35 * exp(-distToWin * 0.15));
+
+                                        godrayAcc += vis * streak * windowGlow * stepSize;
+                                    }
+                                }
+
+                                if (godrayAcc > 0.0001) {
+                                    vec3 sunColLinear = pow(uSunCol, vec3(2.2));
+                                    float effectiveSunInt = max(uSunInt, 0.85) * (0.4 + 0.6 * uSunInt);
+                                    float densityFactor = pow(uGodrayDensity, 1.3) * 0.038;
+                                    radiance += sunColLinear * (godrayAcc * densityFactor * effectiveSunInt);
+                                }
+                            }
+                        }
+                    }
+
+					// ÁP DỤNG FOG ĐỒNG BỘ CHO P-TRACING
+					
+					
 					
 					// ÁP DỤNG FOG ĐỒNG BỘ CHO P-TRACING
                     if (uFogEnabled > 0.5 && uFogDensity > 0.01) {
@@ -8186,6 +8499,17 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 pathTraceMaterial.uniforms.uSunInt.value = AppState.sun.intensity;
                 pathTraceMaterial.uniforms.uSunArea.value = AppState.sun.area; // <-- THÊM DÒNG NÀY ĐỂ TRUYỀN GIÁ TRỊ VÀO SHADER
             }
+			
+			// Đồng bộ Godray đã tối ưu (không cần duyệt lại mảng voxel mỗi frame)
+            pathTraceMaterial.uniforms.uSunGodray.value = AppState.sun.godray ? 1.0 : 0.0;
+            pathTraceMaterial.uniforms.uGodrayDensity.value = AppState.sun.godrayDensity ?? 0.35;
+            pathTraceMaterial.uniforms.uModelCenter.value.copy(AppState.modelCenter);
+            pathTraceMaterial.uniforms.uModelRadius.value = AppState.modelRadius;
+            pathTraceMaterial.uniforms.uModelMin.value.copy(AppState.modelMin);
+            pathTraceMaterial.uniforms.uModelMax.value.copy(AppState.modelMax);
+			
+			
+			
 			
 			if (pathTraceMaterial.uniforms.uFogEnabled) {
                 pathTraceMaterial.uniforms.uFogEnabled.value = AppState.fog.enabled ? 1.0 : 0.0;
@@ -8454,7 +8778,10 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         
         let ldrDisplay = (props.ldr !== undefined) ? props.ldr : 0;
         if (ldrDisplay <= 1.0 && ldrDisplay > 0.0) ldrDisplay = Math.round(ldrDisplay * 100);
-        safeSetVal('prop-ldr', Math.round(ldrDisplay));
+        safeSetVal('prop-ldr', props.ldr);
+        const elEmitLightSource = document.getElementById('prop-emit-light-source');
+        if (elEmitLightSource) elEmitLightSource.checked = !!props.lightSource;
+		
         safeSetText('val-ldr', Math.round(ldrDisplay));
 		
 		
@@ -8573,6 +8900,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 emission: p.emission,
                 power: p.power,
                 ldr: p.ldr,
+				lightSource: !!p.lightSource,
                 density: p.density,
                 phase: p.phase,
                 blendAlpha: p.blendAlpha
