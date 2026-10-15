@@ -2601,6 +2601,8 @@ function setupSkyControls() {
 
             let totalLdr = 0;
 
+            let weightSum = 0;
+
             for (const v of c) {
                 if (v.x < minX) minX = v.x;
                 if (v.x > maxX) maxX = v.x;
@@ -2610,26 +2612,37 @@ function setupSkyControls() {
                 if (v.z > maxZ) maxZ = v.z;
 
                 const p = AppState.materialProps[v.i];
-                colR += p.color.r;
-                colG += p.color.g;
-                colB += p.color.b;
-                
                 const em = Math.max(0.0, p.emission !== undefined ? p.emission : 0.0);
                 const fl = Math.max(0.0, p.power !== undefined ? p.power : 1.0);
                 let ldrRaw = (p.ldr !== undefined) ? p.ldr : 0.0;
-                // Chuẩn hóa ldr về [0.0, 1.0]: nếu ldrRaw > 1 thì chia 100, nếu <= 1 thì giữ nguyên
                 const ldr = Math.max(0.0, Math.min(1.0, (ldrRaw > 1.0) ? (ldrRaw / 100.0) : ldrRaw));
 
                 const rad = (em / 100.0) * Math.pow(2.0, fl) * 16.0;
+
+                // Lấy màu ở hệ sRGB [0..1] để đồng bộ với tVoxelGrid và không bị sụt kênh Green (màu vàng)
+                const srgb = colorToSRGBUint8(p.color);
+                const sr = srgb.r / 255.0;
+                const sg = srgb.g / 255.0;
+                const sb = srgb.b / 255.0;
+
+                // Ưu tiên trọng số cho các hạt có độ sáng (luminance) và năng lượng phát xạ cao
+                const lumWeight = Math.max(0.1, rad * (0.299 * sr + 0.587 * sg + 0.114 * sb));
+                colR += sr * lumWeight;
+                colG += sg * lumWeight;
+                colB += sb * lumWeight;
+                weightSum += lumWeight;
+
                 totalPower += rad;
                 totalLdr += ldr;
             }
 
-            colR /= c.length;
-            colG /= c.length;
-            colB /= c.length;
+            colR /= Math.max(0.0001, weightSum);
+            colG /= Math.max(0.0001, weightSum);
+            colB /= Math.max(0.0001, weightSum);
             const avgPower = totalPower / c.length;
             const avgLdr = totalLdr / c.length;
+			
+			
 
             pathTraceMaterial.uniforms.uEmitMin.value[i].set(minX - cx, minZ, minY - cy);
             pathTraceMaterial.uniforms.uEmitMax.value[i].set(maxX - cx + 1.0, maxZ + 1.0, maxY - cy + 1.0);
@@ -7482,19 +7495,22 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                 float emitPwr = (uNumEmitLights > 0) ? uEmitPwr[bestLi] : 16.0;
                                 float ldrVal = clamp((uNumEmitLights > 0) ? uEmitLdr[bestLi] : 0.0, 0.0, 1.0);
 
+                                // Bù sắc vàng ấm cho nguồn phát xạ nhiệt độ cao chuẩn MagicaVoxel
+                                vec3 warmEmitColor = pow(hitColor.rgb, vec3(1.85));
+                                if (warmEmitColor.r > warmEmitColor.g && warmEmitColor.g > 0.05) {
+                                    warmEmitColor.g = mix(warmEmitColor.g, warmEmitColor.r * 0.85, 0.35);
+                                }
+
                                 if (bounce == 0) {
-                                    // 1. TIA CAMERA NHÌN TRỰC DIỆN VÀO KHỐI EMIT:
-                                    // - Khi Ldr = 0: Lõi phát sáng HDR cực đại, cháy sáng trắng rực rỡ
-                                    // - Khi Ldr = 100: Bề mặt dịu đi, không bị cháy trắng, giữ nguyên màu bão hòa của Palette
-                                    vec3 colHDR = emitBaseColor * (1.0 + emitPwr * 2.5);
-                                    vec3 colLDR = emitBaseColor * 0.85; // Bề mặt êm dịu, giữ màu sắc bão hòa
+                                    vec3 colHDR = warmEmitColor * (1.0 + emitPwr * 2.5);
+                                    vec3 colLDR = emitBaseColor * 0.90;
                                     vec3 finalDirect = mix(colHDR, colLDR, ldrVal);
                                     radiance += throughput * finalDirect;
                                 } else {
-                                    // 2. TIA PHẢN XẠ GIÁN TIẾP TỪ SÀN/TƯỜNG HẮT VÀO KHỐI EMIT:
-                                    float bouncePwr = emitPwr * mix(0.85, 0.40, ldrVal);
-                                    radiance += throughput * emitBaseColor * bouncePwr;
+                                    float bouncePwr = emitPwr * mix(0.85, 0.45, ldrVal);
+                                    radiance += throughput * warmEmitColor * bouncePwr;
                                 }
+								
                                 break;
                             }
 
@@ -7525,9 +7541,10 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     sampleLightPos.y = mix(lMin.y, lMax.y, r1 + 0.5);
                                     sampleLightPos.z = mix(lMin.z, lMax.z, r2 + 0.5);
                                     faceArea = lSize.y * lSize.z;
+									
                                 } else if (aOffset.y >= aOffset.x && aOffset.y >= aOffset.z) {
                                     float s = (offset.y >= 0.0) ? 1.0 : -1.0;
-                                    lightFaceNorm = vec3(s, 0.0, 0.0);
+                                    lightFaceNorm = vec3(0.0, s, 0.0); // Sửa lỗi pháp tuyến trục Y để ánh sáng hắt chuẩn lên gờ lò sưởi
                                     sampleLightPos.y = (s > 0.0) ? lMax.y : lMin.y;
                                     sampleLightPos.x = mix(lMin.x, lMax.x, r1 + 0.5);
                                     sampleLightPos.z = mix(lMin.z, lMax.z, r2 + 0.5);
@@ -7554,20 +7571,27 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     vec3 shadowTrans = (uEnableShadow > 0.5) ? shadowTraversal(shadowOrigin, L, dist - 0.05, seed) : vec3(1.0);
 
                                     if (max(shadowTrans.r, max(shadowTrans.g, shadowTrans.b)) > 0.001) {
-                                        float geomTerm = (cosSurface * cosEmit * faceArea) / (dist * dist + 1.25);
-                                        geomTerm = min(geomTerm, 3.0);
+                                        float geomTerm = (cosSurface * cosEmit * faceArea) / (dist * dist + 1.5);
+                                        geomTerm = min(geomTerm, 2.6);
 
-                                        vec3 emitCol = pow(uEmitCol[li], vec3(2.2));
+                                        // Chuyển sang Linear với gamma 1.85 và đẩy nhẹ kênh Green khi năng lượng cao (chuẩn Blackbody MagicaVoxel)
+                                        vec3 emitCol = pow(uEmitCol[li], vec3(1.85));
+                                        if (emitCol.r > emitCol.g && emitCol.g > 0.05) {
+                                            emitCol.g = mix(emitCol.g, emitCol.r * 0.82, 0.38);
+                                        }
+
                                         float emitPower = uEmitPwr[li];
                                         float ldrVal = clamp(uEmitLdr[li], 0.0, 1.0);
                                         float effectivePower = emitPower * mix(1.0, 0.45, ldrVal);
-                                        float bounceDamp = (bounce == 0) ? 1.0 : 0.35;
+                                        float bounceDamp = (bounce == 0) ? 1.0 : 0.45;
 
-                                        vec3 emitContrib = throughput * albedo * emitCol * (effectivePower * geomTerm * 0.75 * bounceDamp * float(uNumEmitLights) * diffuseWeight) * shadowTrans;
+                                        vec3 emitContrib = throughput * albedo * emitCol * (effectivePower * geomTerm * 0.72 * bounceDamp * float(uNumEmitLights) * diffuseWeight) * shadowTrans;
                                         radiance += emitContrib;
                                     }
                                 }
                             }
+							
+							
 
                             // C. ÁNH SÁNG MẶT TRỜI TRỰC TIẾP
                            // C. ÁNH SÁNG MẶT TRỜI TRỰC TIẾP (Chuẩn hóa chuẩn MagicaVoxel)
