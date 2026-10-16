@@ -509,6 +509,7 @@
 
                 <!-- Các công cụ Select -->
                 <!-- Các công cụ Select -->
+               <!-- Các công cụ Select -->
                 <div id="sel-tools-container" class="flex flex-col gap-1 pt-1">
                     <div class="grid grid-cols-3 gap-1">
                         <button id="btn-sel-delete" class="bg-rose-900/80 hover:bg-rose-700 text-rose-100 py-1 px-1 rounded text-[10px] font-bold border border-rose-700/60">Delete</button>
@@ -519,10 +520,17 @@
                         <button id="btn-sel-invert" class="bg-[#20202a] hover:bg-[#2c2c3a] text-gray-300 py-0.5 px-1 rounded text-[9px] font-semibold border border-gray-700">Invert</button>
                         <button id="btn-sel-clear" class="bg-[#20202a] hover:bg-[#2c2c3a] text-gray-300 py-0.5 px-1 rounded text-[9px] font-semibold border border-gray-700">Deselect (Esc)</button>
                     </div>
-                    <div class="grid grid-cols-2 gap-1">
-                        <button id="btn-sel-copy" class="bg-[#20202a] hover:bg-indigo-900/70 text-indigo-200 py-0.5 px-1 rounded text-[9px] font-semibold border border-indigo-700/50">Copy (Ctrl+C)</button>
-                        <button id="btn-sel-paste" class="bg-[#20202a] hover:bg-amber-900/70 text-amber-200 py-0.5 px-1 rounded text-[9px] font-semibold border border-amber-700/50">Paste (Ctrl+V)</button>
+                    <div class="grid grid-cols-3 gap-1">
+                        <button id="btn-sel-copy" class="bg-[#20202a] hover:bg-indigo-900/70 text-indigo-200 py-0.5 px-1 rounded text-[9px] font-semibold border border-indigo-700/50" title="Copy (Ctrl+C)">Copy</button>
+                        <button id="btn-sel-cut" class="bg-[#20202a] hover:bg-rose-900/70 text-rose-200 py-0.5 px-1 rounded text-[9px] font-semibold border border-rose-700/50" title="Cut (Ctrl+X)">Cut</button>
+                        <button id="btn-sel-paste" class="bg-[#20202a] hover:bg-amber-900/70 text-amber-200 py-0.5 px-1 rounded text-[9px] font-semibold border border-amber-700/50" title="Paste (Ctrl+V)">Paste</button>
                     </div>
+                    <label class="flex items-center justify-between bg-[#14141c] hover:bg-[#1c1c26] px-2 py-1 rounded border border-gray-700/80 cursor-pointer mt-0.5 select-none transition-colors" title="Giữ vùng chọn cũ để chọn gộp nhiều vật thể (Box / Face / Wand)">
+                        <span class="text-[9px] font-bold text-amber-300 flex items-center gap-1">
+                            <span>➕</span> Multi-Select (Add)
+                        </span>
+                        <input type="checkbox" id="chk-multi-select" class="rounded bg-gray-800 border-gray-600 text-amber-500 focus:ring-0 w-3.5 h-3.5 cursor-pointer">
+                    </label>
                 </div>
 
                 <!-- Các công cụ Transform -->
@@ -1009,7 +1017,8 @@
         brushMode: 'paint',
 
         selectedVoxels: new Set(),
-        clipboardVoxels: [], // Bộ nhớ tạm lưu các voxel đã Copy
+        clipboardVoxels: [], // Bộ nhớ tạm lưu các voxel đã Copy / Cut
+        multiSelect: false,  // Cờ bật/tắt chế độ chọn cộng dồn nhiều object
         selectionBounds: null,
 		selectionMode: 'select',
         gizmoMode: 'translate',
@@ -3186,15 +3195,34 @@ function setupSkyControls() {
                 showToast("Deselected!", "success");
             });
         }
+		
+		
 
         const btnCopy = document.getElementById('btn-sel-copy');
+        const btnCut = document.getElementById('btn-sel-cut');
         const btnPaste = document.getElementById('btn-sel-paste');
+        const chkMultiSelect = document.getElementById('chk-multi-select');
+
+        // XỬ LÝ CHECKBOX MULTI-SELECT (CHỌN NHIỀU OBJECT)
+        if (chkMultiSelect) {
+            chkMultiSelect.checked = !!AppState.multiSelect;
+            chkMultiSelect.addEventListener('change', (e) => {
+                AppState.multiSelect = e.target.checked;
+                showToast(
+                    AppState.multiSelect 
+                        ? "Multi-Select ON: Chọn gộp nhiều object" 
+                        : "Multi-Select OFF: Chọn đơn từng vùng", 
+                    "success", 
+                    true
+                );
+            });
+        }
 
         // XỬ LÝ NÚT COPY
         if (btnCopy) {
             btnCopy.addEventListener('click', () => {
                 if (!AppState.model || AppState.selectedVoxels.size === 0) {
-                    showToast("No voxels selected to copy!", "error");
+                    showToast("No voxels selected to copy!", "error", true);
                     return;
                 }
                 const selSet = AppState.selectedVoxels;
@@ -3215,6 +3243,63 @@ function setupSkyControls() {
                 showToast(`Copied ${AppState.clipboardVoxels.length} voxels!`, "success", true);
             });
         }
+
+        // XỬ LÝ NÚT CUT
+        if (btnCut) {
+            btnCut.addEventListener('click', () => {
+                if (!AppState.model || AppState.selectedVoxels.size === 0) {
+                    showToast("No voxels selected to cut!", "error", true);
+                    return;
+                }
+                const selSet = AppState.selectedVoxels;
+                const hasPasted = AppState.model.voxels.some(v => v._pasted && selSet.has(`${v.x},${v.y},${v.z}`));
+
+                const sourceVoxels = AppState.model.voxels.filter(v => {
+                    if (!selSet.has(`${v.x},${v.y},${v.z}`)) return false;
+                    if (!hasPasted && isVoxelLocked(v)) return false; // Không cắt khối ở layer bị khóa
+                    return hasPasted ? !!v._pasted : true;
+                });
+
+                if (sourceVoxels.length === 0) {
+                    showToast("Selected voxels are in a locked layer!", "error", true);
+                    return;
+                }
+
+                const snapshotBefore = captureStateSnapshot();
+
+                // Lưu vào bộ nhớ tạm Clipboard
+                AppState.clipboardVoxels = sourceVoxels.map(v => ({
+                    x: v.x,
+                    y: v.y,
+                    z: v.z,
+                    i: v.i
+                }));
+
+                // Xóa các voxel vừa Cut khỏi mô hình
+                if (hasPasted) {
+                    AppState.model.voxels = AppState.model.voxels.filter(v => !(v._pasted && selSet.has(`${v.x},${v.y},${v.z}`)));
+                } else {
+                    AppState.model.voxels = AppState.model.voxels.filter(v => {
+                        const inSel = selSet.has(`${v.x},${v.y},${v.z}`);
+                        if (inSel && isVoxelLocked(v)) return true;
+                        return !inSel;
+                    });
+                }
+
+                clearSelection();
+                AppState.usedIndices.clear();
+                AppState.model.voxels.forEach(v => { if (v.i > 0) AppState.usedIndices.add(v.i); });
+
+                recordUndoStep(snapshotBefore);
+                rebuildMesh();
+                buildPaletteUI();
+                renderLayerUI();
+
+                showToast(`Cut ${AppState.clipboardVoxels.length} voxels! Click Paste to place & transform.`, "success", true);
+            });
+        }
+		
+		
 
         // XỬ LÝ NÚT PASTE
         if (btnPaste) {
@@ -3893,6 +3978,7 @@ function setupSkyControls() {
 		}
 
 		const isCKey = (e.key && e.key.toLowerCase() === 'c') || e.code === 'KeyC';
+		const isXKey = (e.key && e.key.toLowerCase() === 'x') || e.code === 'KeyX';
 		const isVKey = (e.key && e.key.toLowerCase() === 'v') || e.code === 'KeyV';
 
 		if (isCtrlOrCmd && isCKey) {
@@ -3902,12 +3988,21 @@ function setupSkyControls() {
 			return;
 		}
 
+		if (isCtrlOrCmd && isXKey) {
+			e.preventDefault();
+			if (e.repeat) return;
+			document.getElementById('btn-sel-cut')?.click();
+			return;
+		}
+
 		if (isCtrlOrCmd && isVKey) {
 			e.preventDefault();
 			if (e.repeat) return;
 			document.getElementById('btn-sel-paste')?.click();
 			return;
 		}
+		
+		
         // -------------------------------------
 
         if (e.code === 'Space' && !AppState.isSpaceDown) {
@@ -4770,25 +4865,42 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         }
     }
 	
-	function executeMagicWandSelection(targetVoxel) {
+	function recalculateSelectionBoundsFromSet() {
+        if (!AppState.selectedVoxels || AppState.selectedVoxels.size === 0) {
+            AppState.selectionBounds = null;
+            return;
+        }
+        let minX = Infinity, minY = Infinity, minZ = Infinity;
+        let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+        for (const key of AppState.selectedVoxels) {
+            const [vx, vy, vz] = key.split(',').map(Number);
+            if (vx < minX) minX = vx;
+            if (vx > maxX) maxX = vx;
+            if (vy < minY) minY = vy;
+            if (vy > maxY) maxY = vy;
+            if (vz < minZ) minZ = vz;
+            if (vz > maxZ) maxZ = vz;
+        }
+        AppState.selectionBounds = { minX, minY, minZ, maxX, maxY, maxZ };
+    }
+
+	function executeMagicWandSelection(targetVoxel, isAdd = false) {
         if (!AppState.model || !targetVoxel) return;
+        commitPastedVoxels();
 
         const targetColor = targetVoxel.i;
-        AppState.selectedVoxels.clear();
+        // Giữ nguyên vùng chọn cũ nếu đang tích chọn Multi-Select
+        if (!AppState.multiSelect && !isAdd) {
+            AppState.selectedVoxels.clear();
+        }
 
         const vMap = getVoxelMap();
         const startKey = `${targetVoxel.x},${targetVoxel.y},${targetVoxel.z}`;
 
-        // Thuật toán Flood Fill / BFS 3D: chỉ lan sang các voxel kề cạnh có cùng màu sắc
         const queue = [targetVoxel];
         const visited = new Set();
         visited.add(startKey);
 
-        let minX = targetVoxel.x, maxX = targetVoxel.x;
-        let minY = targetVoxel.y, maxY = targetVoxel.y;
-        let minZ = targetVoxel.z, maxZ = targetVoxel.z;
-
-        // 6 hướng lân cận trong không gian 3D (X, Y, Z)
         const neighbors = [
             { dx: 1, dy: 0, dz: 0 },
             { dx: -1, dy: 0, dz: 0 },
@@ -4803,13 +4915,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             const key = `${curr.x},${curr.y},${curr.z}`;
             AppState.selectedVoxels.add(key);
 
-            if (curr.x < minX) minX = curr.x;
-            if (curr.x > maxX) maxX = curr.x;
-            if (curr.y < minY) minY = curr.y;
-            if (curr.y > maxY) maxY = curr.y;
-            if (curr.z < minZ) minZ = curr.z;
-            if (curr.z > maxZ) maxZ = curr.z;
-
             for (const offset of neighbors) {
                 const nx = curr.x + offset.dx;
                 const ny = curr.y + offset.dy;
@@ -4818,7 +4923,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
                 if (!visited.has(neighborKey) && vMap.has(neighborKey)) {
                     const neighborVox = vMap.get(neighborKey);
-                    // Chỉ lan tiếp nếu voxel kề cạnh có CÙNG MÃ MÀU
                     if (neighborVox.i === targetColor) {
                         visited.add(neighborKey);
                         queue.push(neighborVox);
@@ -4827,13 +4931,8 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             }
         }
 
-        if (AppState.selectedVoxels.size > 0) {
-            AppState.selectionBounds = { minX, minY, minZ, maxX, maxY, maxZ };
-        } else {
-            AppState.selectionBounds = null;
-        }
+        recalculateSelectionBoundsFromSet();
 
-        // Tự động chuyển Action sang Select
         if (AppState.action !== 'select') {
             setMagicaAction('select');
         }
@@ -4844,6 +4943,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
     function executeSelectionBox(v1, v2) {
         if (!AppState.model || !v1 || !v2) return;
+        commitPastedVoxels();
         const sx = AppState.model.size.x;
         const sy = AppState.model.size.y;
         const sz = AppState.model.size.z;
@@ -4855,13 +4955,22 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         const minZ = Math.max(0, Math.min(v1.z, v2.z));
         const maxZ = Math.min(sz - 1, Math.max(v1.z, v2.z));
 
-        AppState.selectionBounds = { minX, minY, minZ, maxX, maxY, maxZ };
-        AppState.selectedVoxels.clear();
+        // Chỉ xóa vùng chọn cũ khi KHÔNG tích chọn Multi-Select
+        if (!AppState.multiSelect) {
+            AppState.selectedVoxels.clear();
+        }
 
         for (const v of AppState.model.voxels) {
+            if (!isVoxelVisible(v)) continue;
             if (v.x >= minX && v.x <= maxX && v.y >= minY && v.y <= maxY && v.z >= minZ && v.z <= maxZ) {
                 AppState.selectedVoxels.add(`${v.x},${v.y},${v.z}`);
             }
+        }
+
+        if (AppState.selectedVoxels.size > 0) {
+            recalculateSelectionBoundsFromSet();
+        } else {
+            AppState.selectionBounds = { minX, minY, minZ, maxX, maxY, maxZ };
         }
 
         updateSelectionBoxVisual();
@@ -5287,14 +5396,19 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             }
             // B. Khi đang ở chế độ Select (tab SELECT)
             // B. Khi đang ở chế độ Select: Chỉ tự động bỏ chọn khi click ra khoảng trống ngoài mô hình
+			 // B. Khi đang ở chế độ Select: Nếu bật Multi-Select thì cho phép bấm khoảng trống xoay camera mà không mất vùng chọn
 			 else if (AppState.action === 'select' && AppState.selectionMode === 'select') {
 					if (!ray || !ray.voxel) {
-					 clearSelection();
-					 showToast("Deselected!", "success");
+					 if (!AppState.multiSelect) {
+						 clearSelection();
+						 showToast("Deselected!", "success");
+					 }
 					 if (AppState.controls) AppState.controls.enabled = true;
 					 return;
 				 }
 			 }
+			 
+			 
         }
 
         // 4. CÁC TÁC VỤ VẼ MÔ HÌNH (FACE / BOX KHI Ở ATTACH / ERASE / PAINT)
@@ -5458,9 +5572,12 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
       // 1. SELECT FACE: Chọn toàn bộ mặt phẳng voxel mà không bao giờ đùn khối
       if (AppState.action === 'select') {
-          if (!isShift) {
+          commitPastedVoxels();
+          if (!isShift && !AppState.multiSelect) {
               AppState.selectedVoxels.clear();
           }
+		  
+		  
 
           for (const fv of faceVoxels) {
               AppState.selectedVoxels.add(`${fv.x},${fv.y},${fv.z}`);
