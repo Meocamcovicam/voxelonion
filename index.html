@@ -508,6 +508,7 @@
                 </div>
 
                 <!-- Các công cụ Select -->
+                <!-- Các công cụ Select -->
                 <div id="sel-tools-container" class="flex flex-col gap-1 pt-1">
                     <div class="grid grid-cols-3 gap-1">
                         <button id="btn-sel-delete" class="bg-rose-900/80 hover:bg-rose-700 text-rose-100 py-1 px-1 rounded text-[10px] font-bold border border-rose-700/60">Delete</button>
@@ -517,6 +518,10 @@
                     <div class="grid grid-cols-2 gap-1">
                         <button id="btn-sel-invert" class="bg-[#20202a] hover:bg-[#2c2c3a] text-gray-300 py-0.5 px-1 rounded text-[9px] font-semibold border border-gray-700">Invert</button>
                         <button id="btn-sel-clear" class="bg-[#20202a] hover:bg-[#2c2c3a] text-gray-300 py-0.5 px-1 rounded text-[9px] font-semibold border border-gray-700">Deselect (Esc)</button>
+                    </div>
+                    <div class="grid grid-cols-2 gap-1">
+                        <button id="btn-sel-copy" class="bg-[#20202a] hover:bg-indigo-900/70 text-indigo-200 py-0.5 px-1 rounded text-[9px] font-semibold border border-indigo-700/50">Copy (Ctrl+C)</button>
+                        <button id="btn-sel-paste" class="bg-[#20202a] hover:bg-amber-900/70 text-amber-200 py-0.5 px-1 rounded text-[9px] font-semibold border border-amber-700/50">Paste (Ctrl+V)</button>
                     </div>
                 </div>
 
@@ -1004,8 +1009,9 @@
         brushMode: 'paint',
 
         selectedVoxels: new Set(),
+        clipboardVoxels: [], // Bộ nhớ tạm lưu các voxel đã Copy
         selectionBounds: null,
-		selectionMode: 'select', // Thêm dòng này
+		selectionMode: 'select',
         gizmoMode: 'translate',
 
         isInteracting: false,
@@ -1131,6 +1137,7 @@
         maxRenderFrames: 64,
         needsAccumulationReset: false,
         needsCubeMapUpdate: true,
+        isCustomResolution: false,
         resolutionWidth: window.innerWidth,
         resolutionHeight: window.innerHeight
     };
@@ -2773,8 +2780,17 @@ function setupSkyControls() {
         const cy = sy / 2;
 
         const selectedSet = new Set(AppState.selectedVoxels);
-        const selectedVoxelsList = AppState.model.voxels.filter(v => selectedSet.has(`${v.x},${v.y},${v.z}`));
-        AppState.model.voxels = AppState.model.voxels.filter(v => !selectedSet.has(`${v.x},${v.y},${v.z}`));
+        const hasPastedVoxels = AppState.model.voxels.some(v => v._pasted && selectedSet.has(`${v.x},${v.y},${v.z}`));
+
+        let selectedVoxelsList = [];
+        if (hasPastedVoxels) {
+            // Nếu đang thao tác trên khối vừa Paste: Chỉ tách các khối vừa Paste, giữ nguyên khối gốc
+            selectedVoxelsList = AppState.model.voxels.filter(v => v._pasted && selectedSet.has(`${v.x},${v.y},${v.z}`));
+            AppState.model.voxels = AppState.model.voxels.filter(v => !(v._pasted && selectedSet.has(`${v.x},${v.y},${v.z}`)));
+        } else {
+            selectedVoxelsList = AppState.model.voxels.filter(v => selectedSet.has(`${v.x},${v.y},${v.z}`));
+            AppState.model.voxels = AppState.model.voxels.filter(v => !selectedSet.has(`${v.x},${v.y},${v.z}`));
+        }
 
         let sumX = 0, sumY = 0, sumZ = 0;
         selectedVoxelsList.forEach(v => {
@@ -2872,18 +2888,30 @@ function setupSkyControls() {
                         const origV = origSelectedMap.get(origKey);
                         const newKey = `${nx},${ny},${nz}`;
                         if (nx >= 0 && nx < sx && ny >= 0 && ny < sy && nz >= 0 && nz < sz) {
-                            if (!vMap.has(newKey)) {
-                                const newVox = { x: nx, y: ny, z: nz, i: origV.i, l: AppState.activeLayerId };
-                                newVoxelsToAdd.push(newVox);
-                                vMap.set(newKey, newVox);
-                                newSelectedKeys.add(newKey);
+                            if (hasPastedVoxels) {
+                                // Giữ cờ _pasted để có thể kéo/xoay/scale nhiều lần mà không đè hỏng khối gốc
+                                if (!newSelectedKeys.has(newKey)) {
+                                    const newVox = { x: nx, y: ny, z: nz, i: origV.i, l: AppState.activeLayerId, _pasted: true };
+                                    newVoxelsToAdd.push(newVox);
+                                    newSelectedKeys.add(newKey);
+                                }
                             } else {
-                                const existing = vMap.get(newKey);
-                                existing.i = origV.i;
-                                newSelectedKeys.add(newKey);
+                                if (!vMap.has(newKey)) {
+                                    const newVox = { x: nx, y: ny, z: nz, i: origV.i, l: AppState.activeLayerId };
+                                    newVoxelsToAdd.push(newVox);
+                                    vMap.set(newKey, newVox);
+                                    newSelectedKeys.add(newKey);
+                                } else {
+                                    const existing = vMap.get(newKey);
+                                    existing.i = origV.i;
+                                    newSelectedKeys.add(newKey);
+                                }
                             }
                         }
                     }
+					
+					
+					
                 }
             }
         }
@@ -2943,14 +2971,30 @@ function setupSkyControls() {
         }
     }
 
+    function commitPastedVoxels() {
+        if (!AppState.model || !AppState.model.voxels) return;
+        const hasPasted = AppState.model.voxels.some(v => v._pasted);
+        if (!hasPasted) return;
+
+        // Hợp nhất các khối vừa Paste vào mô hình (ghi đè lên các tọa độ trùng nhau)
+        const finalMap = new Map();
+        for (const v of AppState.model.voxels) {
+            delete v._pasted;
+            finalMap.set(`${v.x},${v.y},${v.z}`, v);
+        }
+        AppState.model.voxels = Array.from(finalMap.values());
+        rebuildMesh();
+    }
+
     function clearSelection() {
+        commitPastedVoxels();
         AppState.selectedVoxels.clear();
         AppState.selectionBounds = null;
         if (AppState.selectionHelperGroup) AppState.selectionHelperGroup.visible = false;
         if (AppState.selectionPivotGroup) AppState.selectionPivotGroup.visible = false;
         if (AppState.transformControls) AppState.transformControls.detach();
         updateSelectionCountUI();
-		if (typeof setSelectionMode === 'function') setSelectionMode('select'); // Tự động về tab Select
+		if (typeof setSelectionMode === 'function') setSelectionMode('select');
     }
 	
 	// THÊM HÀM NÀY VÀO NGAY TRÊN setupSelectionActions
@@ -3140,6 +3184,99 @@ function setupSkyControls() {
                 clearSelection();
                 recordUndoStep(snapshotBefore);
                 showToast("Deselected!", "success");
+            });
+        }
+
+        const btnCopy = document.getElementById('btn-sel-copy');
+        const btnPaste = document.getElementById('btn-sel-paste');
+
+        // XỬ LÝ NÚT COPY
+        if (btnCopy) {
+            btnCopy.addEventListener('click', () => {
+                if (!AppState.model || AppState.selectedVoxels.size === 0) {
+                    showToast("No voxels selected to copy!", "error");
+                    return;
+                }
+                const selSet = AppState.selectedVoxels;
+                const hasPasted = AppState.model.voxels.some(v => v._pasted && selSet.has(`${v.x},${v.y},${v.z}`));
+
+                const sourceVoxels = AppState.model.voxels.filter(v => {
+                    if (!selSet.has(`${v.x},${v.y},${v.z}`)) return false;
+                    return hasPasted ? !!v._pasted : true;
+                });
+
+                AppState.clipboardVoxels = sourceVoxels.map(v => ({
+                    x: v.x,
+                    y: v.y,
+                    z: v.z,
+                    i: v.i
+                }));
+
+                showToast(`Copied ${AppState.clipboardVoxels.length} voxels!`, "success", true);
+            });
+        }
+
+        // XỬ LÝ NÚT PASTE
+        if (btnPaste) {
+            btnPaste.addEventListener('click', () => {
+                if (!AppState.model) return;
+                if (!AppState.clipboardVoxels || AppState.clipboardVoxels.length === 0) {
+                    showToast("Clipboard is empty! Copy some voxels first.", "error", true);
+                    return;
+                }
+                if (getActiveLayer().locked) {
+                    showToast(`Layer "${getActiveLayer().name}" is locked, cannot Paste!`, "error", true);
+                    return;
+                }
+
+                const snapshotBefore = captureStateSnapshot();
+
+                // Hợp nhất các khối paste cũ (nếu có) trước khi tạo lượt Paste mới
+                commitPastedVoxels();
+
+                // Chuyển vùng chọn sang các khối vừa được Paste
+                AppState.selectedVoxels.clear();
+                let minX = Infinity, minY = Infinity, minZ = Infinity;
+                let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+                for (const cv of AppState.clipboardVoxels) {
+                    const newVox = {
+                        x: cv.x,
+                        y: cv.y,
+                        z: cv.z,
+                        i: cv.i,
+                        l: AppState.activeLayerId,
+                        _pasted: true
+                    };
+                    AppState.model.voxels.push(newVox);
+                    AppState.usedIndices.add(cv.i);
+
+                    const key = `${cv.x},${cv.y},${cv.z}`;
+                    AppState.selectedVoxels.add(key);
+
+                    if (cv.x < minX) minX = cv.x;
+                    if (cv.x > maxX) maxX = cv.x;
+                    if (cv.y < minY) minY = cv.y;
+                    if (cv.y > maxY) maxY = cv.y;
+                    if (cv.z < minZ) minZ = cv.z;
+                    if (cv.z > maxZ) maxZ = cv.z;
+                }
+
+                AppState.selectionBounds = { minX, minY, minZ, maxX, maxY, maxZ };
+
+                recordUndoStep(snapshotBefore);
+                rebuildMesh();
+                buildPaletteUI();
+                renderLayerUI();
+
+                // Đảm bảo đang ở công cụ Select và chuyển thẳng sang tab TRANSFORM (Move/Rotate/Scale)
+                if (AppState.action !== 'select') {
+                    setMagicaAction('select');
+                }
+                setSelectionMode('transform');
+                updateSelectionBoxVisual();
+
+                showToast(`Pasted ${AppState.clipboardVoxels.length} voxels! Ready to Transform.`, "success", true);
             });
         }
     }
@@ -3721,9 +3858,7 @@ function setupSkyControls() {
     }
 
 	function updateOrthoFrustum(distance) {
-        const inputW = document.getElementById('render-width');
-        // Chỉ khi người dùng chủ động nhập kích thước tùy biến riêng mới lấy theo resolutionWidth/Height
-        const isCustom = (AppState.renderMode === 'pathtrace') && inputW && inputW.dataset.custom === 'true';
+        const isCustom = (AppState.renderMode === 'pathtrace') && !!AppState.isCustomResolution;
         const aspect = (isCustom && AppState.resolutionWidth && AppState.resolutionHeight)
             ? (AppState.resolutionWidth / AppState.resolutionHeight)
             : (window.innerWidth / window.innerHeight);
@@ -3757,10 +3892,20 @@ function setupSkyControls() {
 			return;
 		}
 
-		if (isCtrlOrCmd && isYKey) {
+		const isCKey = (e.key && e.key.toLowerCase() === 'c') || e.code === 'KeyC';
+		const isVKey = (e.key && e.key.toLowerCase() === 'v') || e.code === 'KeyV';
+
+		if (isCtrlOrCmd && isCKey) {
 			e.preventDefault();
-			if (e.repeat) return; // Triệt tiêu key-repeat tự động của hệ điều hành
-			executeRedo();
+			if (e.repeat) return;
+			document.getElementById('btn-sel-copy')?.click();
+			return;
+		}
+
+		if (isCtrlOrCmd && isVKey) {
+			e.preventDefault();
+			if (e.repeat) return;
+			document.getElementById('btn-sel-paste')?.click();
 			return;
 		}
         // -------------------------------------
@@ -3890,11 +4035,18 @@ function setupSkyControls() {
       if (!AppState.renderer) return;
       const canvas = AppState.renderer.domElement;
       const inputW = document.getElementById('render-width');
-      const inputH = document.getElementById('render-height'); // <-- THÊM DÒNG NÀY ĐỂ HẾT ĐƠ
-      const isCustom = (AppState.renderMode === 'pathtrace') && inputW && inputW.dataset.custom === 'true';
+      const inputH = document.getElementById('render-height');
 
-      if (!isCustom) {
-          // Chế độ toàn màn hình (Preview hoặc P-Tracing trên mobile/web)
+      // Kiểm tra xem người dùng đã nhập kích thước tùy chỉnh hay chưa
+      const hasCustomRes = !!AppState.isCustomResolution ||
+                           (inputW && inputW.dataset.custom === 'true') ||
+                           (inputH && inputH.dataset.custom === 'true');
+
+      // CHỈ co/giãn khung hình khi đang ở chế độ P-Tracing VÀ có kích thước tùy chỉnh
+      const applyCustomViewport = (AppState.renderMode === 'pathtrace') && hasCustomRes;
+
+      if (!applyCustomViewport) {
+          // Chế độ Preview (luôn full màn hình) HOẶC P-Tracing khi để Fit Screen
           const w = window.innerWidth;
           const h = window.innerHeight;
           AppState.renderer.setSize(w, h, true);
@@ -3903,12 +4055,18 @@ function setupSkyControls() {
           canvas.style.height = '100vh';
           canvas.style.boxShadow = 'none';
           canvas.style.border = 'none';
+          canvas.style.borderRadius = '0px';
 
-          // BẮT BUỘC: Đồng bộ độ phân giải render của P-Tracing theo đúng màn hình thiết bị
-          AppState.resolutionWidth = w;
-          AppState.resolutionHeight = h;
-          if (inputW) inputW.value = w;
-          if (inputH) inputH.value = h;
+          // Nếu chưa đặt kích thước riêng thì mới lấy theo màn hình; nếu đã đặt thì giữ nguyên số đã nhập
+          if (!hasCustomRes) {
+              AppState.resolutionWidth = w;
+              AppState.resolutionHeight = h;
+              if (inputW && document.activeElement !== inputW) inputW.value = w;
+              if (inputH && document.activeElement !== inputH) inputH.value = h;
+          } else {
+              if (inputW && document.activeElement !== inputW) inputW.value = AppState.resolutionWidth;
+              if (inputH && document.activeElement !== inputH) inputH.value = AppState.resolutionHeight;
+          }
 
           const aspect = w / h;
           AppState.cameraPersp.aspect = aspect;
@@ -3916,14 +4074,20 @@ function setupSkyControls() {
           if (AppState.cameraMode === 'iso' || AppState.cameraMode === 'ortho') {
               updateOrthoFrustum(AppState.cameraOrtho.position.distanceTo(AppState.controls.target));
           }
-      }
-      else {
-          // Chế độ P-Tracing với khung kích thước riêng (vd: 500x800)
-          const rw = AppState.resolutionWidth || 1280;
-          const rh = AppState.resolutionHeight || 720;
 
-          const maxW = window.innerWidth - 60;
-          const maxH = window.innerHeight - 60;
+          if (AppState.renderMode === 'pathtrace' && typeof initPingPongTargets === 'function' && AppState.renderTargetA) {
+              initPingPongTargets(w, h);
+          }
+      } else {
+          // Chế độ P-Tracing với khung kích thước tùy chỉnh (Co bé hoặc phóng to theo đúng số đã Enter)
+          AppState.isCustomResolution = true;
+          const rw = Math.max(64, Math.min(4096, AppState.resolutionWidth || 1280));
+          const rh = Math.max(64, Math.min(4096, AppState.resolutionHeight || 720));
+          AppState.resolutionWidth = rw;
+          AppState.resolutionHeight = rh;
+
+          const maxW = Math.max(64, window.innerWidth - 60);
+          const maxH = Math.max(64, window.innerHeight - 60);
           const scale = Math.min(1.0, maxW / rw, maxH / rh);
           const dispW = Math.round(rw * scale);
           const dispH = Math.round(rh * scale);
@@ -3936,13 +4100,22 @@ function setupSkyControls() {
           canvas.style.boxShadow = '0 0 35px rgba(0,0,0,0.85), 0 0 0 1px #4b4b58';
           canvas.style.borderRadius = '4px';
 
+          if (inputW && document.activeElement !== inputW) inputW.value = rw;
+          if (inputH && document.activeElement !== inputH) inputH.value = rh;
+
           const aspect = rw / rh;
           AppState.cameraPersp.aspect = aspect;
           AppState.cameraPersp.updateProjectionMatrix();
           if (AppState.cameraMode === 'iso' || AppState.cameraMode === 'ortho') {
               updateOrthoFrustum(AppState.cameraOrtho.position.distanceTo(AppState.controls.target));
           }
+
+          if (typeof initPingPongTargets === 'function' && AppState.renderTargetA) {
+              initPingPongTargets(rw, rh);
+          }
       }
+
+      updateFilterUniforms();
   }
 
   function onWindowResize() {
@@ -3987,7 +4160,7 @@ function captureStateSnapshot() {
     return {
         // Mô hình & Vùng chọn
         size: { ...AppState.model.size },
-        voxels: AppState.model.voxels.map(v => ({ x: v.x, y: v.y, z: v.z, i: v.i, l: v.l })),
+        voxels: AppState.model.voxels.map(v => ({ x: v.x, y: v.y, z: v.z, i: v.i, l: v.l, ...(v._pasted ? { _pasted: true } : {}) })),
         selectedVoxels: Array.from(AppState.selectedVoxels || []),
         selectedColorIndex: AppState.selectedColorIndex,
         
@@ -4033,9 +4206,10 @@ function captureStateSnapshot() {
             bloomStrength: AppState.bloomStrength
         },
         renderConfig: {
-            width: AppState.resolutionWidth,
-            height: AppState.resolutionHeight,
-            samples: AppState.maxRenderFrames
+            isCustomResolution: AppState.isCustomResolution,
+			 width: AppState.resolutionWidth,
+			 height: AppState.resolutionHeight,
+			 samples: AppState.maxRenderFrames
         }
     };
 }
@@ -4098,7 +4272,7 @@ function restoreStateFromSnapshot(snapshot) {
     }
 
     // C. Khôi phục Voxel & Vùng chọn
-    AppState.model.voxels = snapshot.voxels.map(v => ({ x: v.x, y: v.y, z: v.z, i: v.i, l: v.l }));
+    AppState.model.voxels = snapshot.voxels.map(v => ({ x: v.x, y: v.y, z: v.z, i: v.i, l: v.l, ...(v._pasted ? { _pasted: true } : {}) }));
     AppState.selectedVoxels = new Set(snapshot.selectedVoxels || []);
 
     // D. Khôi phục Vật liệu & Bảng màu
@@ -4163,9 +4337,11 @@ function restoreStateFromSnapshot(snapshot) {
         AppState.bloomStrength = snapshot.postProcess.bloomStrength;
     }
     if (snapshot.renderConfig) {
-        AppState.resolutionWidth = snapshot.renderConfig.width;
-        AppState.resolutionHeight = snapshot.renderConfig.height;
-        AppState.maxRenderFrames = snapshot.renderConfig.samples;
+        AppState.isCustomResolution = !!snapshot.renderConfig.isCustomResolution;
+		 AppState.resolutionWidth = snapshot.renderConfig.width;
+		 AppState.resolutionHeight = snapshot.renderConfig.height;
+		 AppState.maxRenderFrames = snapshot.renderConfig.samples;
+		 updateRenderViewportSize();
     }
 
     // G. Đồng bộ giao diện (Sliders, Color pickers, Inputs) & Viewport
@@ -6217,9 +6393,13 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
         AppState.voxelMesh = new THREE.Group();
 		
-        const voxelsByColor = {};
+        const visibleVoxelMap = new Map();
         for (const v of AppState.model.voxels) {
-            if (!isVoxelVisible(v)) continue; // Ẩn voxel nếu layer của nó đang bị tắt
+            if (!isVoxelVisible(v)) continue;
+            visibleVoxelMap.set(`${v.x},${v.y},${v.z}`, v);
+        }
+        const voxelsByColor = {};
+        for (const v of visibleVoxelMap.values()) {
             if (!voxelsByColor[v.i]) voxelsByColor[v.i] = [];
             voxelsByColor[v.i].push(v);
         }
@@ -6937,41 +7117,110 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
     }
 	
 	function setupResolutionControls() {
-    const inputW = document.getElementById('render-width');
-    const inputH = document.getElementById('render-height');
-    const inputSamples = document.getElementById('render-samples');
+    const rawW = document.getElementById('render-width');
+    const rawH = document.getElementById('render-height');
+    const rawSamples = document.getElementById('render-samples');
+    const rawFitBtn = document.getElementById('btn-fit-screen');
 
-    const bindNumericConfig = (el, onApply) => {
+    // Làm sạch các event listener cũ bị trùng lặp (nếu có ở cuối file)
+    const replaceClean = (el) => {
+        if (!el || !el.parentNode) return el;
+        const clone = el.cloneNode(true);
+        el.parentNode.replaceChild(clone, el);
+        return clone;
+    };
+
+    const inputW = replaceClean(rawW);
+    const inputH = replaceClean(rawH);
+    const inputSamples = replaceClean(rawSamples);
+    const btnFit = replaceClean(rawFitBtn);
+
+    if (inputW) inputW.min = "64";
+    if (inputH) inputH.min = "64";
+
+    const applyCustomResolution = () => {
+        const valW = parseInt(inputW ? inputW.value : AppState.resolutionWidth, 10);
+        const valH = parseInt(inputH ? inputH.value : AppState.resolutionHeight, 10);
+
+        if (!isNaN(valW)) AppState.resolutionWidth = Math.max(64, Math.min(4096, valW));
+        if (!isNaN(valH)) AppState.resolutionHeight = Math.max(64, Math.min(4096, valH));
+
+        AppState.isCustomResolution = true;
+        if (inputW) {
+            inputW.dataset.custom = 'true';
+            inputW.value = AppState.resolutionWidth;
+        }
+        if (inputH) {
+            inputH.dataset.custom = 'true';
+            inputH.value = AppState.resolutionHeight;
+        }
+
+        updateRenderViewportSize();
+        if (AppState.renderMode === 'pathtrace') {
+            AppState.latestAccumTarget = null;
+            AppState.needsAccumulationReset = true;
+        }
+    };
+
+    const bindCommitInput = (el, onCommit) => {
         if (!el) return;
         let snap = null;
-        el.addEventListener('focus', () => { snap = captureStateSnapshot(); });
+
+        el.addEventListener('focus', () => {
+            snap = captureStateSnapshot();
+        });
+
+        // Chỉ áp dụng khi nhấn Enter hoặc khi thoát khỏi ô input (change), không bắt 'input' khi đang gõ dở
         el.addEventListener('change', () => {
+            onCommit();
             if (snap) {
                 recordUndoStep(snap);
                 snap = null;
             }
-            onApply();
+        });
+
+        el.addEventListener('keydown', (e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                onCommit();
+                if (snap) {
+                    recordUndoStep(snap);
+                    snap = null;
+                }
+                el.blur();
+            }
         });
     };
 
-    bindNumericConfig(inputW, () => {
-        AppState.resolutionWidth = Math.max(64, Math.min(4096, parseInt(inputW.value) || 1280));
-        inputW.dataset.custom = 'true';
-        updateRenderViewportSize();
-        if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
+    bindCommitInput(inputW, applyCustomResolution);
+    bindCommitInput(inputH, applyCustomResolution);
+
+    bindCommitInput(inputSamples, () => {
+        const val = parseInt(inputSamples.value, 10);
+        if (!isNaN(val)) {
+            AppState.maxRenderFrames = Math.max(1, Math.min(4096, val));
+            inputSamples.value = AppState.maxRenderFrames;
+            if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
+        }
     });
 
-    bindNumericConfig(inputH, () => {
-        AppState.resolutionHeight = Math.max(64, Math.min(4096, parseInt(inputH.value) || 720));
-        inputH.dataset.custom = 'true';
-        updateRenderViewportSize();
-        if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
-    });
-
-    bindNumericConfig(inputSamples, () => {
-        AppState.maxRenderFrames = Math.max(1, Math.min(4096, parseInt(inputSamples.value) || 64));
-        if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
-    });
+    if (btnFit) {
+        btnFit.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const snap = captureStateSnapshot();
+            AppState.isCustomResolution = false;
+            if (inputW) delete inputW.dataset.custom;
+            if (inputH) delete inputH.dataset.custom;
+            updateRenderViewportSize();
+            recordUndoStep(snap);
+            if (AppState.renderMode === 'pathtrace') {
+                AppState.latestAccumTarget = null;
+                AppState.needsAccumulationReset = true;
+            }
+            showToast("Viewport fitted to screen", "success");
+        });
+    }
 }
 
     function updateFilterUniforms() {
