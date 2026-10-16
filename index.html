@@ -1316,6 +1316,7 @@
     }
 	
 	function setupMaterialControls() {
+	
     const bindMatRange = (id, propKey, isInt = false) => {
         const el = document.getElementById(id);
         if (!el) return;
@@ -1330,8 +1331,10 @@
                     if (valEl) valEl.textContent = isInt ? Math.round(val) : val.toFixed(isInt ? 0 : 2);
                     updateInstancedMaterial(AppState.selectedColorIndex);
                     
-                    // Reset Path Tracing ngay khi đang rê thanh trượt
+                    // Đồng bộ ngay Texture 3D (Transparency/Density) và Emit khi đang kéo thanh trượt
                     if (AppState.renderMode === 'pathtrace') {
+                        updateVoxel3DTexture();
+                        updateDynamicEmitLights();
                         AppState.needsAccumulationReset = true;
                     }
                 }
@@ -1409,6 +1412,9 @@
                         : "mat-type-btn text-[10px] font-bold py-1.5 rounded text-gray-400 hover:text-white";
                 });
                 updateInstancedMaterial(AppState.selectedColorIndex);
+				updateVoxel3DTexture(); 
+				updateDynamicEmitLights(); 
+				if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
             }
         });
     });
@@ -7306,8 +7312,33 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     return tFar > max(tNear, 0.0);
                 }
 				
+                // Trích xuất sắc độ bộ lọc màu từ Voxel (tách bớt nền trắng pastel để lọc màu rõ nét)
+                vec3 extractFilterTint(vec3 srgbCol) {
+                    vec3 lin = pow(srgbCol, vec3(2.2));
+                    float maxC = max(lin.r, max(lin.g, max(lin.b, 0.001)));
+                    float minC = min(lin.r, min(lin.g, lin.b));
+                    vec3 chroma = (lin - minC * 0.65) / max(0.001, maxC - minC * 0.65);
+                    vec3 normLin = lin / maxC;
+                    return clamp(mix(normLin, chroma, 0.65), vec3(0.08), vec3(1.0));
+                }
+
+                // Kết hợp 2 bộ lọc màu quang học khi tia sáng đi xuyên qua nhiều lớp kính/vật liệu khác màu
+                vec3 combineOpticalFilters(vec3 filterA, vec3 filterB) {
+                    vec3 multFilter = sqrt(max(filterA * filterB, vec3(0.0001)));
+                    vec3 blendFilter = 0.5 * (filterA + filterB);
+                    vec3 combined = mix(multFilter, blendFilter, 0.50);
+                    float minComb = min(combined.r, min(combined.g, combined.b));
+                    combined = max(vec3(0.02), combined - minComb * 0.45);
+                    float maxC = max(combined.r, max(combined.g, max(combined.b, 0.001)));
+                    return mix(combined, combined / maxC, 0.78);
+                }
+
                 vec3 shadowTraversal(vec3 ro, vec3 rd, float maxDist, inout uint seed) {
                     vec3 transmittance = vec3(1.0);
+                    vec3 filterColor = vec3(1.0);
+                    bool hasSurfaceTint = false;
+                    vec3 lastLayerRgb = vec3(-1.0);
+
                     vec3 boxMin = vec3(-uGridSize.x * 0.5, 0.0, -uGridSize.y * 0.5);
                     vec3 boxMax = vec3(uGridSize.x * 0.5, uGridSize.z, uGridSize.y * 0.5);
 
@@ -7316,11 +7347,11 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     bool hitBox = intersectBoxExt(ro, rd, boxMin, boxMax, tNear, tFar, boxNormNear);
 
                     if (uShowFloorPlane > 0.5 && rd.y < -0.0001) {
-						float tFloor = -ro.y / rd.y;
-						if (tFloor > 0.001 && tFloor < maxDist) {
-							return vec3(0.0);
-						}
-					}
+                        float tFloor = -ro.y / rd.y;
+                        if (tFloor > 0.001 && tFloor < maxDist) {
+                            return vec3(0.0);
+                        }
+                    }
 
                     if (!hitBox || tNear >= maxDist) return vec3(1.0);
 
@@ -7339,56 +7370,81 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     vec3 sideDist = (raySign * (vec3(mapPos) - localPos) + (raySign * 0.5) + 0.5) * deltaDist;
                     vec3 mask = vec3(0.0);
 
-                    // Tối ưu từ 256 xuống 96 bước
                     int maxShadowSteps = int(uGridSize.x + uGridSize.y + uGridSize.z);
-					for (int i = 0; i < 512; i++) {
-						if (i >= maxShadowSteps || tStart >= maxDist) break;
+                    for (int i = 0; i < 512; i++) {
+                        if (i >= maxShadowSteps || tStart >= maxDist) break;
 
                         vec3 uv3 = (vec3(mapPos) + 0.5) / uGridSize;
                         vec4 voxel = texture(tVoxelGrid, uv3);
 
                         if (voxel.a > 0.01) {
                             float tag = floor(voxel.a * 255.0 + 0.5);
+                            vec3 vividTint = extractFilterTint(voxel.rgb);
+                            bool isNewColorLayer = (distance(voxel.rgb, lastLayerRgb) > 0.03);
 
                             if (tag >= 60.0 && tag <= 79.0) {
                                 float minSide = min(min(sideDist.x, sideDist.y), sideDist.z);
                                 float dt = max(0.001, minSide - tStart);
                                 float density = clamp((tag - 60.0) / 19.0, 0.02, 1.0);
-                                vec3 cAlbedo = pow(voxel.rgb, vec3(2.2));
                                 float att = exp(-density * 0.45 * dt);
-                                transmittance *= mix(vec3(att), cAlbedo * att, 0.55);
+                                transmittance *= att;
+                                if (!hasSurfaceTint) {
+                                    filterColor = vividTint;
+                                    hasSurfaceTint = true;
+                                    lastLayerRgb = voxel.rgb;
+                                } else if (isNewColorLayer) {
+                                    filterColor = combineOpticalFilters(filterColor, vividTint);
+                                    lastLayerRgb = voxel.rgb;
+                                }
+                                if (max(transmittance.r, max(transmittance.g, transmittance.b)) < 0.01) return vec3(0.0);
+                            }
+                            else if (tag >= 80.0 && tag <= 99.0) {
+                                float transparency = clamp((tag - 80.0) / 19.0, 0.0, 1.0);
+                                if (transparency <= 0.005) return vec3(0.0);
 
-                                if (max(transmittance.r, max(transmittance.g, transmittance.b)) < 0.01) {
-                                    return vec3(0.0);
+                                float densityFactor = max(0.05, uBlendDensity / 50.0);
+                                float att = exp(-densityFactor * 0.22 * (1.0 - transparency * 0.5));
+                                transmittance *= pow(transparency, 0.55) * att;
+                                if (!hasSurfaceTint) {
+                                    filterColor = vividTint;
+                                    hasSurfaceTint = true;
+                                    lastLayerRgb = voxel.rgb;
+                                } else if (isNewColorLayer) {
+                                    filterColor = combineOpticalFilters(filterColor, vividTint);
+                                    lastLayerRgb = voxel.rgb;
+                                }
+                                if (max(transmittance.r, max(transmittance.g, transmittance.b)) < 0.01) return vec3(0.0);
+                            }
+                            else if (tag >= 140.0 && tag <= 189.0) {
+                                float transparency = clamp((tag - 140.0) / 45.0, 0.0, 1.0);
+                                if (transparency <= 0.005) return vec3(0.0);
+
+                                float densityFactor = max(0.05, uGlassDensity / 50.0);
+                                float att = exp(-densityFactor * 0.20 * (1.0 - transparency * 0.5));
+                                transmittance *= pow(transparency, 0.50) * att;
+                                if (!hasSurfaceTint) {
+                                    filterColor = vividTint;
+                                    hasSurfaceTint = true;
+                                    lastLayerRgb = voxel.rgb;
+                                } else if (isNewColorLayer) {
+                                    // Khi tia sáng đi qua nhiều lớp kính khác màu: Cộng dồn bộ lọc màu quang học
+                                    filterColor = combineOpticalFilters(filterColor, vividTint);
+                                    lastLayerRgb = voxel.rgb;
+                                }
+                                if (max(transmittance.r, max(transmittance.g, transmittance.b)) < 0.01) return vec3(0.0);
+                            }
+                            else if (tag >= 225.0) {
+                                if (!hasSurfaceTint) {
+                                    filterColor = vividTint;
+                                    hasSurfaceTint = true;
+                                    lastLayerRgb = voxel.rgb;
+                                } else if (isNewColorLayer) {
+                                    filterColor = combineOpticalFilters(filterColor, vividTint);
+                                    lastLayerRgb = voxel.rgb;
                                 }
                             }
-
-							else if (tag >= 80.0 && tag <= 99.0) {
-								float transparency = clamp((tag - 80.0) / 19.0, 0.0, 1.0);
-								vec3 bCol = pow(voxel.rgb, vec3(2.2));
-								float densityFactor = max(0.1, uBlendDensity / 50.0);
-								vec3 blendAtt = exp(-(-log(max(bCol, vec3(0.02))) * (densityFactor * 0.35)));
-								transmittance *= mix(vec3(0.0), blendAtt, transparency);
-								if (max(transmittance.r, max(transmittance.g, transmittance.b)) < 0.01) {
-									return vec3(0.0);
-								}							
-							}
-	
-							else if (tag >= 140.0 && tag <= 189.0) {
-                                float transparency = clamp((tag - 140.0) / 45.0, 0.0, 1.0);
-                                vec3 gCol = pow(voxel.rgb, vec3(2.2));
-                                // Bóng đổ xuyên sáng nhuộm màu kính chuẩn xác theo độ dày và Density
-                                float densityFactor = max(0.1, uGlassDensity / 50.0);
-                                vec3 glassAtt = exp(-(-log(max(gCol, vec3(0.02))) * (densityFactor * 0.35)));
-                                transmittance *= mix(vec3(0.0), glassAtt, transparency);
-                            }
-							
-							
-							
-							else if (tag >= 225.0) {
-                                // Emit có bật Light Source (Cửa sổ): Cho phép ánh nắng Mặt Trời xuyên qua
-                            } else if (tag >= 190.0 && maxDist < 500.0) {
-                                // Tia kiểm tra bóng của đèn nội thất không tự chặn chính nó
+                            else if (tag >= 190.0 && maxDist < 500.0) {
+                                // Đèn nội thất không tự chặn bóng của chính nó
                             } else {
                                 return vec3(0.0);
                             }
@@ -7406,15 +7462,22 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                             break;
                         }
                     }
-                    return transmittance;
+                    return transmittance * filterColor;
                 }
 				
 				// Hàm kiểm tra tia nắng chuyên biệt cho Godray (Nhanh gấp 3 lần shadowTraversal)
                 // Hàm kiểm tra tia nắng xuyên cửa sổ / khe hở chuẩn Unity (Window Light Shafts)
                 // Hàm kiểm tra tia nắng xuyên cửa sổ siêu nhẹ (Chỉ 1 lần đọc Texture/bước, tối đa 28 bước)
-                // Kiểm tra tia Godray xuyên qua: Cửa sổ trống, Glass, Cloud/Blend, hoặc Emit có bật Light Source
+                // Biến lưu màu vật liệu mà tia Godray đi xuyên qua tại mỗi bước lấy mẫu
+                vec3 gGodrayColor = vec3(1.0);
+                float gGodrayTinted = 0.0;
+
                 float fastGodrayShadow(vec3 ro, vec3 rd, out float distToWindow) {
                     distToWindow = 0.0;
+                    gGodrayColor = vec3(1.0);
+                    gGodrayTinted = 0.0;
+                    vec3 lastLayerRgb = vec3(-1.0);
+
                     if (uShowFloorPlane > 0.5 && rd.y < -0.0001 && (-ro.y / rd.y) > 0.001) return 0.0;
 
                     vec3 boxMin = vec3(-uGridSize.x * 0.5, 0.0, -uGridSize.y * 0.5);
@@ -7441,41 +7504,89 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     int maxZ = int(uGridSize.z) - 1;
                     int topWallZ = clamp(int(uModelMax.y) - 1, 0, maxZ);
 
-                    // Duyệt hết chiều dài phòng (tối đa 384 bước) để không bao giờ bị đứt giữa chừng ở phòng lớn 91x120x91
                     int maxSteps = int(uGridSize.x + uGridSize.y + uGridSize.z);
                     for (int i = 0; i < 384; i++) {
                         if (i >= maxSteps) break;
 
-                        float aVal = texture(tVoxelGrid, (vec3(mapPos) + 0.5) / uGridSize).a;
+                        vec4 vox = texture(tVoxelGrid, (vec3(mapPos) + 0.5) / uGridSize);
+                        float aVal = vox.a;
+
                         if (aVal > 0.01) {
                             float tag = floor(aVal * 255.0 + 0.5);
+                            vec3 matTint = extractFilterTint(vox.rgb);
+                            bool isNewColorLayer = (distance(vox.rgb, lastLayerRgb) > 0.03);
+
                             if (tag >= 225.0) {
-                                // 1. Emit có bật Light Source (Tấm nguồn sáng cửa sổ)
+                                // 1. Emit có bật Light Source
+                                if (gGodrayTinted < 0.5) {
+                                    gGodrayColor = matTint;
+                                    gGodrayTinted = 1.0;
+                                    lastLayerRgb = vox.rgb;
+                                } else if (isNewColorLayer) {
+                                    gGodrayColor = combineOpticalFilters(gGodrayColor, matTint);
+                                    lastLayerRgb = vox.rgb;
+                                }
                                 if (!passedWindow) {
                                     passedWindow = true;
                                     distToWindow = tCurrent;
                                 }
                             } else if (tag >= 140.0 && tag <= 189.0) {
                                 // 2. Cửa kính (Glass)
-                                trans *= clamp((tag - 140.0) / 45.0, 0.30, 0.98);
+                                float transparency = clamp((tag - 140.0) / 45.0, 0.0, 1.0);
+                                if (transparency <= 0.005) return 0.0;
+
+                                trans *= pow(transparency, 0.35);
+                                if (gGodrayTinted < 0.5) {
+                                    gGodrayColor = matTint;
+                                    gGodrayTinted = 1.0;
+                                    lastLayerRgb = vox.rgb;
+                                } else if (isNewColorLayer) {
+                                    // Kết hợp bộ lọc màu khi tia Godray xuyên qua lớp kính khác màu tiếp theo
+                                    gGodrayColor = combineOpticalFilters(gGodrayColor, matTint);
+                                    lastLayerRgb = vox.rgb;
+                                }
                                 if (!passedWindow) {
                                     passedWindow = true;
                                     distToWindow = tCurrent;
                                 }
-                            } else if (tag >= 60.0 && tag <= 99.0) {
-                                // 3. Rèm mỏng / Cloud / Blend
-                                trans *= 0.82;
+                            } else if (tag >= 80.0 && tag <= 99.0) {
+                                // 3. Blend
+                                float transparency = clamp((tag - 80.0) / 19.0, 0.0, 1.0);
+                                if (transparency <= 0.005) return 0.0;
+
+                                trans *= pow(transparency, 0.35);
+                                if (gGodrayTinted < 0.5) {
+                                    gGodrayColor = matTint;
+                                    gGodrayTinted = 1.0;
+                                    lastLayerRgb = vox.rgb;
+                                } else if (isNewColorLayer) {
+                                    gGodrayColor = combineOpticalFilters(gGodrayColor, matTint);
+                                    lastLayerRgb = vox.rgb;
+                                }
+                                if (!passedWindow) {
+                                    passedWindow = true;
+                                    distToWindow = tCurrent;
+                                }
+                            } else if (tag >= 60.0 && tag <= 79.0) {
+                                // 4. Cloud
+                                trans *= 0.88;
+                                if (gGodrayTinted < 0.5) {
+                                    gGodrayColor = matTint;
+                                    gGodrayTinted = 1.0;
+                                    lastLayerRgb = vox.rgb;
+                                } else if (isNewColorLayer) {
+                                    gGodrayColor = combineOpticalFilters(gGodrayColor, matTint);
+                                    lastLayerRgb = vox.rgb;
+                                }
                                 if (!passedWindow) {
                                     passedWindow = true;
                                     distToWindow = tCurrent;
                                 }
                             } else {
-                                // Tường đặc, đồ vật hoặc đèn Emit thường trong phòng -> Chặn tia nắng ngay lập tức
                                 return 0.0;
                             }
                             if (trans < 0.05) return 0.0;
                         } else if (!passedWindow && mapPos.z < topWallZ - 1) {
-                            // 4. Cửa sổ trống (ô trống xuyên qua tường có đà tường/rèm ở đỉnh tường thẳng phía trên)
                             float aTop = texture(tVoxelGrid, (vec3(float(mapPos.x), float(mapPos.y), float(topWallZ)) + 0.5) / uGridSize).a;
                             if (aTop > 0.01) {
                                 passedWindow = true;
@@ -7493,7 +7604,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                             mapPos.z < 0 || mapPos.z >= int(uGridSize.z)) break;
                     }
 
-                    // Bắt buộc tia phải đi xuyên qua cửa sổ (Trống, Glass, hoặc Emit Light Source) mới tạo Godray
                     return passedWindow ? trans : 0.0;
                 }
 				
@@ -7697,17 +7807,17 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                             float F_diel = F0_diel + (1.0 - F0_diel) * pow(1.0 - cosThetaV, 5.0);
 
                             float blendTrans = isBlend ? clamp((matTag - 80.0) / 19.0, 0.0, 1.0) : 0.0;
+                            float glassTrans = isGlass ? clamp((matTag - 140.0) / 45.0, 0.0, 1.0) : 0.0;
 
-                            // Trọng số khuếch tán (Diffuse):
-                            // Khi Metallic = 1.0 -> diffuseWeight = 0.0 (triệt tiêu hoàn toàn màu bệt, biến thành gương kim loại)
-                            // Khi Metallic = 0.0 -> diffuseWeight = (1.0 - F_diel) (bảo toàn năng lượng, thành nhựa bóng)
+                            // Khi Transparency = 0 -> diffuseWeight = 1.0 (Khối Glass/Blend đặc hoàn toàn như ảnh mẫu MagicaVoxel)
+                            // Khi Transparency = 1.0 (100%) -> diffuseWeight = 0.0 (Trong suốt hoàn toàn)
                             float diffuseWeight = 1.0;
                             if (isMetal) {
                                 diffuseWeight = (1.0 - metalMetallic) * (1.0 - F_diel);
                             } else if (isBlend) {
                                 diffuseWeight = (1.0 - blendTrans) * (1.0 - clamp(uBlendMetallic, 0.0, 1.0));
                             } else if (isGlass) {
-                                diffuseWeight = 0.0;
+                                diffuseWeight = 1.0 - glassTrans;
                             }
 							
 							
@@ -7768,7 +7878,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                             }
 
                             // B. NGUỒN SÁNG EMIT (CHIẾU SÁNG MẶT SÀN VÀ CÁC ĐIỂM XUNG QUANH CHUẨN MAGICAVOXEL)
-                            if (!isGlass && diffuseWeight > 0.001 && uNumEmitLights > 0) {
+                            if (diffuseWeight > 0.001 && uNumEmitLights > 0) {
                                 int li = int(rand(seed) * float(uNumEmitLights));
                                 li = clamp(li, 0, uNumEmitLights - 1);
 
@@ -7870,7 +7980,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                         vec3 sunLightCol = pow(uSunCol, vec3(2.2)) * (uSunInt * sunBounceDamp) * sunTrans;
 
                                         // 1. Ánh sáng khuếch tán (Diffuse) - Chỉ áp dụng cho phần phi kim loại
-                                        if (!isGlass && diffuseWeight > 0.001) {
+                                       if (diffuseWeight > 0.001) {
                                             float diffFactor = isVolume 
                                                 ? (phaseHG(clamp(dot(jitterSun, rd), -1.0, 1.0), uCloudPhase) * 2.0) 
                                                 : NdotL;
@@ -7931,8 +8041,10 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     }
                                     ro = hitPos + N * 0.002;
                                     rd = refl;
-                                } else {
+                                } else if (rand(seed) < transparency) {
                                     vec3 refr = (ior <= 1.001) ? rd : refract(rd, N, 1.0 / ior);
+									
+									
                                     if (dot(refr, refr) < 0.01) refr = rd;
                                     if (roughness > 0.001) {
                                         refr = normalize(refr + sampleSphere(seed) * (roughness * 0.12));
@@ -8010,6 +8122,12 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
                                     ro = exitPos + refrOut * 0.004;
                                     rd = refrOut;
+									if (bounce == 0) primaryHitDist += dGlass + 60.0;
+                                } else {
+                                    // Khi Transparency = 0: Khối Glass đặc hoàn toàn, không nhìn xuyên qua được (chuẩn MagicaVoxel)
+                                    ro = hitPos + N * 0.002;
+                                    rd = cosineWeightedHemisphere(N, seed);
+                                    throughput *= albedo;
                                 }
                             } else if (isMetal) {
                                 // Xác suất phân nhánh giữa Phản xạ gương (Specular) và Tán xạ (Diffuse) chuẩn MagicaVoxel
@@ -8185,61 +8303,61 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
                     // --- UNITY-STYLE WINDOW GODRAY (ĐẶT NGOÀI VÒNG LẶP BOUNCE ĐỂ CHỐNG CRASH GPU) ---
                     // --- UNITY-STYLE WINDOW GODRAY (CHUẨN XÁC CHO CỬA SỔ TRỐNG, GLASS & EMIT LIGHT SOURCE) ---
+                    // TÍNH VOLUMETRIC GODRAY (ĐỔI MÀU THEO EMIT / GLASS / BLEND KHI XUYÊN QUA)
                     if (uSunGodray > 0.5 && uSunInt > 0.01 && uGodrayDensity > 0.001) {
-                        vec3 lDir = normalize(uSunDir);
+                        float tGrNear, tGrFar;
+                        vec3 grNorm;
+                        if (intersectBoxExt(primaryRo, primaryRd, uModelMin, uModelMax, tGrNear, tGrFar, grNorm)) {
+                            float tStart = max(0.0, tGrNear);
+                            float tEnd = (primaryHitDist > 0.0) ? min(tGrFar, primaryHitDist) : tGrFar;
 
-                        // Giới hạn vùng thể tích bên trong lòng căn phòng
-                        vec3 volMin = uModelMin + vec3(0.3, 0.05, 0.3);
-                        vec3 volMax = vec3(uModelMax.x - 0.3, max(uModelMin.y + 1.0, uModelMax.y - 0.8), uModelMax.z - 0.3);
+                            if (tEnd > tStart) {
+                                const int MARCH_STEPS = 20;
+                                float stepSize = (tEnd - tStart) / float(MARCH_STEPS);
+                                vec3 sunDir = normalize(uSunDir);
 
-                        float tEntry, tExit;
-                        vec3 normBox;
-                        if (intersectBoxExt(primaryRo, primaryRd, volMin, volMax, tEntry, tExit, normBox)) {
-                            float tRayStart = max(0.1, tEntry);
-                            float tRayEnd = (primaryHitDist > 0.0) ? min(primaryHitDist, tExit) : tExit;
+                                vec3 accumGodrayCol = vec3(0.0);
+                                float accumTintedWeight = 0.0;
+                                float totalWeight = 0.0;
 
-                            if (tRayEnd > tRayStart + 0.1) {
-                                const int NUM_STEPS = 8;
-                                float marchDist = tRayEnd - tRayStart;
-                                float stepSize = marchDist / float(NUM_STEPS);
-                                float jitterVal = rand(seed);
+                                for (int s = 0; s < MARCH_STEPS; s++) {
+                                    float tCurr = tStart + (float(s) + rand(seed)) * stepSize;
+                                    vec3 samplePos = primaryRo + primaryRd * tCurr;
+                                    float distToWindow = 0.0;
+                                    float vis = fastGodrayShadow(samplePos, sunDir, distToWindow);
 
-                                float godrayAcc = 0.0;
+                                    if (vis > 0.001) {
+                                        float windowFade = exp(-distToWindow * 0.028);
+                                        float w = vis * windowFade * stepSize;
 
-                                for (int s = 0; s < NUM_STEPS; s++) {
-                                    float tSample = tRayStart + (float(s) + jitterVal) * stepSize;
-                                    vec3 pSample = primaryRo + primaryRd * tSample;
-
-                                    // Kiểm tra tia có đi qua vách phòng không (loại bỏ các tia bay vọt lên nóc phòng mở)
-                                    float tWallNear, tWallFar;
-                                    vec3 nWall;
-                                    if (!intersectBoxExt(pSample, lDir, uModelMin, uModelMax, tWallNear, tWallFar, nWall)) continue;
-
-                                    vec3 exitPt = pSample + lDir * tWallFar;
-                                    if (exitPt.y >= uModelMax.y - 1.0 || tWallFar <= 0.1) continue;
-
-                                    float distToWin = 0.0;
-                                    float vis = fastGodrayShadow(pSample + lDir * 0.05, lDir, distToWin);
-
-                                    if (vis > 0.001 && distToWin > 0.05) {
-                                        // Tạo vân tia nắng chạy song song theo hướng chiếu của Mặt Trời
-                                        vec3 beamCoord = pSample - lDir * dot(pSample, lDir);
-                                        float w1 = sin(beamCoord.x * 1.8 + beamCoord.y * 2.3 + beamCoord.z * 2.0);
-                                        float w2 = sin(beamCoord.x * 4.5 - beamCoord.y * 3.7 + beamCoord.z * 4.1);
-                                        float streak = clamp(0.74 + 0.26 * (w1 * 0.6 + w2 * 0.4), 0.40, 1.30);
-
-                                        // Sáng rực ngay tại khung cửa sổ và suy giảm mượt mà khi đi sâu vào phòng
-                                        float windowGlow = exp(-distToWin * 0.025) * (1.0 + 1.35 * exp(-distToWin * 0.15));
-
-                                        godrayAcc += vis * streak * windowGlow * stepSize;
+                                        // Nếu đi xuyên qua vật liệu có màu thì lấy đúng màu vật liệu đó, ngược lại lấy màu nắng
+                                        vec3 stepCol = (gGodrayTinted > 0.5) ? gGodrayColor : pow(uSunCol, vec3(2.2));
+                                        accumGodrayCol += stepCol * w;
+                                        accumTintedWeight += w * gGodrayTinted;
+                                        totalWeight += w;
                                     }
                                 }
 
-                                if (godrayAcc > 0.0001) {
-                                    vec3 sunColLinear = pow(uSunCol, vec3(2.2));
-                                    float effectiveSunInt = max(uSunInt, 0.85) * (0.4 + 0.6 * uSunInt);
-                                    float densityFactor = pow(uGodrayDensity, 1.3) * 0.038;
-                                    radiance += sunColLinear * (godrayAcc * densityFactor * effectiveSunInt);
+                                if (totalWeight > 0.0001) {
+                                    float grStrength = uSunInt * (uGodrayDensity * 0.048);
+                                    vec3 godrayContrib = accumGodrayCol * grStrength;
+                                    float tintedRatio = clamp(accumTintedWeight / totalWeight, 0.0, 1.0);
+                                    vec3 avgRayCol = accumGodrayCol / totalWeight;
+
+                                    // Nhuộm nhẹ vùng nền phía sau luồng tia sáng theo màu vật liệu để không bị bạc sang màu trắng
+                                    float filterMix = clamp(totalWeight * grStrength * 0.90, 0.0, 0.65) * tintedRatio;
+                                    radiance = mix(radiance, radiance * mix(vec3(1.0), avgRayCol, 0.85), filterMix);
+
+                                    // Cộng luồng sáng Godray và khóa tỷ lệ màu RGB để ACES không làm cháy trắng
+                                    vec3 combined = radiance + godrayContrib;
+                                    float maxComb = max(combined.r, max(combined.g, max(combined.b, 0.0001)));
+                                    if (maxComb > 1.15 && tintedRatio > 0.1) {
+                                        vec3 colRatio = combined / maxComb;
+                                        float safePeak = 1.15 + log2(maxComb - 0.15) * 0.55;
+                                        radiance = mix(combined, colRatio * safePeak, tintedRatio);
+                                    } else {
+                                        radiance = combined;
+                                    }
                                 }
                             }
                         }
