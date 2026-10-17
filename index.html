@@ -556,7 +556,7 @@
                     <!-- Nút thêm màu nổi bật trên thanh tiêu đề -->
                     <button id="btn-header-add-color" class="bg-blue-600 hover:bg-blue-500 text-white font-black px-2 py-0.5 rounded text-xs leading-none shadow flex items-center justify-center transition-transform active:scale-95" title="Add new color slot">+</button>
                 </div>
-                <span class="text-[10px] bg-[#141418] px-2 py-0.5 rounded text-gray-300 border border-gray-700 font-mono">Idx: <span id="current-color-index">1</span></span>
+                <span id="palette-dup-noti" class="hidden text-[9px] bg-rose-950/90 text-rose-300 px-1.5 py-0.5 rounded border border-rose-600/60 font-bold whitespace-nowrap">Color already in palette</span>
             </div>
             
             <div class="palette-container custom-scrollbar flex-grow" id="palette-grid"></div>
@@ -1331,6 +1331,70 @@
         AppState.needsCubeMapUpdate = false;
     }
 	
+	// Kiểm tra xem mã màu hex đã tồn tại ở ô nào khác trong Palette chưa
+    function isColorInPalette(hexStr, excludeIdx = -1) {
+        if (!hexStr) return false;
+        const targetHex = hexStr.toLowerCase();
+        for (const idx of AppState.usedIndices) {
+            if (idx === excludeIdx) continue;
+            const p = AppState.materialProps[idx];
+            if (p && colorToSRGBHex(p.color).toLowerCase() === targetHex) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    let dupNotiTimer = null;
+    // Bật/tắt thông báo "Color already in palette" tại vị trí cũ của Idx
+    function updatePaletteDuplicateNoti(hexStr, currentIdx = AppState.selectedColorIndex, autoHideMs = 0) {
+        const notiEl = document.getElementById('palette-dup-noti');
+        if (!notiEl) return;
+        if (dupNotiTimer) {
+            clearTimeout(dupNotiTimer);
+            dupNotiTimer = null;
+        }
+        const isDup = isColorInPalette(hexStr, currentIdx);
+        if (isDup) {
+            notiEl.textContent = 'Color already in palette';
+            notiEl.classList.remove('hidden');
+            if (autoHideMs > 0) {
+                dupNotiTimer = setTimeout(() => {
+                    notiEl.classList.add('hidden');
+                }, autoHideMs);
+            }
+        } else {
+            notiEl.classList.add('hidden');
+        }
+    }
+
+    // Sinh mã màu mới đảm bảo 100% không bao giờ trùng với các màu đã có trong Palette
+    function getUniqueNewColorHex() {
+        const usedHexSet = new Set();
+        for (const idx of AppState.usedIndices) {
+            const p = AppState.materialProps[idx];
+            if (p) usedHexSet.add(colorToSRGBHex(p.color).toLowerCase());
+        }
+
+        const tempCol = new THREE.Color();
+        for (let step = 1; step <= 512; step++) {
+            const hue = ((AppState.usedIndices.size + step) * 137.508) % 360;
+            const sat = 0.65 + ((step % 3) * 0.1);
+            const light = 0.50 + ((step % 3) * 0.08);
+            tempCol.setHSL(hue / 360, sat, light, THREE.SRGBColorSpace);
+            const hex = colorToSRGBHex(tempCol).toLowerCase();
+            if (!usedHexSet.has(hex)) {
+                return hex;
+            }
+        }
+
+        for (let c = 0x101010; c <= 0xffffff; c += 0x010101) {
+            const hex = '#' + c.toString(16).padStart(6, '0').toLowerCase();
+            if (!usedHexSet.has(hex)) return hex;
+        }
+        return '#ffffff';
+    }
+	
 	function setupMaterialControls() {
 	
     const bindMatRange = (id, propKey, isInt = false) => {
@@ -1391,24 +1455,89 @@
     bindMatRange('prop-blend-alpha', 'blendAlpha', false);
 
     // Chỉnh màu qua Color Picker (Hỗ trợ Undo)
+    // Chỉnh màu qua Color Picker (Hỗ trợ Undo & Kiểm tra trùng màu)
+    // Chỉnh màu qua Color Picker (Chặn trùng màu & tự hoàn trả về mã màu trước khi sửa)
     const picker = document.getElementById('color-picker');
     if (picker) {
-        bindUndoableInput(
-            picker,
-            (e) => {
-                const p = AppState.materialProps[AppState.selectedColorIndex];
-                if (p) {
-                    p.color.set(e.target.value);
-                    const swatch = document.getElementById(`swatch-${AppState.selectedColorIndex}`);
-                    if (swatch) swatch.style.backgroundColor = e.target.value;
-                    updateInstancedMaterial(AppState.selectedColorIndex);
-                }
-            },
-            () => {
+        let colorSnapBeforeEdit = null;
+        let originalHexBeforeEdit = '#ffffff';
+
+        const startColorEdit = () => {
+            const p = AppState.materialProps[AppState.selectedColorIndex];
+            if (p) {
+                originalHexBeforeEdit = colorToSRGBHex(p.color);
+            }
+            if (!colorSnapBeforeEdit) {
+                colorSnapBeforeEdit = captureStateSnapshot();
+            }
+        };
+
+        picker.addEventListener('pointerdown', startColorEdit);
+        picker.addEventListener('focus', startColorEdit);
+
+        // Khi người dùng đang di chuyển/chọn màu trên bảng màu
+        picker.addEventListener('input', (e) => {
+            const newHex = e.target.value;
+            const idx = AppState.selectedColorIndex;
+            const p = AppState.materialProps[idx];
+            if (!p) return;
+
+            if (isColorInPalette(newHex, idx)) {
+                // Nếu trùng màu đã có: Hiện thông báo "Color already in palette"
+                updatePaletteDuplicateNoti(newHex, idx);
+                // Giữ nguyên màu gốc trước khi sửa trên ô Palette và mô hình 3D (không cho phép trùng)
+                p.color.set(originalHexBeforeEdit);
+                const swatch = document.getElementById(`swatch-${idx}`);
+                if (swatch) swatch.style.backgroundColor = originalHexBeforeEdit;
+                updateInstancedMaterial(idx);
+            } else {
+                // Nếu không trùng: Ẩn thông báo và cập nhật màu mới bình thường
+                updatePaletteDuplicateNoti(newHex, idx);
+                p.color.set(newHex);
+                const swatch = document.getElementById(`swatch-${idx}`);
+                if (swatch) swatch.style.backgroundColor = newHex;
+                updateInstancedMaterial(idx);
+            }
+        });
+
+        // Khi người dùng nhấn Enter, chọn xong hoặc chạm ra ngoài (commit giá trị)
+        const commitColorEdit = () => {
+            const candidateHex = picker.value;
+            const idx = AppState.selectedColorIndex;
+            const p = AppState.materialProps[idx];
+            if (!p) return;
+
+            if (isColorInPalette(candidateHex, idx)) {
+                // Hiện thông báo trùng màu trong 1.5s rồi tự tắt
+                updatePaletteDuplicateNoti(candidateHex, idx, 1500);
+
+                // Quay trở lại mã màu trước khi chỉnh sửa
+                p.color.set(originalHexBeforeEdit);
+                picker.value = originalHexBeforeEdit;
+                const swatch = document.getElementById(`swatch-${idx}`);
+                if (swatch) swatch.style.backgroundColor = originalHexBeforeEdit;
+
+                updateInstancedMaterial(idx);
                 updateVoxel3DTexture();
                 buildPaletteUI();
+            } else {
+                // Màu hợp lệ (không trùng): Lưu chính thức và ghi vào lịch sử Undo
+                updatePaletteDuplicateNoti(candidateHex, idx);
+                p.color.set(candidateHex);
+                updateInstancedMaterial(idx);
+                updateVoxel3DTexture();
+                buildPaletteUI();
+
+                if (colorSnapBeforeEdit && candidateHex.toLowerCase() !== originalHexBeforeEdit.toLowerCase()) {
+                    recordUndoStep(colorSnapBeforeEdit);
+                }
+                originalHexBeforeEdit = candidateHex;
             }
-        );
+            colorSnapBeforeEdit = null;
+        };
+
+        picker.addEventListener('change', commitColorEdit);
+        picker.addEventListener('blur', commitColorEdit);
     }
 
     // Đổi loại vật liệu (Diffuse, Metal, Glass, Emit, Cloud, Blend)
@@ -9151,135 +9280,147 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         showToast(`Added new color slot (Idx: ${newIdx})`, "success");
     }
 
+    // ======= ĐOẠN PHÍA TRÊN ĐỂ ĐỐI CHIẾU VỊ TRÍ: ngay trước function buildPaletteUI() =======
     function buildPaletteUI() {
         const grid = document.getElementById('palette-grid');
         if (!grid) return;
         grid.innerHTML = '';
 
-        if (!AppState.usedIndices || AppState.usedIndices.size === 0) {
-            AppState.usedIndices = new Set([1]);
+        if (AppState.usedIndices.size === 0) {
+            AppState.usedIndices.add(AppState.selectedColorIndex || 1);
         }
 
-        const sortedIndices = Array.from(AppState.usedIndices).sort((a, b) => a - b);
+        // Hàm xử lý chung cho cả 2 nút [+]
+        const handleAddNewDiffuseColor = (e) => {
+            if (e) e.stopPropagation();
 
-        if (!AppState.usedIndices.has(AppState.selectedColorIndex)) {
-            AppState.selectedColorIndex = sortedIndices[0];
-        }
-
-        // 1. ĐƯA Ô NÚT "+" LÊN ĐẦU LƯỚI BẢNG MÀU (Ô SỐ 1 - TRÊN CÙNG BÊN TRÁI)
-        const btnAdd = document.createElement('button');
-        btnAdd.className = 'palette-swatch flex items-center justify-center bg-blue-600/30 hover:bg-blue-600 text-blue-300 hover:text-white border border-dashed border-blue-500 rounded text-xs font-black transition-all';
-        btnAdd.title = 'Thêm ô màu mới';
-        btnAdd.textContent = '+';
-        btnAdd.addEventListener('click', createNewColorSlot);
-        grid.appendChild(btnAdd);
-
-        // 2. VẼ CÁC Ô MÀU CỦA SCENE TIẾP THEO SAU NÚT "+"
-        for (const i of sortedIndices) {
-            const swatch = document.createElement('div');
-            swatch.className = 'palette-swatch';
-            swatch.id = `swatch-${i}`;
-            swatch.title = `Color Index: ${i}`;
-            swatch.style.backgroundColor = colorToSRGBHex(AppState.materialProps[i].color);
-            swatch.style.opacity = '1.0';
-
-            if (i === AppState.selectedColorIndex) {
-                swatch.classList.add('selected');
+            // 1. Tìm slot trống đầu tiên từ 1 đến 256
+            let freeIdx = -1;
+            for (let i = 1; i <= 256; i++) {
+                if (!AppState.usedIndices.has(i)) {
+                    freeIdx = i;
+                    break;
+                }
+            }
+            if (freeIdx === -1) {
+                showToast("Palette is full (256 colors)!", "error", true);
+                return;
             }
 
-            swatch.addEventListener('click', () => selectColorWithUndo(i));
-            grid.appendChild(swatch);
+            // 2. Chụp lại trạng thái để hỗ trợ Undo (Ctrl+Z)
+            const snap = captureStateSnapshot();
+
+            // 3. Sinh mã màu mới KHÔNG BAO GIỜ TRÙNG với các màu đã có trong Palette
+            const uniqueHex = getUniqueNewColorHex();
+            const newColor = new THREE.Color(uniqueHex);
+
+            // 4. Reset vật liệu của slot mới về mặc định Diffuse
+            AppState.materialProps[freeIdx] = {
+                type: 'diffuse',
+                color: newColor,
+                roughness: 0.0,
+                metalness: 0.0,
+                specular: 0.5,
+                transparent: 0.0,
+                ior: 1.30,
+                emission: 0.0,
+                power: 1.0,
+                ldr: 0.0,
+                lightSource: false,
+                density: 50,
+                phase: 0.0,
+                blendAlpha: 0.6
+            };
+
+            // 5. Thêm vào Palette, chọn màu mới và ẩn thông báo trùng màu
+            AppState.usedIndices.add(freeIdx);
+            selectColor(freeIdx);
+            buildPaletteUI();
+            updatePaletteDuplicateNoti(uniqueHex, freeIdx);
+
+            // 6. Đồng bộ 3D Texture và lưu bước Undo
+            updateInstancedMaterial(freeIdx);
+            updateVoxel3DTexture();
+            updateDynamicEmitLights();
+            recordUndoStep(snap);
+
+            const newSwatch = document.getElementById(`swatch-${freeIdx}`);
+            if (newSwatch) newSwatch.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+            showToast(`Added new unique color (#${freeIdx})`, "success");
+        };
+
+        // Nút [+] trong lưới Palette
+        const addBtn = document.createElement('button');
+        addBtn.className = 'palette-swatch flex items-center justify-center bg-[#1e1e26] hover:bg-blue-600/30 text-blue-400 hover:text-white border border-dashed border-blue-500/60 font-black text-xs rounded transition-all';
+        addBtn.title = 'Add new unique color slot (Default: Diffuse)';
+        addBtn.textContent = '+';
+        addBtn.addEventListener('click', handleAddNewDiffuseColor);
+        grid.appendChild(addBtn);
+
+        // Nút [+] trên thanh tiêu đề PALETTE
+        const headerAddBtn = document.getElementById('btn-header-add-color');
+        if (headerAddBtn) {
+            headerAddBtn.onclick = handleAddNewDiffuseColor;
         }
 
-        // 3. ĐỒNG BỘ NÚT "+" Ở THANH TIÊU ĐỀ
-        const btnHeaderAdd = document.getElementById('btn-header-add-color');
-        if (btnHeaderAdd) {
-            btnHeaderAdd.onclick = createNewColorSlot;
+        // Vẽ các ô màu đang có trong Palette
+        const sortedIndices = Array.from(AppState.usedIndices).sort((a, b) => a - b);
+        for (const i of sortedIndices) {
+            const swatch = document.createElement('div');
+            swatch.id = `swatch-${i}`;
+            swatch.className = `palette-swatch ${i === AppState.selectedColorIndex ? 'selected' : ''}`;
+            const p = AppState.materialProps[i];
+            swatch.style.backgroundColor = p ? colorToSRGBHex(p.color) : '#ffffff';
+            swatch.title = `Color Slot #${i}`;
+            swatch.addEventListener('click', () => selectColorWithUndo(i));
+            grid.appendChild(swatch);
         }
     }
 
     function selectColor(index) {
-	if (!index || index < 1 || index > 256 || !AppState.materialProps[index]) return;
-        // Nếu màu chưa có trên thanh Palette thì tạo thêm ngay
-		  if (!AppState.usedIndices.has(index)) {
-			  AppState.usedIndices.add(index);
-			  buildPaletteUI();
-		  }
+        if (index < 1 || index > 256) return;
+        AppState.selectedColorIndex = index;
 
-		  if (AppState.selectedColorIndex) {
-			  const prev = document.getElementById(`swatch-${AppState.selectedColorIndex}`);
-			  if (prev) prev.classList.remove('selected');
-		  }
-
-		  AppState.selectedColorIndex = index;
-		  const current = document.getElementById(`swatch-${index}`);
-		  if (current) {
-			  current.classList.add('selected');
-			  // Tự động cuộn danh sách Palette đến vị trí ô màu vừa nhặt
-			  current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-		  }
-		
-		
-		
-        
-        safeSetText('current-color-index', index);
-        // Đặt đúng mã sRGB cho thẻ color picker
-        safeSetVal('color-picker', colorToSRGBHex(AppState.materialProps[index].color));
-        
-        const props = AppState.materialProps[index];
-        document.querySelectorAll('.mat-type-btn').forEach(btn => {
-            if (btn.dataset.type === props.type) {
-                btn.className = "mat-type-btn text-[10px] font-bold py-1.5 rounded bg-blue-600 text-white shadow";
-            } else {
-                btn.className = "mat-type-btn text-[10px] font-bold py-1.5 rounded text-gray-400 hover:text-white";
-            }
+        document.querySelectorAll('#palette-grid .palette-swatch').forEach(el => {
+            el.classList.toggle('selected', el.id === `swatch-${index}`);
         });
-        
-        safeSetVal('prop-roughness', props.roughness);
-        safeSetText('val-roughness', props.roughness.toFixed(2));
-        safeSetVal('prop-metallic', props.metalness ?? 0.88);
-        safeSetText('val-metallic', (props.metalness ?? 0.88).toFixed(2));
-        safeSetVal('prop-specular', props.specular ?? 0.95);
-        safeSetText('val-specular', (props.specular ?? 0.95).toFixed(2));
-		
-        safeSetVal('prop-specular', props.specular ?? 0.95);
-        safeSetText('val-specular', (props.specular ?? 0.95).toFixed(2));
-		
-        // CẬP NHẬT ĐOẠN IOR VÀO ĐÂY:
-        let currentIor = (props.ior !== undefined && !isNaN(props.ior)) ? props.ior : 1.30;
-        if (currentIor < 1.0) currentIor = 1.0 + currentIor; // Tương thích file .vox offset
-        props.ior = currentIor;
-        safeSetVal('prop-ior', currentIor);
-        safeSetText('val-ior', currentIor.toFixed(2));
-		  
-        safeSetVal('prop-transparent', props.transparent ?? 0.95);
-        safeSetText('val-transparent', (props.transparent !== undefined ? props.transparent : 0.95).toFixed(2));
-		
-        safeSetVal('prop-emission', props.emission ?? 0.0);
-        safeSetText('val-emission', (props.emission || 0).toFixed(2));
-        safeSetVal('prop-power', props.power || 1.0);
-        safeSetText('val-power', (props.power || 1.0).toFixed(2));
-        
-        let ldrDisplay = (props.ldr !== undefined) ? props.ldr : 0;
-        if (ldrDisplay <= 1.0 && ldrDisplay > 0.0) ldrDisplay = Math.round(ldrDisplay * 100);
-        safeSetVal('prop-ldr', props.ldr);
-        const elEmitLightSource = document.getElementById('prop-emit-light-source');
-        if (elEmitLightSource) elEmitLightSource.checked = !!props.lightSource;
-		
-        safeSetText('val-ldr', Math.round(ldrDisplay));
-		
-		
 
-        safeSetVal('prop-cloud-density', props.density ?? 79);
-        safeSetText('val-cloud-density', Math.round(props.density ?? 79));
-        safeSetVal('prop-cloud-phase', props.phase ?? 0.0);
-        safeSetText('val-cloud-phase', (props.phase ?? 0.0).toFixed(2));
+        const p = AppState.materialProps[index];
+        if (!p) return;
 
-        safeSetVal('prop-blend-alpha', props.blendAlpha ?? 0.6);
-        safeSetText('val-blend-alpha', (props.blendAlpha ?? 0.6).toFixed(2));
-        
-        updateMaterialUIState(props.type);
+        const hexStr = colorToSRGBHex(p.color);
+        const picker = document.getElementById('color-picker');
+        if (picker) picker.value = hexStr;
+
+        // Kiểm tra trùng màu khi chuyển sang ô màu (nếu không trùng sẽ tự ẩn hoàn toàn)
+        updatePaletteDuplicateNoti(hexStr, index);
+
+        document.querySelectorAll('.mat-type-btn').forEach(btn => {
+            btn.className = (btn.dataset.type === p.type)
+                ? "mat-type-btn text-[10px] font-bold py-1.5 rounded bg-blue-600 text-white shadow"
+                : "mat-type-btn text-[10px] font-bold py-1.5 rounded text-gray-400 hover:text-white";
+        });
+
+        safeSetVal('prop-roughness', p.roughness); safeSetText('val-roughness', p.roughness.toFixed(2));
+        safeSetVal('prop-metallic', p.metalness); safeSetText('val-metallic', p.metalness.toFixed(2));
+        safeSetVal('prop-specular', p.specular); safeSetText('val-specular', p.specular.toFixed(2));
+        safeSetVal('prop-ior', p.ior); safeSetText('val-ior', p.ior.toFixed(2));
+        safeSetVal('prop-transparent', p.transparent); safeSetText('val-transparent', p.transparent.toFixed(2));
+        safeSetVal('prop-emission', p.emission); safeSetText('val-emission', p.emission.toFixed(2));
+        safeSetVal('prop-power', p.power); safeSetText('val-power', p.power.toFixed(2));
+        safeSetVal('prop-ldr', p.ldr); safeSetText('val-ldr', Math.round(p.ldr));
+
+        const elLightSrc = document.getElementById('prop-emit-light-source');
+        if (elLightSrc) elLightSrc.checked = !!p.lightSource;
+
+        safeSetVal('prop-cloud-density', p.density); safeSetText('val-cloud-density', Math.round(p.density));
+        safeSetVal('prop-cloud-phase', p.phase); safeSetText('val-cloud-phase', p.phase.toFixed(2));
+
+        updateMaterialUIState(p.type);
     }
+
+    
 
     function updateMaterialUIState(type) {
         const groups = {
