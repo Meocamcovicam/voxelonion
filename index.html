@@ -312,7 +312,8 @@
                 <span class="hidden sm:inline">Download</span><span class="sm:hidden">DL</span>
             </button>
 
-            <div class="flex items-center gap-1 bg-[#141418] border border-gray-700 rounded px-1.5 py-0.5 shadow shrink-0" title="Workspace dimensions (X Y Z)">
+            <div id="workspace-size-widget" class="flex items-center gap-1 bg-[#141418] border border-gray-700 rounded px-1.5 py-0.5 shadow shrink-0" title="Active Layer dimensions (X Y Z)">
+			
                 <span class="text-[9px] font-mono text-gray-400 font-bold uppercase hidden sm:inline">Size</span>
                 <input type="number" id="input-size-x" min="1" max="256" value="40" class="size-input">
                 <input type="number" id="input-size-y" min="1" max="256" value="40" class="size-input">
@@ -630,12 +631,32 @@
 					</div>
 
                         <!-- Auto-select layer switch -->
+                        <!-- Auto-select layer switch -->
                         <div class="flex items-center justify-between px-0.5 pt-0.5">
                             <span class="text-[11px] font-bold text-gray-300">Auto-select layer</span>
                             <label class="relative inline-flex items-center cursor-pointer">
                                 <input type="checkbox" id="layer-auto-select-toggle" class="sr-only peer">
                                 <div class="w-8 h-4 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
                             </label>
+                        </div>
+
+                        <!-- Transform layer mode switch -->
+                        <div class="flex flex-col gap-1.5 px-0.5 pt-1 border-t border-gray-700/60">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[11px] font-bold text-amber-300 flex items-center gap-1">
+                                    <span>✥</span> Transform layer
+                                </span>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="layer-transform-mode-toggle" class="sr-only peer">
+                                    <div class="w-8 h-4 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-amber-500"></div>
+                                </label>
+                            </div>
+                            <!-- Nút chuyển chế độ Gizmo cho Layer khi bật Transform layer -->
+                            <!-- Nút chuyển chế độ Gizmo cho Layer khi bật Transform layer (Chỉ Move & Rotate) -->
+                            <div id="layer-gizmo-type-row" class="hidden grid-cols-2 gap-1 pt-0.5">
+                                <button class="gizmo-mode-btn active" data-gizmo="translate">Move (W)</button>
+                                <button class="gizmo-mode-btn" data-gizmo="rotate">Rotate (E)</button>
+                            </div>
                         </div>
 
                         <!-- Danh sách Layer (hỗ trợ kéo thả sort, click chọn, ẩn, khóa, đổi tên) -->
@@ -962,7 +983,34 @@
     const DB_NAME = 'VoxWebCacheDB';
     const STORE_NAME = 'projectStore';
 
+    // Đóng gói toàn bộ Voxel theo từng Layer vào AppState.layers trước khi Save hoặc Download .vox
+    function packMultiLayerVoxelsForSave() {
+        if (!AppState.model || !AppState.model.voxels || !AppState.layers || AppState.layers.length === 0) return;
+        const defaultLayerId = AppState.layers[0].id;
+        const validLayerIds = new Set(AppState.layers.map(l => l.id));
+        const buckets = new Map();
+        for (const l of AppState.layers) {
+            buckets.set(l.id, []);
+        }
+        for (const v of AppState.model.voxels) {
+            let lid = (v.l !== undefined && validLayerIds.has(v.l)) ? v.l : defaultLayerId;
+            v.l = lid;
+            buckets.get(lid).push(v.x, v.y, v.z, v.i);
+        }
+        for (const l of AppState.layers) {
+            l.savedVoxels = buckets.get(l.id) || [];
+        }
+    }
+
+    // Tự động đóng gói Voxel của từng Layer trước khi nút Save hoặc Download thực thi
+    window.addEventListener('click', (e) => {
+        if (e.target && e.target.closest && e.target.closest('#btn-save-vox, #btn-mobile-save, #btn-download-vox')) {
+            packMultiLayerVoxelsForSave();
+        }
+    }, true);
+
     function openCacheDB() {
+        packMultiLayerVoxelsForSave();
         return new Promise((resolve, reject) => {
             const req = indexedDB.open(DB_NAME, 1);
             req.onupgradeneeded = (e) => {
@@ -1021,12 +1069,28 @@
         usedIndices: new Set(),
         selectedColorIndex: 1,
 		
-		// --- BỔ SUNG CÁC TRƯỜNG LAYER ---
+		// --- BỔ SUNG CÁC TRƯỜNG LAYER (CÓ SIZE & TRANSFORM ĐỘC LẬP) ---
         layers: [
-            { id: 1, name: 'Default', visible: true, locked: false }
+            {
+                id: 1,
+                name: 'Default',
+                visible: true,
+                locked: false,
+                size: { x: 40, y: 40, z: 40 },
+                offset: { x: 0, y: 0, z: 0 },
+                rotation: { x: 0, y: 0, z: 0 },
+                scale: { x: 1, y: 1, z: 1 }
+            }
         ],
         activeLayerId: 1,
         autoSelectLayer: false,
+        layerTransformMode: false,
+        layerTransformPivot: null,
+        layerBoxHelpersGroup: null,
+        worldTransformGridGroup: null,
+		
+		
+		
 
         action: 'attach',
         brushShape: 'face',
@@ -1257,11 +1321,14 @@
         AppState.skyMesh.material.uniforms.bottomColor.value.copy(AppState.sky.ground);
 
         if (AppState.renderMode === 'preview') {
-            // TRONG PREVIEW: Luôn giữ phông xám tối trung tính `#282828` chuẩn MagicaVoxel
+            // TRONG PREVIEW: Luôn khóa cứng phông xám tối trung tính `#282828`, tắt Fog & Sky
             AppState.skyMesh.visible = false;
             AppState.scene.background = new THREE.Color(0x282828);
+            AppState.scene.fog = null;
+            AppState.scene.environment = null;
+            if (AppState.renderer) AppState.renderer.toneMappingExposure = 1.0;
 
-            // Mặt sàn tối màu để hứng bóng đổ tự nhiên, không bị đổi thành màu xanh ngọc
+            // Mặt sàn tối màu để hứng bóng đổ tự nhiên, không bị ám màu Sky/Fog
             if (AppState.groundPlane && AppState.groundPlane.material) {
                 AppState.groundPlane.material.color.setHex(0x282828);
                 AppState.groundPlane.material.needsUpdate = true;
@@ -1274,6 +1341,8 @@
                 AppState.hemiLight.intensity = 0.65;
             }
         } else {
+		
+		
             // TRONG P-TRACING: Bật bầu trời, gán màu sàn và môi trường theo cài đặt Light & Sky
             if (AppState.groundPlane && AppState.groundPlane.material) {
                 AppState.groundPlane.material.color.copy(AppState.sky.ground);
@@ -1295,8 +1364,6 @@
             }
 
             AppState.needsCubeMapUpdate = true;
-            updateDynamicEmitLights();
-            updateVoxel3DTexture();
             AppState.latestAccumTarget = null;
             AppState.needsAccumulationReset = true;
         }
@@ -1316,7 +1383,12 @@
     }
 
     function updateLocalCubemap() {
-        if (!AppState.cubeCamera || !AppState.cubeRenderTarget || !AppState.renderer || !AppState.model) return;
+      if (AppState.renderMode === 'preview') {
+          if (AppState.scene) AppState.scene.environment = null;
+          AppState.needsCubeMapUpdate = false;
+          return;
+      }
+      if (!AppState.cubeCamera || !AppState.cubeRenderTarget || !AppState.renderer || !AppState.model) return;
         
         const cz = AppState.model.size.z / 2;
         AppState.cubeCamera.position.set(0, cz, 0);
@@ -1679,14 +1751,12 @@ function setupSkyControls() {
     });
 }
 
-    function updateFog() {
-        // 1. Áp dụng cho chế độ Preview
-        if (AppState.renderMode === 'preview' && AppState.fog.enabled && AppState.fog.density > 0) {
-            const densityVal = (AppState.fog.density / 100.0) * 0.010;
-            AppState.scene.fog = new THREE.FogExp2(AppState.fog.color, densityVal);
-        } else {
+   function updateFog() {
+        // 1. Trong chế độ Preview luôn tắt sương mù để giữ nền #282828 chuẩn MagicaVoxel
+        if (AppState.scene) {
             AppState.scene.fog = null;
         }
+		
 
         // 2. Đồng bộ dữ liệu sương mù sang Shader của P-Tracing
         if (pathTraceMaterial && pathTraceMaterial.uniforms) {
@@ -1866,19 +1936,23 @@ function setupSkyControls() {
         AppState.renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
         container.appendChild(AppState.renderer.domElement);
 
-        AppState.cameraPersp = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 3000);
+        AppState.cameraPersp = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 10000);
         AppState.cameraPersp.position.set(-50, 40, -50);
 
         const aspect = window.innerWidth / window.innerHeight;
         const frustumSize = 65;
+        AppState.orthoVisualDist = 80;
         AppState.cameraOrtho = new THREE.OrthographicCamera(
             (frustumSize * aspect) / -2,
             (frustumSize * aspect) / 2,
             frustumSize / 2,
             frustumSize / -2,
-            0.1, 3000
+            0.1, 10000
         );
-        AppState.cameraOrtho.position.set(-50, 40, -50);
+        AppState.cameraOrtho.position.set(-500, 400, -500);
+		
+		
+		
         AppState.camera = AppState.cameraPersp;
 
         AppState.controls = new OrbitControls(AppState.camera, AppState.renderer.domElement);
@@ -1889,43 +1963,60 @@ function setupSkyControls() {
         AppState.controls.maxPolarAngle = Math.PI; // Mở khóa hoàn toàn 180 độ tự do
 
 
+
         AppState.selectionPivotGroup = new THREE.Group();
         AppState.scene.add(AppState.selectionPivotGroup);
-		
-		AppState.transformControls = new TransformControls(AppState.camera, AppState.renderer.domElement);
+
+        AppState.layerTransformPivot = new THREE.Group();
+        AppState.scene.add(AppState.layerTransformPivot);
+
+        AppState.layerBoxHelpersGroup = new THREE.Group();
+        AppState.scene.add(AppState.layerBoxHelpersGroup);
+
+        AppState.worldTransformGridGroup = buildWorldTransformGrid();
+        AppState.worldTransformGridGroup.visible = false;
+        AppState.scene.add(AppState.worldTransformGridGroup);
+
+        AppState.transformControls = new TransformControls(AppState.camera, AppState.renderer.domElement);
         AppState.transformControls.size = 0.85;
-		
-		// Tự động vô hiệu hóa OrbitControls khi đang kéo Gizmo
-		AppState.transformControls.addEventListener('dragging-changed', (event) => {
-			AppState.isTransformingGizmo = event.value;
-			if (AppState.controls) {
-				AppState.controls.enabled = !event.value;
-			}
-		});
-		
-		// Tự động vô hiệu hóa OrbitControls khi đang kéo Gizmo
-       AppState.transformControls.addEventListener('dragging-changed', (event) => {
+
+        let layerTransformBeforeSnap = null;
+        AppState.transformControls.addEventListener('dragging-changed', (event) => {
             AppState.isTransformingGizmo = event.value;
             if (AppState.controls) {
                 AppState.controls.enabled = !event.value;
             }
+            if (event.value && AppState.layerTransformMode) {
+                layerTransformBeforeSnap = captureStateSnapshot();
+            }
         });
 
         AppState.transformControls.addEventListener('change', () => {
+            if (AppState.layerTransformMode && AppState.isTransformingGizmo) {
+                syncLiveLayerTransformFromPivot();
+            }
             if (AppState.isRendering) AppState.needsAccumulationReset = true;
         });
 
         AppState.transformControls.addEventListener('mouseUp', () => {
-            applyGizmoTransformToVoxels();
+            if (AppState.layerTransformMode) {
+                if (commitLayerTransformFromPivot(layerTransformBeforeSnap)) {
+                    layerTransformBeforeSnap = null;
+                }
+            } else {
+                applyGizmoTransformToVoxels();
+            }
             AppState.isTransformingGizmo = false;
             if (AppState.controls) {
                 AppState.controls.enabled = true;
             }
         });
-		
-		
 
         AppState.scene.add(AppState.transformControls);
+		
+		
+		
+		
 
         AppState.skyMesh = createProceduralSkybox();
         AppState.scene.add(AppState.skyMesh);
@@ -2126,15 +2217,318 @@ function setupSkyControls() {
         updateControlsConfiguration();
         animate();
 
-        loadProjectFromCache();
+      loadProjectFromCache();
     }
-	
+
+    // Đảm bảo mọi Layer luôn có đủ trường size, offset, rotation, scale độc lập
+    function ensureLayerProperties(layer, fallbackSize = null) {
+        if (!layer) return;
+        const defSize = fallbackSize || (AppState.model && AppState.model.size) || { x: 40, y: 40, z: 40 };
+        if (!layer.size) {
+            layer.size = { x: defSize.x || 40, y: defSize.y || 40, z: defSize.z || 40 };
+        }
+        if (!layer.offset) layer.offset = { x: 0, y: 0, z: 0 };
+        if (!layer.rotation) layer.rotation = { x: 0, y: 0, z: 0 };
+        if (!layer.scale) layer.scale = { x: 1, y: 1, z: 1 };
+    }
+
+    // Lấy kích thước (Size) của Layer đang chọn
+    function getActiveLayerSize() {
+        const cur = getActiveLayer();
+        if (cur) {
+            ensureLayerProperties(cur);
+            return cur.size;
+        }
+        return (AppState.model && AppState.model.size) ? AppState.model.size : { x: 40, y: 40, z: 40 };
+    }
+
+    // Tạo Grid tổng với trục tọa độ trung tâm đậm chuẩn MagicaVoxel khi ở Transform Layer Mode
+    function buildWorldTransformGrid() {
+        const group = new THREE.Group();
+        const half = 160;
+        const step = 10;
+        const positions = [];
+        const colors = [];
+
+        const cSub = new THREE.Color(0x1f2026);
+        const cAxisX = new THREE.Color(0x111115); // Trục chính đậm nét như MagicaVoxel
+        const cAxisZ = new THREE.Color(0x111115);
+
+        for (let i = -half; i <= half; i += step) {
+            if (i === 0) continue;
+            // Đường song song trục X
+            positions.push(-half, 0.01, i, half, 0.01, i);
+            colors.push(cSub.r, cSub.g, cSub.b, cSub.r, cSub.g, cSub.b);
+            // Đường song song trục Z
+            positions.push(i, 0.01, -half, i, 0.01, half);
+            colors.push(cSub.r, cSub.g, cSub.b, cSub.r, cSub.g, cSub.b);
+        }
+
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+        const mat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false });
+        const gridLines = new THREE.LineSegments(geo, mat);
+        gridLines.renderOrder = 1;
+        group.add(gridLines);
+
+        // Hai trục tọa độ trung tâm to rõ (X và Z) đi qua gốc (0, 0, 0)
+        const axisXGeo = new THREE.PlaneGeometry(half * 2, 0.45);
+        axisXGeo.rotateX(-Math.PI / 2);
+        const axisMat = new THREE.MeshBasicMaterial({ color: 0x101014, side: THREE.DoubleSide, depthWrite: false });
+        const axisXMesh = new THREE.Mesh(axisXGeo, axisMat);
+        axisXMesh.position.set(0, 0.02, 0);
+        axisXMesh.renderOrder = 2;
+
+        const axisZGeo = new THREE.PlaneGeometry(0.45, half * 2);
+        axisZGeo.rotateX(-Math.PI / 2);
+        const axisZMesh = new THREE.Mesh(axisZGeo, axisMat);
+        axisZMesh.position.set(0, 0.02, 0);
+        axisZMesh.renderOrder = 2;
+
+        group.add(axisXMesh, axisZMesh);
+        return group;
+    }
+
+    // Tính ma trận biến đổi 3D của một Layer (Xoay/Scale quanh tâm hộp của Layer)
+    // Tính ma trận biến đổi 3D của một Layer (Xoay/Scale quanh tâm hộp của Layer)
+    function getLayerWorldMatrix(layer) {
+        ensureLayerProperties(layer);
+        const sz = layer.size;
+        const centerLocal = new THREE.Vector3(0, sz.z / 2, 0);
+        const pos = new THREE.Vector3(layer.offset.x || 0, layer.offset.y || 0, layer.offset.z || 0);
+        const euler = new THREE.Euler(layer.rotation.x || 0, layer.rotation.y || 0, layer.rotation.z || 0, 'XYZ');
+        const quat = new THREE.Quaternion().setFromEuler(euler);
+        const sc = new THREE.Vector3(layer.scale.x ?? 1, layer.scale.y ?? 1, layer.scale.z ?? 1);
+
+        const mPivotToOrigin = new THREE.Matrix4().makeTranslation(-centerLocal.x, -centerLocal.y, -centerLocal.z);
+        const mTRS = new THREE.Matrix4().compose(
+            centerLocal.clone().add(pos),
+            quat,
+            sc
+        );
+        return mTRS.multiply(mPivotToOrigin);
+    }
+
+    // Đồng bộ khung Size, Grid, Gizmo khi chuyển Layer hoặc bật/tắt Transform Layer Mode
+    function syncActiveLayerWorkspaceUI() {
+        if (!AppState.model) return;
+        const curLayer = getActiveLayer();
+        if (!curLayer) return;
+        ensureLayerProperties(curLayer);
+
+        // Đồng bộ model.size theo đúng size của Layer đang chọn để mọi hàm vẽ Box/Face/Mirror hoạt động tự nhiên
+        AppState.model.size = { ...curLayer.size };
+
+        safeSetVal('input-size-x', curLayer.size.x);
+        safeSetVal('input-size-y', curLayer.size.y);
+        safeSetVal('input-size-z', curLayer.size.z);
+
+        const sizeWidget = document.getElementById('workspace-size-widget');
+        const dimBadge = document.getElementById('model-dimension-badge');
+        const layerGizmoRow = document.getElementById('layer-gizmo-type-row');
+        const toggleTransEl = document.getElementById('layer-transform-mode-toggle');
+        if (toggleTransEl) toggleTransEl.checked = !!AppState.layerTransformMode;
+
+        if (AppState.layerTransformMode) {
+            // Ẩn tạm ô nhập Size và khung Grid riêng của từng layer
+            if (sizeWidget) sizeWidget.classList.add('hidden');
+            if (dimBadge) dimBadge.classList.add('hidden');
+            if (layerGizmoRow) {
+                layerGizmoRow.classList.remove('hidden');
+                layerGizmoRow.classList.add('grid');
+            }
+            if (AppState.wallGridGroup) AppState.wallGridGroup.visible = false;
+            if (AppState.boxFrameHelper) AppState.boxFrameHelper.visible = false;
+            if (AppState.worldTransformGridGroup) {
+                AppState.worldTransformGridGroup.visible = (AppState.renderMode === 'preview');
+            }
+        } else {
+            // Hiện lại Size của Layer đang chọn
+            if (sizeWidget) sizeWidget.classList.remove('hidden');
+            if (dimBadge) {
+                dimBadge.classList.remove('hidden');
+                dimBadge.textContent = `${curLayer.size.x}x${curLayer.size.y}x${curLayer.size.z}`;
+            }
+            if (layerGizmoRow) {
+                layerGizmoRow.classList.add('hidden');
+                layerGizmoRow.classList.remove('grid');
+            }
+            if (AppState.worldTransformGridGroup) {
+                AppState.worldTransformGridGroup.visible = false;
+            }
+            updateBoundingBoxFrame(curLayer.size);
+            buildMagicaVoxelGrids(curLayer.size);
+        }
+
+        updateLayerTransformGizmoAndBoxes();
+    }
+
+    // Cập nhật vị trí khung bao (Bounding Box) của các Layer và gắn Gizmo cho Layer đang chọn
+    function updateLayerTransformGizmoAndBoxes() {
+        if (!AppState.layerBoxHelpersGroup) return;
+        while (AppState.layerBoxHelpersGroup.children.length > 0) {
+            const c = AppState.layerBoxHelpersGroup.children[0];
+            AppState.layerBoxHelpersGroup.remove(c);
+            if (c.geometry) c.geometry.dispose();
+            if (c.material) c.material.dispose();
+        }
+
+        if (!AppState.layerTransformMode || AppState.renderMode !== 'preview') {
+            AppState.layerBoxHelpersGroup.visible = false;
+            if (AppState.transformControls && AppState.transformControls.object === AppState.layerTransformPivot) {
+                AppState.transformControls.detach();
+                AppState.transformControls.visible = false;
+                AppState.transformControls.enabled = false;
+            }
+            return;
+        }
+
+        AppState.layerBoxHelpersGroup.visible = true;
+
+        for (const layer of AppState.layers) {
+            if (!layer.visible) continue;
+            ensureLayerProperties(layer);
+            const isSelected = (layer.id === AppState.activeLayerId);
+
+            const boxGeo = new THREE.BoxGeometry(layer.size.x, layer.size.z, layer.size.y);
+            const edges = new THREE.EdgesGeometry(boxGeo);
+            const mat = new THREE.LineBasicMaterial({
+                color: isSelected ? 0xffffff : 0xd97706,
+                transparent: true,
+                opacity: isSelected ? 0.95 : 0.65
+            });
+            const wire = new THREE.LineSegments(edges, mat);
+            wire.position.set(
+                (layer.offset.x || 0),
+                (layer.size.z / 2) + (layer.offset.y || 0),
+                (layer.offset.z || 0)
+            );
+            wire.rotation.set(layer.rotation.x || 0, layer.rotation.y || 0, layer.rotation.z || 0);
+            wire.scale.set(layer.scale.x ?? 1, layer.scale.y ?? 1, layer.scale.z ?? 1);
+            wire.userData.layerId = layer.id;
+            AppState.layerBoxHelpersGroup.add(wire);
+        }
+
+
+   const activeLayer = getActiveLayer();
+        if (activeLayer && activeLayer.visible && !activeLayer.locked && AppState.transformControls) {
+            ensureLayerProperties(activeLayer);
+            if (AppState.gizmoMode === 'scale') {
+                AppState.gizmoMode = 'translate';
+                document.querySelectorAll('.gizmo-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.gizmo === 'translate'));
+            }
+            const pivot = AppState.layerTransformPivot;
+            pivot.position.set(
+                activeLayer.offset.x || 0,
+                (activeLayer.size.z / 2) + (activeLayer.offset.y || 0),
+                activeLayer.offset.z || 0
+            );
+            pivot.rotation.set(activeLayer.rotation.x || 0, activeLayer.rotation.y || 0, activeLayer.rotation.z || 0);
+            pivot.scale.set(1, 1, 1);
+            pivot.updateMatrixWorld();
+
+            AppState.transformControls.camera = AppState.camera;
+            AppState.transformControls.attach(pivot);
+            AppState.transformControls.setMode(AppState.gizmoMode || 'translate');
+            AppState.transformControls.enabled = true;
+            AppState.transformControls.visible = true;
+        } else if (AppState.transformControls) {
+            AppState.transformControls.detach();
+            AppState.transformControls.enabled = false;
+            AppState.transformControls.visible = false;
+        }
+    }
+
+    // Cập nhật trực tiếp vị trí/xoay của Layer khi đang kéo mũi tên Gizmo (Không Scale Layer)
+    function syncLiveLayerTransformFromPivot() {
+        const activeLayer = getActiveLayer();
+        const pivot = AppState.layerTransformPivot;
+        if (!activeLayer || !pivot) return;
+        ensureLayerProperties(activeLayer);
+
+        activeLayer.offset.x = Math.round(pivot.position.x * 100) / 100;
+        activeLayer.offset.y = Math.round((pivot.position.y - activeLayer.size.z / 2) * 100) / 100;
+        activeLayer.offset.z = Math.round(pivot.position.z * 100) / 100;
+
+        activeLayer.rotation.x = pivot.rotation.x;
+        activeLayer.rotation.y = pivot.rotation.y;
+        activeLayer.rotation.z = pivot.rotation.z;
+
+        pivot.scale.set(1, 1, 1);
+        activeLayer.scale = { x: 1, y: 1, z: 1 };
+
+        // Cập nhật nhanh Group của Layer trong Scene mà không cần tạo lại toàn bộ Geometry
+        if (AppState.voxelMesh) {
+            const layerGrp = AppState.voxelMesh.children.find(g => g.userData && g.userData.layerId === activeLayer.id);
+            if (layerGrp) {
+                layerGrp.position.copy(pivot.position);
+                layerGrp.rotation.copy(pivot.rotation);
+            }
+        }
+        if (AppState.layerBoxHelpersGroup) {
+            const wire = AppState.layerBoxHelpersGroup.children.find(w => w.userData && w.userData.layerId === activeLayer.id);
+            if (wire) {
+                wire.position.copy(pivot.position);
+                wire.rotation.copy(pivot.rotation);
+            }
+        }
+    }
+
+    // Làm tròn bước di chuyển theo lưới Voxel và lưu vào lịch sử Undo khi nhả chuột khỏi Gizmo
+    function commitLayerTransformFromPivot(snapshotBefore) {
+        const activeLayer = getActiveLayer();
+        const pivot = AppState.layerTransformPivot;
+        if (!activeLayer || !pivot) return false;
+        ensureLayerProperties(activeLayer);
+
+        // Làm tròn tọa độ dịch chuyển theo đơn vị 1 Voxel giống MagicaVoxel
+        activeLayer.offset.x = Math.round(pivot.position.x);
+        activeLayer.offset.y = Math.round(pivot.position.y - activeLayer.size.z / 2);
+        activeLayer.offset.z = Math.round(pivot.position.z);
+
+        activeLayer.rotation.x = pivot.rotation.x;
+        activeLayer.rotation.y = pivot.rotation.y;
+        activeLayer.rotation.z = pivot.rotation.z;
+
+        pivot.scale.set(1, 1, 1);
+        activeLayer.scale = { x: 1, y: 1, z: 1 };
+
+        if (snapshotBefore) {
+            recordUndoStep(snapshotBefore);
+        }
+        rebuildMesh();
+        updateLayerTransformGizmoAndBoxes();
+        updateVoxel3DTexture();
+        updateDynamicEmitLights();
+        return true;
+    }
+
+    function setLayerTransformMode(enabled) {
+        AppState.layerTransformMode = !!enabled;
+        if (AppState.layerTransformMode) {
+            clearSelection();
+            if (AppState.gizmoMode === 'scale') {
+                AppState.gizmoMode = 'translate';
+                document.querySelectorAll('.gizmo-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.gizmo === 'translate'));
+            }
+        }
+        syncActiveLayerWorkspaceUI();
+        rebuildMesh();
+        updateControlsConfiguration();
+        showToast(
+            AppState.layerTransformMode
+                ? "Transform Layer Mode ON: Move (W), Rotate (E) layers"
+                : "Transform Layer Mode OFF: Edit voxels in active layer",
+            "success"
+        );
+    }
+
 	function renderLayerUI() {
         const container = document.getElementById('layer-list-container');
         if (!container) return;
         container.innerHTML = '';
 
-        // Đếm số voxel trên từng layer
         const countMap = {};
         if (AppState.model && AppState.model.voxels) {
             for (const v of AppState.model.voxels) {
@@ -2146,21 +2540,20 @@ function setupSkyControls() {
         let draggedIndex = null;
 
         AppState.layers.forEach((layer, index) => {
+            ensureLayerProperties(layer);
             const isSelected = layer.id === AppState.activeLayerId;
             const row = document.createElement('div');
-            row.className = `flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-all border ${
+            row.className = `flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer transition-all border ${
                 isSelected ? 'border-blue-500 bg-[#1e2333]' : 'border-gray-700/60 bg-[#1a1a22] hover:bg-[#22222d]'
             }`;
             row.draggable = true;
-            row.dataset.index = index; // Gán chỉ số để Touch Drag dò tìm chính xác
+            row.dataset.index = index;
 
-            // 1. Drag handle (Thêm touch-none và padding để ngón tay dễ chạm)
             const dragIcon = document.createElement('span');
-            dragIcon.className = "text-gray-400 hover:text-white cursor-grab text-xs select-none touch-none px-1.5 py-0.5 -ml-1 flex items-center justify-center shrink-0";
+            dragIcon.className = "text-gray-400 hover:text-white cursor-grab text-xs select-none touch-none px-1 py-0.5 -ml-1 flex items-center justify-center shrink-0";
             dragIcon.title = "Drag to reorder";
-            dragIcon.innerHTML = `&#10247;`; // ⠿ dots
+            dragIcon.innerHTML = `&#10247;`;
 
-            // 2. Eye button (Visibility)
             const btnEye = document.createElement('button');
             btnEye.className = `p-0.5 rounded hover:bg-gray-700 transition-colors ${layer.visible ? 'text-gray-300' : 'text-gray-500 opacity-40'}`;
             btnEye.title = layer.visible ? "Hide layer" : "Show layer";
@@ -2172,7 +2565,6 @@ function setupSkyControls() {
                 toggleLayerVisibility(layer.id);
             });
 
-            // 3. Lock button
             const btnLock = document.createElement('button');
             btnLock.className = `p-0.5 rounded hover:bg-gray-700 transition-colors ${layer.locked ? 'text-amber-400' : 'text-gray-400'}`;
             btnLock.title = layer.locked ? "Unlock layer" : "Lock layer";
@@ -2184,27 +2576,19 @@ function setupSkyControls() {
                 toggleLayerLock(layer.id);
             });
 
-            // 4. Cube icon
-            const cubeIcon = document.createElement('span');
-            cubeIcon.className = "text-gray-400 text-xs";
-            cubeIcon.innerHTML = `<svg class="w-3.5 h-3.5 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>`;
-
-            // 5. Name text & Rename (Tối ưu cho cả Mobile Touch và PC Mouse)
             const nameEl = document.createElement('span');
             nameEl.className = "text-xs font-semibold text-gray-200 flex-1 truncate select-none cursor-pointer hover:text-blue-300 py-0.5 px-1 rounded transition-colors";
             nameEl.textContent = layer.name;
-            nameEl.title = "Click when selected (or double-click) to rename";
-            nameEl.draggable = false; // Ngăn kéo rê nhầm text thay vì click
+            nameEl.title = `Size: ${layer.size.x}x${layer.size.y}x${layer.size.z} | Click when selected to rename`;
+            nameEl.draggable = false;
 
             const triggerRename = (e) => {
                 if (e) e.stopPropagation();
                 startRenameLayer(layer.id, nameEl);
             };
 
-            // Hỗ trợ Double Click trên PC
             nameEl.addEventListener('dblclick', triggerRename);
 
-            // Hỗ trợ Click / Touch trên cả Mobile và PC
             let lastTapTime = 0;
             nameEl.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -2212,45 +2596,46 @@ function setupSkyControls() {
                 const isDoubleTap = (now - lastTapTime < 350);
                 lastTapTime = now;
 
-                if (isSelected || isDoubleTap) {
-                    // Nếu Layer ĐANG ĐƯỢC CHỌN sẵn hoặc Chạm đúp -> Mở ô nhập tên ngay
+                if (isSelected && isDoubleTap) {
                     triggerRename(e);
-                } else {
-                    // Nếu Layer chưa được chọn -> Click để kích hoạt layer
+                } else if (AppState.activeLayerId !== layer.id) {
                     AppState.activeLayerId = layer.id;
+                    syncActiveLayerWorkspaceUI();
                     renderLayerUI();
                 }
             });
 
-            // Nút bút chì nhỏ gọn (Giúp người dùng Mobile chạm 1 chạm là đổi tên được ngay)
             const btnEdit = document.createElement('button');
             btnEdit.className = `p-1 rounded text-gray-400 hover:text-blue-400 hover:bg-gray-700/60 transition-colors shrink-0 ${isSelected ? 'opacity-80' : 'opacity-0 hover:opacity-100'}`;
             btnEdit.title = "Rename layer";
             btnEdit.innerHTML = `<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>`;
             btnEdit.addEventListener('click', triggerRename);
 
-            // 6. Voxel count badge
+            // Badge hiển thị Size riêng của từng Layer
+            const sizeBadge = document.createElement('span');
+            sizeBadge.className = "text-[9px] font-mono text-blue-300/90 bg-[#14141d] px-1 py-0.2 rounded border border-blue-900/40 shrink-0";
+            sizeBadge.textContent = `${layer.size.x}x${layer.size.y}x${layer.size.z}`;
+
             const countEl = document.createElement('span');
-            countEl.className = "text-[10px] font-mono px-2 py-0.2 rounded-full bg-[#121218] border border-gray-700/60 text-gray-300";
+            countEl.className = "text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-[#121218] border border-gray-700/60 text-gray-300 shrink-0";
             countEl.textContent = countMap[layer.id] || 0;
 
             row.appendChild(dragIcon);
             row.appendChild(btnEye);
             row.appendChild(btnLock);
-            row.appendChild(cubeIcon);
             row.appendChild(nameEl);
-            row.appendChild(btnEdit); // Thêm nút bút chì vào hàng
+            row.appendChild(btnEdit);
+            row.appendChild(sizeBadge);
             row.appendChild(countEl);
 
             row.addEventListener('click', () => {
-                // Chỉ re-render khi chuyển sang Layer KHÁC, tránh hủy DOM khi đang chọn Layer hiện tại
                 if (AppState.activeLayerId !== layer.id) {
                     AppState.activeLayerId = layer.id;
+                    syncActiveLayerWorkspaceUI();
                     renderLayerUI();
                 }
             });
 
-            // Kéo thả sắp xếp Layer (Sort layer)
             row.addEventListener('dragstart', (e) => {
                 draggedIndex = index;
                 e.dataTransfer.effectAllowed = 'move';
@@ -2273,84 +2658,11 @@ function setupSkyControls() {
                     renderLayerUI();
                 }
             });
-			
-			// --- HỖ TRỢ KÉO THẢ BẰNG TOUCH TRÊN THIẾT BỊ DI ĐỘNG ---
-            let touchMoved = false;
-
-            dragIcon.addEventListener('touchstart', (e) => {
-                e.stopPropagation();
-                draggedIndex = index;
-                touchMoved = false;
-                row.classList.add('opacity-50', 'bg-[#252538]', 'border-blue-400');
-            }, { passive: false });
-
-            dragIcon.addEventListener('touchmove', (e) => {
-                e.preventDefault(); // Chặn cuộn khung để ưu tiên thao tác kéo thả
-                touchMoved = true;
-                const touch = e.touches[0];
-                const targetEl = document.elementFromPoint(touch.clientX, touch.clientY);
-                if (!targetEl) return;
-
-                const targetRow = targetEl.closest('#layer-list-container > div');
-
-                // Dọn viền chỉ báo ở các hàng khác
-                container.querySelectorAll('#layer-list-container > div').forEach(r => {
-                    r.classList.remove('border-t-2', 'border-b-2', 'border-blue-500');
-                });
-
-                if (targetRow && targetRow !== row) {
-                    const rect = targetRow.getBoundingClientRect();
-                    const midY = rect.top + rect.height / 2;
-                    if (touch.clientY < midY) {
-                        targetRow.classList.add('border-t-2', 'border-blue-500');
-                    } else {
-                        targetRow.classList.add('border-b-2', 'border-blue-500');
-                    }
-                }
-            }, { passive: false });
-
-            dragIcon.addEventListener('touchend', (e) => {
-                row.classList.remove('opacity-50', 'bg-[#252538]', 'border-blue-400');
-                container.querySelectorAll('#layer-list-container > div').forEach(r => {
-                    r.classList.remove('border-t-2', 'border-b-2', 'border-blue-500');
-                });
-
-                if (touchMoved && draggedIndex !== null) {
-                    const touch = e.changedTouches[0];
-                    const targetEl = document.elementFromPoint(touch.clientX, touch.clientY);
-                    const targetRow = targetEl ? targetEl.closest('#layer-list-container > div') : null;
-
-                    if (targetRow && targetRow !== row) {
-                        const hoverIndex = parseInt(targetRow.dataset.index, 10);
-                        const rect = targetRow.getBoundingClientRect();
-                        const midY = rect.top + rect.height / 2;
-                        const isLowerHalf = (touch.clientY > midY);
-
-                        let targetIndex = hoverIndex;
-                        if (draggedIndex < hoverIndex) {
-                            targetIndex = isLowerHalf ? hoverIndex : hoverIndex - 1;
-                        } else if (draggedIndex > hoverIndex) {
-                            targetIndex = isLowerHalf ? hoverIndex + 1 : hoverIndex;
-                        }
-                        targetIndex = Math.max(0, Math.min(AppState.layers.length - 1, targetIndex));
-
-                        if (draggedIndex !== targetIndex) {
-                            const snap = captureStateSnapshot();
-                            const item = AppState.layers.splice(draggedIndex, 1)[0];
-                            AppState.layers.splice(targetIndex, 0, item);
-                            recordUndoStep(snap);
-                            rebuildMesh();
-                            renderLayerUI();
-                            showToast(`Moved "${item.name}" to new position`, "success");
-                        }
-                    }
-                }
-                draggedIndex = null;
-                touchMoved = false;
-            });
 
             container.appendChild(row);
         });
+
+        syncActiveLayerWorkspaceUI();
     }
 
     function setupLayerSystem() {
@@ -2364,38 +2676,70 @@ function setupSkyControls() {
             });
         }
 
-        // Add Layer
+        // Toggle Transform Layer Mode
+        const toggleTrans = document.getElementById('layer-transform-mode-toggle');
+        if (toggleTrans) {
+            toggleTrans.checked = !!AppState.layerTransformMode;
+            toggleTrans.addEventListener('change', (e) => {
+                setLayerTransformMode(e.target.checked);
+            });
+        }
+
+        // Nút chọn Move / Rotate / Scale trong bảng Layer
+        document.querySelectorAll('#layer-gizmo-type-row .gizmo-mode-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const mode = btn.dataset.gizmo;
+                AppState.gizmoMode = mode;
+                document.querySelectorAll('.gizmo-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.gizmo === mode));
+                if (AppState.transformControls) AppState.transformControls.setMode(mode);
+            });
+        });
+
+        // Add Layer (Mặc định tạo Layer mới với Size riêng 40x40x40 hoặc bằng Layer hiện tại)
         document.getElementById('btn-layer-add')?.addEventListener('click', () => {
             const snap = captureStateSnapshot();
+            const cur = getActiveLayer();
+            const baseSize = cur && cur.size ? { ...cur.size } : { x: 40, y: 40, z: 40 };
             const newId = Date.now();
             const newLayer = {
                 id: newId,
                 name: `Layer ${AppState.layers.length + 1}`,
                 visible: true,
-                locked: false
+                locked: false,
+                size: baseSize,
+                offset: { x: 0, y: 0, z: 0 },
+                rotation: { x: 0, y: 0, z: 0 },
+                scale: { x: 1, y: 1, z: 1 }
             };
             AppState.layers.push(newLayer);
             AppState.activeLayerId = newId;
             recordUndoStep(snap);
+            syncActiveLayerWorkspaceUI();
+            rebuildMesh();
             renderLayerUI();
             showToast(`Added "${newLayer.name}"`, "success");
         });
 
-        // Clone Layer
+        // Clone Layer (Sao chép cả Size và Transform của Layer đó)
         document.getElementById('btn-layer-clone')?.addEventListener('click', () => {
             if (!AppState.model) return;
             const cur = getActiveLayer();
+            ensureLayerProperties(cur);
             const snap = captureStateSnapshot();
             const newId = Date.now();
             const newLayer = {
                 id: newId,
                 name: `${cur.name} (Copy)`,
                 visible: true,
-                locked: false
+                locked: false,
+                size: { ...cur.size },
+                offset: { ...cur.offset },
+                rotation: { ...cur.rotation },
+                scale: { ...cur.scale }
             };
             AppState.layers.push(newLayer);
 
-            // Nhân bản toàn bộ voxel thuộc active layer
             const currentVoxels = AppState.model.voxels.filter(v => (v.l !== undefined ? v.l : AppState.layers[0].id) === cur.id);
             for (const cv of currentVoxels) {
                 AppState.model.voxels.push({ x: cv.x, y: cv.y, z: cv.z, i: cv.i, l: newId });
@@ -2403,38 +2747,214 @@ function setupSkyControls() {
 
             AppState.activeLayerId = newId;
             recordUndoStep(snap);
+            syncActiveLayerWorkspaceUI();
             rebuildMesh();
             renderLayerUI();
             showToast(`Duplicated "${cur.name}"`, "success");
         });
 
         // Merge Layer Down
+        // Merge Layer Down (Chuẩn MagicaVoxel: Gộp 2 layer vào 1 khung bao chung & giữ nguyên vị trí 3D)
         document.getElementById('btn-layer-merge')?.addEventListener('click', () => {
             if (!AppState.model) return;
-            const curIdx = AppState.layers.findIndex(l => l.id === AppState.activeLayerId);
-            if (curIdx < 0 || curIdx >= AppState.layers.length - 1) {
-                showToast("No layer below to merge!", "error");
+            if (AppState.layers.length <= 1) {
+                showToast("Need at least 2 layers to merge!", "error", true);
                 return;
             }
-            const snap = captureStateSnapshot();
-            const curLayer = AppState.layers[curIdx];
-            const targetLayer = AppState.layers[curIdx + 1];
 
-            // Chuyển toàn bộ voxel của layer hiện tại sang targetLayer
-            for (const v of AppState.model.voxels) {
-                const lid = (v.l !== undefined) ? v.l : AppState.layers[0].id;
-                if (lid === curLayer.id) {
-                    v.l = targetLayer.id;
-                }
+            const curIdx = AppState.layers.findIndex(l => l.id === AppState.activeLayerId);
+            if (curIdx < 0) return;
+
+            // Nếu chọn layer cuối cùng dưới đáy thì gộp lên layer liền kề phía trên, ngược lại gộp xuống layer liền kề phía dưới
+            const targetIdx = (curIdx < AppState.layers.length - 1) ? (curIdx + 1) : (curIdx - 1);
+            const curLayer = AppState.layers[curIdx];
+            const targetLayer = AppState.layers[targetIdx];
+            ensureLayerProperties(curLayer);
+            ensureLayerProperties(targetLayer);
+
+            if (curLayer.locked || targetLayer.locked) {
+                showToast("Cannot merge a locked layer!", "error", true);
+                return;
             }
 
+            const snap = captureStateSnapshot();
+            const defaultLayerId = AppState.layers[0]?.id;
+
+            const matCur = getLayerWorldMatrix(curLayer);
+            const matTar = getLayerWorldMatrix(targetLayer);
+
+            // Lấy gốc lưới chuẩn (World Origin) từ targetLayer để không bị lệch nửa bước (0.5)
+            const baseOriginX = (targetLayer.offset.x || 0) - targetLayer.size.x / 2;
+            const baseOriginY = (targetLayer.offset.y || 0);
+            const baseOriginZ = (targetLayer.offset.z || 0) - targetLayer.size.y / 2;
+
+            // Hàm tính Bounding Box 8 đỉnh của 1 Layer trong World Space
+            const getLayerWorldBounds = (layer, mat) => {
+                const hx = layer.size.x / 2;
+                const hy = layer.size.y / 2;
+                const hz = layer.size.z;
+                const corners = [
+                    new THREE.Vector3(-hx, 0, -hy), new THREE.Vector3(hx, 0, -hy),
+                    new THREE.Vector3(-hx, hz, -hy), new THREE.Vector3(hx, hz, -hy),
+                    new THREE.Vector3(-hx, 0, hy),  new THREE.Vector3(hx, 0, hy),
+                    new THREE.Vector3(-hx, hz, hy),  new THREE.Vector3(hx, hz, hy)
+                ];
+                let minX = Infinity, maxX = -Infinity;
+                let minY = Infinity, maxY = -Infinity;
+                let minZ = Infinity, maxZ = -Infinity;
+                for (const c of corners) {
+                    c.applyMatrix4(mat);
+                    if (c.x < minX) minX = c.x;
+                    if (c.x > maxX) maxX = c.x;
+                    if (c.y < minY) minY = c.y;
+                    if (c.y > maxY) maxY = c.y;
+                    if (c.z < minZ) minZ = c.z;
+                    if (c.z > maxZ) maxZ = c.z;
+                }
+                return { minX, maxX, minY, maxY, minZ, maxZ };
+            };
+
+            const boxCur = getLayerWorldBounds(curLayer, matCur);
+            const boxTar = getLayerWorldBounds(targetLayer, matTar);
+
+            // Khung bao hộp chung của cả 2 Layer trên hệ lưới chuẩn
+            let minIx = Math.floor(Math.round((Math.min(boxCur.minX, boxTar.minX) - baseOriginX) * 1000) / 1000);
+            let maxIx = Math.ceil(Math.round((Math.max(boxCur.maxX, boxTar.maxX) - baseOriginX) * 1000) / 1000);
+            let minIz = Math.floor(Math.round((Math.min(boxCur.minY, boxTar.minY) - baseOriginY) * 1000) / 1000);
+            let maxIz = Math.ceil(Math.round((Math.max(boxCur.maxY, boxTar.maxY) - baseOriginY) * 1000) / 1000);
+            let minIy = Math.floor(Math.round((Math.min(boxCur.minZ, boxTar.minZ) - baseOriginZ) * 1000) / 1000);
+            let maxIy = Math.ceil(Math.round((Math.max(boxCur.maxZ, boxTar.maxZ) - baseOriginZ) * 1000) / 1000);
+
+            const otherVoxels = [];
+            const tarVoxels = [];
+            const curVoxels = [];
+
+            for (const v of AppState.model.voxels) {
+                const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+                if (lid === targetLayer.id) tarVoxels.push(v);
+                else if (lid === curLayer.id) curVoxels.push(v);
+                else otherVoxels.push(v);
+            }
+
+            // Chuyển toàn bộ Voxel của 1 Layer sang tọa độ lưới World chuẩn (hỗ trợ cả Layer đã Move, Rotate, Scale)
+            const extractLayerLatticeVoxels = (layer, voxList, mat, boxW) => {
+                const results = [];
+                if (voxList.length === 0) return results;
+                const lcx = layer.size.x / 2, lcy = layer.size.y / 2;
+                const isIdentityRotScale =
+                    Math.abs(layer.rotation.x || 0) < 1e-4 &&
+                    Math.abs(layer.rotation.y || 0) < 1e-4 &&
+                    Math.abs(layer.rotation.z || 0) < 1e-4 &&
+                    Math.abs((layer.scale.x ?? 1) - 1) < 1e-4 &&
+                    Math.abs((layer.scale.y ?? 1) - 1) < 1e-4 &&
+                    Math.abs((layer.scale.z ?? 1) - 1) < 1e-4;
+
+                if (isIdentityRotScale) {
+                    const worldPos = new THREE.Vector3();
+                    for (const v of voxList) {
+                        worldPos.set(v.x - lcx + 0.5, v.z + 0.5, v.y - lcy + 0.5).applyMatrix4(mat);
+                        const ix = Math.round(worldPos.x - baseOriginX - 0.5);
+                        const iz = Math.round(worldPos.y - baseOriginY - 0.5);
+                        const iy = Math.round(worldPos.z - baseOriginZ - 0.5);
+                        results.push({ ix, iy, iz, i: v.i });
+                    }
+                } else {
+                    // Nếu Layer có xoay hoặc phóng to/thu nhỏ: dùng ánh xạ ngược để khối đặc khít không bị rỗ
+                    const localMap = new Map();
+                    for (const v of voxList) localMap.set(`${v.x},${v.y},${v.z}`, v.i);
+                    const invMat = mat.clone().invert();
+                    const bMinIx = Math.floor(boxW.minX - baseOriginX) - 1;
+                    const bMaxIx = Math.ceil(boxW.maxX - baseOriginX) + 1;
+                    const bMinIz = Math.floor(boxW.minY - baseOriginY) - 1;
+                    const bMaxIz = Math.ceil(boxW.maxY - baseOriginY) + 1;
+                    const bMinIy = Math.floor(boxW.minZ - baseOriginZ) - 1;
+                    const bMaxIy = Math.ceil(boxW.maxZ - baseOriginZ) + 1;
+                    const testPt = new THREE.Vector3();
+
+                    for (let ix = bMinIx; ix <= bMaxIx; ix++) {
+                        for (let iy = bMinIy; iy <= bMaxIy; iy++) {
+                            for (let iz = bMinIz; iz <= bMaxIz; iz++) {
+                                testPt.set(
+                                    baseOriginX + ix + 0.5,
+                                    baseOriginY + iz + 0.5,
+                                    baseOriginZ + iy + 0.5
+                                ).applyMatrix4(invMat);
+                                const lx = Math.round(testPt.x + lcx - 0.5);
+                                const lz = Math.round(testPt.y - 0.5);
+                                const ly = Math.round(testPt.z + lcy - 0.5);
+                                const colIdx = localMap.get(`${lx},${ly},${lz}`);
+                                if (colIdx !== undefined) {
+                                    results.push({ ix, iy, iz, i: colIdx });
+                                }
+                            }
+                        }
+                    }
+                }
+                return results;
+            };
+
+            const mappedTar = extractLayerLatticeVoxels(targetLayer, tarVoxels, matTar, boxTar);
+            const mappedCur = extractLayerLatticeVoxels(curLayer, curVoxels, matCur, boxCur);
+
+            // Gộp chung vào Map (nếu trùng khít vị trí thì curLayer ghi đè lên targetLayer)
+            const mergedMap = new Map();
+            for (const item of mappedTar) {
+                mergedMap.set(`${item.ix},${item.iy},${item.iz}`, item);
+            }
+            for (const item of mappedCur) {
+                mergedMap.set(`${item.ix},${item.iy},${item.iz}`, item);
+            }
+
+            // Đảm bảo khung bao chứa trọn 100% các hạt Voxel sau khi gộp
+            for (const item of mergedMap.values()) {
+                if (item.ix < minIx) minIx = item.ix;
+                if (item.ix + 1 > maxIx) maxIx = item.ix + 1;
+                if (item.iy < minIy) minIy = item.iy;
+                if (item.iy + 1 > maxIy) maxIy = item.iy + 1;
+                if (item.iz < minIz) minIz = item.iz;
+                if (item.iz + 1 > maxIz) maxIz = item.iz + 1;
+            }
+
+            const newSx = Math.max(1, maxIx - minIx);
+            const newSy = Math.max(1, maxIy - minIy);
+            const newSz = Math.max(1, maxIz - minIz);
+
+            // Cập nhật lại Size bao chung và Offset mới cho targetLayer
+            targetLayer.size = { x: newSx, y: newSy, z: newSz };
+            targetLayer.offset = {
+                x: baseOriginX + minIx + newSx / 2,
+                y: baseOriginY + minIz,
+                z: baseOriginZ + minIy + newSy / 2
+            };
+            targetLayer.rotation = { x: 0, y: 0, z: 0 };
+            targetLayer.scale = { x: 1, y: 1, z: 1 };
+
+            // Chuyển tọa độ toàn bộ Voxel đã gộp về hệ tọa độ cục bộ [0..newSize-1] của targetLayer
+            for (const item of mergedMap.values()) {
+                otherVoxels.push({
+                    x: item.ix - minIx,
+                    y: item.iy - minIy,
+                    z: item.iz - minIz,
+                    i: item.i,
+                    l: targetLayer.id
+                });
+            }
+
+            AppState.model.voxels = otherVoxels;
             AppState.layers.splice(curIdx, 1);
             AppState.activeLayerId = targetLayer.id;
+
+            clearSelection();
             recordUndoStep(snap);
+            syncActiveLayerWorkspaceUI();
             rebuildMesh();
             renderLayerUI();
-            showToast(`Merged "${curLayer.name}" into "${targetLayer.name}"`, "success");
+            updateVoxel3DTexture();
+            updateDynamicEmitLights();
+            showToast(`Merged "${curLayer.name}" into "${targetLayer.name}" (${newSx}x${newSy}x${newSz})`, "success", true);
         });
+		
+		
 
         // Delete Layer
         document.getElementById('btn-layer-delete')?.addEventListener('click', () => {
@@ -2447,19 +2967,18 @@ function setupSkyControls() {
             const cur = getActiveLayer();
             const curIdx = AppState.layers.findIndex(l => l.id === cur.id);
 
-            // Xóa toàn bộ voxel thuộc layer này
             AppState.model.voxels = AppState.model.voxels.filter(v => (v.l !== undefined ? v.l : AppState.layers[0].id) !== cur.id);
             AppState.layers.splice(curIdx, 1);
             AppState.activeLayerId = AppState.layers[Math.max(0, curIdx - 1)].id;
 
             recordUndoStep(snap);
+            syncActiveLayerWorkspaceUI();
             rebuildMesh();
             renderLayerUI();
             showToast(`Deleted layer "${cur.name}"`, "success");
         });
-		
-		
-		function moveActiveLayer(offset) {
+
+        function moveActiveLayer(offset) {
             if (!AppState.layers || AppState.layers.length <= 1) return;
             const curIdx = AppState.layers.findIndex(l => l.id === AppState.activeLayerId);
             if (curIdx < 0) return;
@@ -2477,7 +2996,7 @@ function setupSkyControls() {
 
         document.getElementById('btn-layer-move-up')?.addEventListener('click', () => moveActiveLayer(-1));
         document.getElementById('btn-layer-move-down')?.addEventListener('click', () => moveActiveLayer(1));
-		
+
         renderLayerUI();
     }
 
@@ -2691,7 +3210,9 @@ function setupSkyControls() {
 
         if (AppState.selectedVoxels.size === 0 || !AppState.model) {
             AppState.selectionPivotGroup.visible = false;
-            if (AppState.transformControls) AppState.transformControls.detach();
+            if (AppState.transformControls && !AppState.layerTransformMode) {
+                AppState.transformControls.detach();
+            }
             updateSelectionCountUI();
             return;
         }
@@ -2721,9 +3242,22 @@ function setupSkyControls() {
             sumZ / selectedCoords.length
         );
 
-        AppState.selectionPivotGroup.position.copy(pivotCenter);
-        AppState.selectionPivotGroup.rotation.set(0, 0, 0);
-        AppState.selectionPivotGroup.scale.set(1, 1, 1);
+        const curLayer = getActiveLayer();
+        ensureLayerProperties(curLayer);
+        const layerMat = getLayerWorldMatrix(curLayer);
+        const worldPivotCenter = pivotCenter.clone().applyMatrix4(layerMat);
+
+        AppState.selectionPivotGroup.position.copy(worldPivotCenter);
+        AppState.selectionPivotGroup.rotation.set(
+            curLayer.rotation.x || 0,
+            curLayer.rotation.y || 0,
+            curLayer.rotation.z || 0
+        );
+        AppState.selectionPivotGroup.scale.set(
+            curLayer.scale.x ?? 1,
+            curLayer.scale.y ?? 1,
+            curLayer.scale.z ?? 1
+        );
 
         // Tạo lưới grid viền trắng chuẩn MagicaVoxel (chỉ vẽ trên các mặt lộ ra ngoài)
         const linePositions = [];
@@ -2811,25 +3345,25 @@ function setupSkyControls() {
 
         AppState.selectionPivotGroup.visible = (AppState.renderMode === 'preview');
 
-        if (AppState.transformControls) {
-          const shouldShowGizmo = (AppState.renderMode === 'preview') && 
-                                  (AppState.action === 'select') && 
-                                  (AppState.selectionMode === 'transform') && 
-                                  (AppState.selectedVoxels.size > 0);
-          if (shouldShowGizmo) {
-              AppState.transformControls.camera = AppState.camera;
-              AppState.transformControls.attach(AppState.selectionPivotGroup);
-              AppState.transformControls.setMode(AppState.gizmoMode || 'translate');
-              AppState.transformControls.enabled = true;
-              AppState.transformControls.visible = true;
-          } else {
-              AppState.transformControls.detach();
-              AppState.transformControls.enabled = false;
-              AppState.transformControls.visible = false;
-              AppState.transformControls.axis = null;
-              AppState.isTransformingGizmo = false;
-          }
-      }
+        if (AppState.transformControls && !AppState.layerTransformMode) {
+            const shouldShowGizmo = (AppState.renderMode === 'preview') && 
+                                    (AppState.action === 'select') && 
+                                    (AppState.selectionMode === 'transform') && 
+                                    (AppState.selectedVoxels.size > 0);
+            if (shouldShowGizmo) {
+                AppState.transformControls.camera = AppState.camera;
+                AppState.transformControls.attach(AppState.selectionPivotGroup);
+                AppState.transformControls.setMode(AppState.gizmoMode || 'translate');
+                AppState.transformControls.enabled = true;
+                AppState.transformControls.visible = true;
+            } else {
+                AppState.transformControls.detach();
+                AppState.transformControls.enabled = false;
+                AppState.transformControls.visible = false;
+                AppState.transformControls.axis = null;
+                AppState.isTransformingGizmo = false;
+            }
+        }
 
         updateSelectionCountUI();
     }
@@ -2955,8 +3489,25 @@ function setupSkyControls() {
 			
 			
 
-            pathTraceMaterial.uniforms.uEmitMin.value[i].set(minX - cx, minZ, minY - cy);
-            pathTraceMaterial.uniforms.uEmitMax.value[i].set(maxX - cx + 1.0, maxZ + 1.0, maxY - cy + 1.0);
+           const sampleVox = c[0];
+            const layer = getLayerOfVoxel(sampleVox);
+            ensureLayerProperties(layer);
+            const lMat = getLayerWorldMatrix(layer);
+            const lcx = layer.size.x / 2, lcy = layer.size.y / 2;
+            const ptOffset = AppState.ptGridOffset || new THREE.Vector3(0, 0, 0);
+
+            const pMin = new THREE.Vector3(minX - lcx, minZ, minY - lcy).applyMatrix4(lMat).sub(ptOffset);
+            const pMax = new THREE.Vector3(maxX - lcx + 1.0, maxZ + 1.0, maxY - lcy + 1.0).applyMatrix4(lMat).sub(ptOffset);
+		  
+		  
+
+          pathTraceMaterial.uniforms.uEmitMin.value[i].set(
+              Math.min(pMin.x, pMax.x), Math.min(pMin.y, pMax.y), Math.min(pMin.z, pMax.z)
+          );
+          pathTraceMaterial.uniforms.uEmitMax.value[i].set(
+              Math.max(pMin.x, pMax.x), Math.max(pMin.y, pMax.y), Math.max(pMin.z, pMax.z)
+          );
+			
             pathTraceMaterial.uniforms.uEmitCol.value[i].set(colR, colG, colB);
             pathTraceMaterial.uniforms.uEmitPwr.value[i] = avgPower;
             pathTraceMaterial.uniforms.uEmitLdr.value[i] = avgLdr;
@@ -2979,15 +3530,19 @@ function setupSkyControls() {
 	
         if (!AppState.selectionPivotGroup || AppState.selectedVoxels.size === 0 || !AppState.model) return;
 
-    const pivot = AppState.selectionPivotGroup;
-    const pPos = pivot.position.clone();
-    const pRot = pivot.rotation.clone();
-    const pScale = pivot.scale.clone();
+    const curLayer = getActiveLayer();
+  ensureLayerProperties(curLayer);
+  const invLayerMat = getLayerWorldMatrix(curLayer).clone().invert();
 
-    if (pPos.lengthSq() < 1e-4 && Math.abs(pRot.x) < 1e-4 && Math.abs(pRot.y) < 1e-4 && Math.abs(pRot.z) < 1e-4 &&
-        Math.abs(pScale.x - 1) < 1e-4 && Math.abs(pScale.y - 1) < 1e-4 && Math.abs(pScale.z - 1) < 1e-4) {
-        return;
-    }
+  const pivot = AppState.selectionPivotGroup;
+  const localMat = invLayerMat.multiply(pivot.matrix.clone());
+  const pPos = new THREE.Vector3();
+  const pQuat = new THREE.Quaternion();
+  const pScale = new THREE.Vector3();
+  localMat.decompose(pPos, pQuat, pScale);
+  const pRot = new THREE.Euler().setFromQuaternion(pQuat, 'XYZ');
+	
+	
 
     const snapshotBefore = captureStateSnapshot();
        
@@ -3004,14 +3559,28 @@ function setupSkyControls() {
         const selectedSet = new Set(AppState.selectedVoxels);
         const hasPastedVoxels = AppState.model.voxels.some(v => v._pasted && selectedSet.has(`${v.x},${v.y},${v.z}`));
 
+        const defaultLayerId = AppState.layers[0]?.id;
         let selectedVoxelsList = [];
         if (hasPastedVoxels) {
-            // Nếu đang thao tác trên khối vừa Paste: Chỉ tách các khối vừa Paste, giữ nguyên khối gốc
-            selectedVoxelsList = AppState.model.voxels.filter(v => v._pasted && selectedSet.has(`${v.x},${v.y},${v.z}`));
-            AppState.model.voxels = AppState.model.voxels.filter(v => !(v._pasted && selectedSet.has(`${v.x},${v.y},${v.z}`)));
+            // Nếu đang thao tác trên khối vừa Paste: Chỉ tách các khối vừa Paste trên Layer hiện tại
+            selectedVoxelsList = AppState.model.voxels.filter(v => {
+                const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+                return lid === AppState.activeLayerId && v._pasted && selectedSet.has(`${v.x},${v.y},${v.z}`);
+            });
+            AppState.model.voxels = AppState.model.voxels.filter(v => {
+                const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+                return !(lid === AppState.activeLayerId && v._pasted && selectedSet.has(`${v.x},${v.y},${v.z}`));
+            });
         } else {
-            selectedVoxelsList = AppState.model.voxels.filter(v => selectedSet.has(`${v.x},${v.y},${v.z}`));
-            AppState.model.voxels = AppState.model.voxels.filter(v => !selectedSet.has(`${v.x},${v.y},${v.z}`));
+            selectedVoxelsList = AppState.model.voxels.filter(v => {
+                const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+                return lid === AppState.activeLayerId && selectedSet.has(`${v.x},${v.y},${v.z}`);
+            });
+            AppState.model.voxels = AppState.model.voxels.filter(v => {
+                const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+                if (lid !== AppState.activeLayerId) return true; // Giữ nguyên 100% voxel thuộc các Layer khác
+                return !selectedSet.has(`${v.x},${v.y},${v.z}`);
+            });
         }
 
         let sumX = 0, sumY = 0, sumZ = 0;
@@ -3193,16 +3762,18 @@ function setupSkyControls() {
         }
     }
 
-    function commitPastedVoxels() {
+   function commitPastedVoxels() {
         if (!AppState.model || !AppState.model.voxels) return;
         const hasPasted = AppState.model.voxels.some(v => v._pasted);
         if (!hasPasted) return;
 
-        // Hợp nhất các khối vừa Paste vào mô hình (ghi đè lên các tọa độ trùng nhau)
+        const defaultLayerId = AppState.layers[0]?.id || 1;
         const finalMap = new Map();
         for (const v of AppState.model.voxels) {
             delete v._pasted;
-            finalMap.set(`${v.x},${v.y},${v.z}`, v);
+            const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+            v.l = lid;
+            finalMap.set(`${lid}:${v.x},${v.y},${v.z}`, v);
         }
         AppState.model.voxels = Array.from(finalMap.values());
         rebuildMesh();
@@ -3284,13 +3855,18 @@ function setupSkyControls() {
              const snapshotBefore = captureStateSnapshot();
 
              const toDel = AppState.selectedVoxels;
+             const defaultLayerId = AppState.layers[0]?.id;
              const initialLen = AppState.model.voxels.length;
              AppState.model.voxels = AppState.model.voxels.filter(v => {
+                 const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+                 if (lid !== AppState.activeLayerId) return true; // Giữ nguyên 100% voxel thuộc các Layer khác
                  const inSel = toDel.has(`${v.x},${v.y},${v.z}`);
                  if (inSel && isVoxelLocked(v)) return true; // KHÔNG xóa khối ở layer bị khóa
                  return !inSel;
              });
              const deleted = initialLen - AppState.model.voxels.length;
+			 
+			 
 
                 clearSelection();
                 AppState.usedIndices.clear();
@@ -3309,8 +3885,11 @@ function setupSkyControls() {
              const snapshotBefore = captureStateSnapshot();
 
              const toPaint = AppState.selectedVoxels;
+             const defaultLayerId = AppState.layers[0]?.id;
              let count = 0;
              for (const v of AppState.model.voxels) {
+                 const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+                 if (lid !== AppState.activeLayerId) continue;
                  if (toPaint.has(`${v.x},${v.y},${v.z}`)) {
                      if (isVoxelLocked(v)) continue; // Bỏ qua khối bị khóa
                      v.i = AppState.selectedColorIndex;
@@ -3357,6 +3936,7 @@ function setupSkyControls() {
                 AppState.usedIndices.add(AppState.selectedColorIndex);
                 recordUndoStep(snapshotBefore); // Lưu vào Undo
                 rebuildMesh();
+                renderLayerUI();
                 buildPaletteUI();
                 updateSelectionBoxVisual();
                 showToast(`Filled selection box!`, "success");
@@ -3370,11 +3950,14 @@ function setupSkyControls() {
 
                 const currentSet = new Set(AppState.selectedVoxels);
                 AppState.selectedVoxels.clear();
+                const defaultLayerId = AppState.layers[0]?.id;
 
                 let minX = Infinity, minY = Infinity, minZ = Infinity;
                 let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
 
                 for (const v of AppState.model.voxels) {
+                    const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+                    if (lid !== AppState.activeLayerId) continue;
                     const key = `${v.x},${v.y},${v.z}`;
                     if (!currentSet.has(key)) {
                         AppState.selectedVoxels.add(key);
@@ -3408,8 +3991,6 @@ function setupSkyControls() {
                 showToast("Deselected!", "success");
             });
         }
-		
-		
 
         const btnCopy = document.getElementById('btn-sel-copy');
         const btnCut = document.getElementById('btn-sel-cut');
@@ -3439,9 +4020,15 @@ function setupSkyControls() {
                     return;
                 }
                 const selSet = AppState.selectedVoxels;
-                const hasPasted = AppState.model.voxels.some(v => v._pasted && selSet.has(`${v.x},${v.y},${v.z}`));
+                const defaultLayerId = AppState.layers[0]?.id;
+                const hasPasted = AppState.model.voxels.some(v => {
+                    const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+                    return lid === AppState.activeLayerId && v._pasted && selSet.has(`${v.x},${v.y},${v.z}`);
+                });
 
                 const sourceVoxels = AppState.model.voxels.filter(v => {
+                    const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+                    if (lid !== AppState.activeLayerId) return false;
                     if (!selSet.has(`${v.x},${v.y},${v.z}`)) return false;
                     return hasPasted ? !!v._pasted : true;
                 });
@@ -3465,9 +4052,15 @@ function setupSkyControls() {
                     return;
                 }
                 const selSet = AppState.selectedVoxels;
-                const hasPasted = AppState.model.voxels.some(v => v._pasted && selSet.has(`${v.x},${v.y},${v.z}`));
+                const defaultLayerId = AppState.layers[0]?.id;
+                const hasPasted = AppState.model.voxels.some(v => {
+                    const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+                    return lid === AppState.activeLayerId && v._pasted && selSet.has(`${v.x},${v.y},${v.z}`);
+                });
 
                 const sourceVoxels = AppState.model.voxels.filter(v => {
+                    const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+                    if (lid !== AppState.activeLayerId) return false;
                     if (!selSet.has(`${v.x},${v.y},${v.z}`)) return false;
                     if (!hasPasted && isVoxelLocked(v)) return false; // Không cắt khối ở layer bị khóa
                     return hasPasted ? !!v._pasted : true;
@@ -3488,11 +4081,16 @@ function setupSkyControls() {
                     i: v.i
                 }));
 
-                // Xóa các voxel vừa Cut khỏi mô hình
+                // Xóa các voxel vừa Cut khỏi mô hình (chỉ xóa trên Layer đang chọn)
                 if (hasPasted) {
-                    AppState.model.voxels = AppState.model.voxels.filter(v => !(v._pasted && selSet.has(`${v.x},${v.y},${v.z}`)));
+                    AppState.model.voxels = AppState.model.voxels.filter(v => {
+                        const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+                        return !(lid === AppState.activeLayerId && v._pasted && selSet.has(`${v.x},${v.y},${v.z}`));
+                    });
                 } else {
                     AppState.model.voxels = AppState.model.voxels.filter(v => {
+                        const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+                        if (lid !== AppState.activeLayerId) return true; // Giữ nguyên 100% voxel thuộc các Layer khác
                         const inSel = selSet.has(`${v.x},${v.y},${v.z}`);
                         if (inSel && isVoxelLocked(v)) return true;
                         return !inSel;
@@ -3669,26 +4267,44 @@ function setupSkyControls() {
         AppState.wallGridGroup.visible = (AppState.renderMode === 'preview') && AppState.showFloorGrid;
     }
 
-	function updateGridVisibilityByCamera() {
+	
+
+    function updateGridVisibilityByCamera() {
+        if (AppState.layerTransformMode) {
+            if (AppState.wallGridGroup) AppState.wallGridGroup.visible = false;
+            return;
+        }
         if (!AppState.showFloorGrid || !AppState.gridFaceMeshes || !AppState.model || !AppState.camera) return;
-        
-        const size = AppState.model.size;
-        const cx = size.x / 2; // Biên X: [-cx, +cx]
-        const cy = size.y / 2; // Biên Z: [-cy, +cy]
-        const cz = size.z / 2; // Cao độ tâm Y: [0, size.z]
 
-        const camPos = AppState.camera.position;
+        const curLayer = getActiveLayer();
+        ensureLayerProperties(curLayer);
+        const size = curLayer ? curLayer.size : AppState.model.size;
+        const cx = size.x / 2;
+        const cy = size.y / 2;
+        const cz = size.z / 2;
 
-        // Mặt sàn/trần: Nhấc nhẹ +0.005 khỏi đáy Y=0 để triệt tiêu hoàn toàn hiện tượng Z-fighting với groundPlane
-        const zPos = (camPos.y < cz) ? (size.z - 0.005) : 0.005;
+        const layerMat = getLayerWorldMatrix(curLayer);
+        if (AppState.wallGridGroup && curLayer) {
+            layerMat.decompose(
+                AppState.wallGridGroup.position,
+                AppState.wallGridGroup.quaternion,
+                AppState.wallGridGroup.scale
+            );
+        }
+
+        // Xác định 3 mặt Grid phía sau dựa trên vector hướng nhìn thực tế của Camera
+        const viewDir = new THREE.Vector3();
+        AppState.camera.getWorldDirection(viewDir);
+        const invRot = new THREE.Matrix4().extractRotation(layerMat).invert();
+        const localViewDir = viewDir.applyMatrix4(invRot).normalize();
+
+        const zPos = (localViewDir.y > 0) ? (size.z - 0.005) : 0.005;
         AppState.gridFaceMeshes.gridZ.position.set(0, zPos, 0);
 
-        // Vách tường trước/sau: Rộng sx, Cao sz -> Đặt tại mép biên trục Z (-cy hoặc +cy)
-        const yPos = (camPos.z < 0) ? (cy - 0.005) : (-cy + 0.005);
+        const yPos = (localViewDir.z >= 0) ? (cy - 0.005) : (-cy + 0.005);
         AppState.gridFaceMeshes.gridY.position.set(0, cz, yPos);
 
-        // Vách tường trái/phải: Sâu sy, Cao sz -> Đặt tại mép biên trục X (-cx hoặc +cx)
-        const xPos = (camPos.x < 0) ? (cx - 0.005) : (-cx + 0.005);
+        const xPos = (localViewDir.x >= 0) ? (cx - 0.005) : (-cx + 0.005);
         AppState.gridFaceMeshes.gridX.position.set(xPos, cz, 0);
     }
 
@@ -3699,27 +4315,37 @@ function setupSkyControls() {
         AppState.raycaster.setFromCamera(AppState.mouse, AppState.camera);
     }
 
-    function getGridPlaneIntersection(event) {
-        if (!AppState.model || !AppState.camera) return null;
+   function getGridPlaneIntersection(event) {
+        if (!AppState.model || !AppState.camera || AppState.layerTransformMode || AppState.renderMode !== 'preview' || !AppState.showFloorGrid) return null;
         updateRaycasterFromClientCoords(event.clientX, event.clientY);
 
-        const sx = AppState.model.size.x;
-        const sy = AppState.model.size.y;
-        const sz = AppState.model.size.z;
+        const curLayer = getActiveLayer();
+        ensureLayerProperties(curLayer);
+        const sx = curLayer.size.x;
+        const sy = curLayer.size.y;
+        const sz = curLayer.size.z;
         const cx = sx / 2;
         const cy = sy / 2;
-
-		const camPos = AppState.camera.position;
         const cz = sz / 2;
 
-        const targetY = (camPos.y < cz) ? sz : 0;
-        const normY = (camPos.y < cz) ? new THREE.Vector3(0, -1, 0) : new THREE.Vector3(0, 1, 0);
+        // Chuyển tia Ray và hướng nhìn Camera về không gian cục bộ của Layer đang chọn
+        const layerMat = getLayerWorldMatrix(curLayer);
+        const invMat = layerMat.clone().invert();
+        const localRay = AppState.raycaster.ray.clone().applyMatrix4(invMat);
 
-        const targetZ = (camPos.z < 0) ? cy : -cy;
-        const normZ = (camPos.z < 0) ? new THREE.Vector3(0, 0, -1) : new THREE.Vector3(0, 0, 1);
+        const viewDir = new THREE.Vector3();
+        AppState.camera.getWorldDirection(viewDir);
+        const invRot = new THREE.Matrix4().extractRotation(layerMat).invert();
+        const localViewDir = viewDir.applyMatrix4(invRot).normalize();
 
-        const targetX = (camPos.x < 0) ? cx : -cx;
-        const normX = (camPos.x < 0) ? new THREE.Vector3(-1, 0, 0) : new THREE.Vector3(1, 0, 0);
+        const targetY = (localViewDir.y > 0) ? sz : 0;
+        const normY = (localViewDir.y > 0) ? new THREE.Vector3(0, -1, 0) : new THREE.Vector3(0, 1, 0);
+
+        const targetZ = (localViewDir.z >= 0) ? cy : -cy;
+        const normZ = (localViewDir.z >= 0) ? new THREE.Vector3(0, 0, -1) : new THREE.Vector3(0, 0, 1);
+
+        const targetX = (localViewDir.x >= 0) ? cx : -cx;
+        const normX = (localViewDir.x >= 0) ? new THREE.Vector3(-1, 0, 0) : new THREE.Vector3(1, 0, 0);
 
         const planes = [
             { plane: new THREE.Plane().setFromNormalAndCoplanarPoint(normY, new THREE.Vector3(0, targetY, 0)), normal: normY, type: 'gridZ' },
@@ -3729,27 +4355,26 @@ function setupSkyControls() {
 
         let closestHit = null;
         let minDistance = Infinity;
-
-        const ray = AppState.raycaster.ray;
+        const eps = 0.05;
 
         for (const pObj of planes) {
             const hitPoint = new THREE.Vector3();
-            if (ray.intersectPlane(pObj.plane, hitPoint)) {
-                const dist = ray.origin.distanceTo(hitPoint);
+            if (localRay.intersectPlane(pObj.plane, hitPoint)) {
+                const dist = localRay.origin.distanceTo(hitPoint);
                 if (dist < minDistance) {
-                    let vx = Math.floor(hitPoint.x + cx);
-                    let vy = Math.floor(hitPoint.z + cy);
-                    let vz = Math.floor(hitPoint.y);
+                    const inX = (hitPoint.x >= -cx - eps && hitPoint.x <= cx + eps);
+                    const inZ = (hitPoint.z >= -cy - eps && hitPoint.z <= cy + eps);
+                    const inY = (hitPoint.y >= -eps && hitPoint.y <= sz + eps);
 
-                    if (pObj.type === 'gridZ') {
-                        vz = (targetY > 0) ? sz - 1 : 0;
-                    } else if (pObj.type === 'gridY') {
-                        vy = (targetZ > 0) ? sy - 1 : 0;
-                    } else if (pObj.type === 'gridX') {
-                        vx = (targetX > 0) ? sx - 1 : 0;
-                    }
+                    if (inX && inZ && inY) {
+                        let vx = Math.max(0, Math.min(sx - 1, Math.floor(hitPoint.x + cx)));
+                        let vy = Math.max(0, Math.min(sy - 1, Math.floor(hitPoint.z + cy)));
+                        let vz = Math.max(0, Math.min(sz - 1, Math.floor(hitPoint.y)));
 
-                    if (vx >= 0 && vx < sx && vy >= 0 && vy < sy && vz >= 0 && vz < sz) {
+                        if (pObj.type === 'gridZ') vz = (targetY > 0) ? sz - 1 : 0;
+                        else if (pObj.type === 'gridY') vy = (targetZ > 0) ? sy - 1 : 0;
+                        else if (pObj.type === 'gridX') vx = (targetX > 0) ? sx - 1 : 0;
+
                         minDistance = dist;
                         closestHit = {
                             voxelCoord: { x: vx, y: vy, z: vz },
@@ -3771,33 +4396,45 @@ function setupSkyControls() {
         const inputY = document.getElementById('input-size-y');
         const inputZ = document.getElementById('input-size-z');
 
-		const updateModelSizeFromInputs = () => {
+        const updateModelSizeFromInputs = () => {
             if (!AppState.model) return;
-            const sx = Math.max(1, Math.min(256, parseInt(inputX.value) || 40));
-            const sy = Math.max(1, Math.min(256, parseInt(inputY.value) || 40));
-            const sz = Math.max(1, Math.min(256, parseInt(inputZ.value) || 40));
+            const curLayer = getActiveLayer();
+            if (!curLayer) return;
+            ensureLayerProperties(curLayer);
 
-            if (sx === AppState.model.size.x && sy === AppState.model.size.y && sz === AppState.model.size.z) return;
+            const sx = Math.max(1, Math.min(512, parseInt(inputX.value) || 40));
+            const sy = Math.max(1, Math.min(512, parseInt(inputY.value) || 40));
+            const sz = Math.max(1, Math.min(512, parseInt(inputZ.value) || 40));
 
-            const snapshotBefore = captureStateSnapshot(); // Chụp snapshot trước khi resize
+            if (sx === curLayer.size.x && sy === curLayer.size.y && sz === curLayer.size.z) return;
+
+            const snapshotBefore = captureStateSnapshot();
 
             inputX.value = sx;
             inputY.value = sy;
             inputZ.value = sz;
 
+            curLayer.size = { x: sx, y: sy, z: sz };
             AppState.model.size = { x: sx, y: sy, z: sz };
-            AppState.model.voxels = AppState.model.voxels.filter(v => v.x < sx && v.y < sy && v.z < sz);
+
+            // Chỉ cắt giới hạn voxel thuộc Layer đang chỉnh Size, giữ nguyên 100% các Layer khác
+            const defaultLayerId = AppState.layers[0]?.id;
+            AppState.model.voxels = AppState.model.voxels.filter(v => {
+                const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+                if (lid !== curLayer.id) return true;
+                return (v.x < sx && v.y < sy && v.z < sz);
+            });
 
             AppState.usedIndices.clear();
             AppState.model.voxels.forEach(v => { if (v.i > 0) AppState.usedIndices.add(v.i); });
 
             clearSelection();
-            updateBoundingBoxFrame(AppState.model.size);
-            buildMagicaVoxelGrids(AppState.model.size);
+            syncActiveLayerWorkspaceUI();
             rebuildMesh();
+            renderLayerUI();
             buildPaletteUI();
-            recordUndoStep(snapshotBefore); // Lưu Undo cho bước chỉnh Size
-            showToast(`Resized workspace to ${sx}x${sy}x${sz}`, 'success');
+            recordUndoStep(snapshotBefore);
+            showToast(`Resized layer "${curLayer.name}" to ${sx}x${sy}x${sz}`, 'success');
         };
 
         [inputX, inputY, inputZ].forEach(inp => {
@@ -3816,14 +4453,26 @@ function setupSkyControls() {
         if (btnClear) {
             btnClear.onclick = () => {
                 if (!AppState.model || AppState.model.voxels.length === 0) return;
+                const curLayer = getActiveLayer();
+                if (curLayer && curLayer.locked) {
+                    showToast(`Layer "${curLayer.name}" is locked!`, "error");
+                    return;
+                }
                 const snap = captureStateSnapshot();
-                AppState.model.voxels = [];
+                const defaultLayerId = AppState.layers[0]?.id;
+                // Chỉ xóa voxel của Layer đang chọn
+                AppState.model.voxels = AppState.model.voxels.filter(v => {
+                    const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+                    return lid !== AppState.activeLayerId;
+                });
                 AppState.usedIndices.clear();
+                AppState.model.voxels.forEach(v => { if (v.i > 0) AppState.usedIndices.add(v.i); });
                 clearSelection();
-                recordUndoStep(snap); // Ghi nhận Undo chuẩn snapshot
+                recordUndoStep(snap);
                 rebuildMesh();
+                renderLayerUI();
                 buildPaletteUI();
-                showToast("Cleared all voxels", "success");
+                showToast(`Cleared voxels in "${curLayer.name}"`, "success");
             };
         }
 
@@ -3831,31 +4480,41 @@ function setupSkyControls() {
         if (btnFillFull) {
             btnFillFull.onclick = () => {
                 if (!AppState.model) return;
+                const curLayer = getActiveLayer();
+                if (curLayer && curLayer.locked) {
+                    showToast(`Layer "${curLayer.name}" is locked!`, "error");
+                    return;
+                }
+                ensureLayerProperties(curLayer);
                 const snap = captureStateSnapshot();
-                fillDefaultFullBox(AppState.model.size, AppState.selectedColorIndex);
+                fillDefaultFullBox(curLayer.size, AppState.selectedColorIndex);
                 clearSelection();
-                recordUndoStep(snap); // Ghi nhận Undo chuẩn snapshot
+                recordUndoStep(snap);
                 rebuildMesh();
+                renderLayerUI();
                 buildPaletteUI();
-                showToast(`Filled full box ${AppState.model.size.x}x${AppState.model.size.y}x${AppState.model.size.z}`, "success");
+                showToast(`Filled layer "${curLayer.name}" (${curLayer.size.x}x${curLayer.size.y}x${curLayer.size.z})`, "success");
             };
         }
     }
 
     function fillDefaultFullBox(size, colorIdx = 1) {
         if (!AppState.model) return;
-        AppState.model.voxels = [];
-        const sx = size.x;
-        const sy = size.y;
-        const sz = size.z;
+        const defaultLayerId = AppState.layers[0]?.id;
+        // Giữ nguyên các layer khác, chỉ lấp đầy layer hiện tại
+        AppState.model.voxels = AppState.model.voxels.filter(v => {
+            const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+            return lid !== AppState.activeLayerId;
+        });
+        const sx = size.x, sy = size.y, sz = size.z;
+		
         for (let x = 0; x < sx; x++) {
             for (let y = 0; y < sy; y++) {
                 for (let z = 0; z < sz; z++) {
-                    AppState.model.voxels.push({ x, y, z, i: colorIdx , l: AppState.activeLayerId});
+                    AppState.model.voxels.push({ x, y, z, i: colorIdx, l: AppState.activeLayerId });
                 }
             }
         }
-        AppState.usedIndices.clear();
         AppState.usedIndices.add(colorIdx);
     }
 
@@ -3920,12 +4579,21 @@ function setupSkyControls() {
         }
         if (!size) return;
 
-        // Trong Three.js: Chiều ngang là size.x, Chiều cao là size.z, Chiều sâu là size.y
+        const curLayer = getActiveLayer();
+        ensureLayerProperties(curLayer);
+
         const boxGeo = new THREE.BoxGeometry(size.x, size.z, size.y);
         const edges = new THREE.EdgesGeometry(boxGeo);
         AppState.boxFrameHelper = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x5a6878, linewidth: 1.5 }));
-        AppState.boxFrameHelper.position.set(0, size.z / 2, 0);
-        AppState.boxFrameHelper.visible = (AppState.renderMode === 'preview') && AppState.showBoxFrame;
+        const ox = curLayer ? (curLayer.offset.x || 0) : 0;
+        const oy = curLayer ? (curLayer.offset.y || 0) : 0;
+        const oz = curLayer ? (curLayer.offset.z || 0) : 0;
+        AppState.boxFrameHelper.position.set(ox, (size.z / 2) + oy, oz);
+        if (curLayer) {
+            AppState.boxFrameHelper.rotation.set(curLayer.rotation.x || 0, curLayer.rotation.y || 0, curLayer.rotation.z || 0);
+            AppState.boxFrameHelper.scale.set(curLayer.scale.x ?? 1, curLayer.scale.y ?? 1, curLayer.scale.z ?? 1);
+        }
+        AppState.boxFrameHelper.visible = (AppState.renderMode === 'preview') && AppState.showBoxFrame && !AppState.layerTransformMode;
         AppState.scene.add(AppState.boxFrameHelper);
 
         const badge = document.getElementById('model-dimension-badge');
@@ -4084,26 +4752,35 @@ function setupSkyControls() {
     }
 
     function setCameraMode(mode) {
+        const prevCamera = AppState.camera;
         AppState.cameraMode = mode;
         document.querySelectorAll('.cam-btn').forEach(b => {
             if (b.dataset.mode === mode) b.classList.add('active');
             else b.classList.remove('active');
         });
 
-        const curPos = AppState.camera.position.clone();
+        const curPos = prevCamera.position.clone();
         const curTarget = AppState.controls.target.clone();
-        const distance = curPos.distanceTo(curTarget);
+        const rawDist = curPos.distanceTo(curTarget);
+        const visualDist = (prevCamera === AppState.cameraOrtho)
+            ? ((AppState.orthoVisualDist || 120) / Math.max(0.05, AppState.cameraOrtho.zoom))
+            : rawDist;
+
+        const viewOffsetDir = curPos.clone().sub(curTarget);
+        if (viewOffsetDir.lengthSq() < 1e-4) viewOffsetDir.set(-1, 0.8, -1);
+        viewOffsetDir.normalize();
 
         const ISO_POLAR_ANGLE = Math.acos(1.0 / Math.sqrt(3.0));
+        const SAFE_ORTHO_DIST = 1000;
 
         if (mode === 'persp' || mode === 'free') {
             AppState.controls.minPolarAngle = 0;
-            AppState.controls.maxPolarAngle = Math.PI; // Mở khóa tự do
+            AppState.controls.maxPolarAngle = Math.PI;
 
             AppState.camera = AppState.cameraPersp;
             AppState.controls.object = AppState.camera;
             updateControlsConfiguration();
-            AppState.camera.position.copy(curPos);
+            AppState.camera.position.copy(curTarget).addScaledVector(viewOffsetDir, Math.max(10, visualDist));
             AppState.camera.lookAt(curTarget);
         } else if (mode === 'iso') {
             AppState.controls.minPolarAngle = ISO_POLAR_ANGLE;
@@ -4113,9 +4790,9 @@ function setupSkyControls() {
             AppState.controls.object = AppState.camera;
             updateControlsConfiguration();
 
-            const isoDist = Math.max(distance, 50);
-            const isoY = isoDist * Math.cos(ISO_POLAR_ANGLE);
-            const isoXZ = isoDist * Math.sin(ISO_POLAR_ANGLE);
+            const isoVisualDist = Math.max(visualDist, 50);
+            const isoY = SAFE_ORTHO_DIST * Math.cos(ISO_POLAR_ANGLE);
+            const isoXZ = SAFE_ORTHO_DIST * Math.sin(ISO_POLAR_ANGLE);
 
             const dx = curPos.x - curTarget.x;
             const dz = curPos.z - curTarget.z;
@@ -4131,24 +4808,24 @@ function setupSkyControls() {
             );
             AppState.camera.lookAt(curTarget);
             AppState.cameraOrtho.zoom = 1;
-            updateOrthoFrustum(isoDist);
+            updateOrthoFrustum(isoVisualDist);
         } else if (mode === 'ortho') {
             AppState.controls.minPolarAngle = 0;
-            AppState.controls.maxPolarAngle = Math.PI; // Mở khóa tự do
+            AppState.controls.maxPolarAngle = Math.PI;
 
             AppState.camera = AppState.cameraOrtho;
             AppState.controls.object = AppState.camera;
             updateControlsConfiguration();
-            AppState.camera.position.copy(curPos);
+            AppState.camera.position.copy(curTarget).addScaledVector(viewOffsetDir, SAFE_ORTHO_DIST);
             AppState.camera.lookAt(curTarget);
             AppState.cameraOrtho.zoom = 1;
-            updateOrthoFrustum(distance);
+            updateOrthoFrustum(Math.max(visualDist, 50));
         }
 
-		if (AppState.transformControls) {
-          AppState.transformControls.camera = AppState.camera;
-      }	
-		
+        if (AppState.transformControls) {
+            AppState.transformControls.camera = AppState.camera;
+        }
+
         AppState.controls.update();
         updateCameraForPasses();
         syncCameraState();
@@ -4156,12 +4833,29 @@ function setupSkyControls() {
     }
 
 	function updateOrthoFrustum(distance) {
+        if (distance !== undefined && distance < 750) {
+            AppState.orthoVisualDist = Math.max(20, distance);
+        }
+        const effectiveDist = AppState.orthoVisualDist || 120;
+
+        // Đảm bảo cameraOrtho luôn nằm cách xa target tối thiểu 1000 đơn vị để không bao giờ cắt góc model
+        if (AppState.cameraOrtho && AppState.controls) {
+            const target = AppState.controls.target;
+            const dir = AppState.cameraOrtho.position.clone().sub(target);
+            const curD = dir.length();
+            if (curD > 1e-3 && curD < 750) {
+                dir.normalize();
+                AppState.cameraOrtho.position.copy(target).addScaledVector(dir, 1000);
+                AppState.cameraOrtho.updateMatrixWorld();
+            }
+        }
+
         const isCustom = (AppState.renderMode === 'pathtrace') && !!AppState.isCustomResolution;
         const aspect = (isCustom && AppState.resolutionWidth && AppState.resolutionHeight)
             ? (AppState.resolutionWidth / AppState.resolutionHeight)
             : (window.innerWidth / window.innerHeight);
 
-        const frustumSize = Math.max(20, distance * 0.95);
+        const frustumSize = Math.max(20, effectiveDist * 0.95);
         AppState.cameraOrtho.left = -frustumSize * aspect / 2;
         AppState.cameraOrtho.right = frustumSize * aspect / 2;
         AppState.cameraOrtho.top = frustumSize / 2;
@@ -4252,19 +4946,26 @@ function setupSkyControls() {
         } else if (k === 'g' && AppState.action === 'paint') {
             setBrushShape('bucket');
         }
-        else if (k === 'w') {
-            if (AppState.action !== 'select') setMagicaAction('select');
-            if (typeof setSelectionMode === 'function') setSelectionMode('transform');
+		
+       else if (k === 'w') {
+            if (!AppState.layerTransformMode) {
+                if (AppState.action !== 'select') setMagicaAction('select');
+                if (typeof setSelectionMode === 'function') setSelectionMode('transform');
+            }
             AppState.gizmoMode = 'translate';
             document.querySelectorAll('.gizmo-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.gizmo === 'translate'));
             if (AppState.transformControls) AppState.transformControls.setMode('translate');
         } else if (k === 'e') {
-            if (AppState.action !== 'select') setMagicaAction('select');
-            if (typeof setSelectionMode === 'function') setSelectionMode('transform');
+            if (!AppState.layerTransformMode) {
+                if (AppState.action !== 'select') setMagicaAction('select');
+                if (typeof setSelectionMode === 'function') setSelectionMode('transform');
+            }
             AppState.gizmoMode = 'rotate';
             document.querySelectorAll('.gizmo-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.gizmo === 'rotate'));
             if (AppState.transformControls) AppState.transformControls.setMode('rotate');
+			
         } else if (k === 'r') {
+            if (AppState.layerTransformMode) return;
             if (AppState.action !== 'select') setMagicaAction('select');
             if (typeof setSelectionMode === 'function') setSelectionMode('transform');
             AppState.gizmoMode = 'scale';
@@ -4477,9 +5178,11 @@ function captureStateSnapshot() {
         usedIndices: Array.from(AppState.usedIndices || [1]),
 
         // Layer
+        // Layer (Bao gồm cả size và transform riêng của từng Layer)
         layers: JSON.parse(JSON.stringify(AppState.layers)),
         activeLayerId: AppState.activeLayerId,
         autoSelectLayer: AppState.autoSelectLayer,
+        layerTransformMode: AppState.layerTransformMode,
 
         // Ánh sáng (Sun, Sky, Fog)
         sun: {
@@ -4560,28 +5263,33 @@ function restoreStateFromSnapshot(snapshot) {
     if (!snapshot) return;
 
     // A. Khôi phục Layer
+    if (AppState.ghostBoxMesh) {
+        AppState.ghostBoxMesh.visible = false;
+    }
+
+    // A. Khôi phục Layer (kèm Size & Transform riêng của từng Layer)
     if (snapshot.layers) {
         AppState.layers = JSON.parse(JSON.stringify(snapshot.layers));
+        AppState.layers.forEach(l => ensureLayerProperties(l, snapshot.size));
         AppState.activeLayerId = snapshot.activeLayerId || AppState.layers[0]?.id;
         AppState.autoSelectLayer = !!snapshot.autoSelectLayer;
+        AppState.layerTransformMode = !!snapshot.layerTransformMode;
         const autoToggle = document.getElementById('layer-auto-select-toggle');
         if (autoToggle) autoToggle.checked = AppState.autoSelectLayer;
-        renderLayerUI();
-    }
-
-    // B. Khôi phục Kích thước khung Model
-    if (snapshot.size) {
+        const transToggle = document.getElementById('layer-transform-mode-toggle');
+        if (transToggle) transToggle.checked = AppState.layerTransformMode;
+    } else if (snapshot.size) {
         AppState.model.size = { ...snapshot.size };
-        safeSetVal('input-size-x', snapshot.size.x);
-        safeSetVal('input-size-y', snapshot.size.y);
-        safeSetVal('input-size-z', snapshot.size.z);
-        updateBoundingBoxFrame(snapshot.size);
-        buildMagicaVoxelGrids(snapshot.size);
+        if (AppState.layers[0]) AppState.layers[0].size = { ...snapshot.size };
     }
 
-    // C. Khôi phục Voxel & Vùng chọn
+    // B. Khôi phục Voxel & Vùng chọn trước khi renderLayerUI để đếm đúng số lượng Voxel mỗi Layer
     AppState.model.voxels = snapshot.voxels.map(v => ({ x: v.x, y: v.y, z: v.z, i: v.i, l: v.l, ...(v._pasted ? { _pasted: true } : {}) }));
     AppState.selectedVoxels = new Set(snapshot.selectedVoxels || []);
+
+    syncActiveLayerWorkspaceUI();
+    renderLayerUI();
+	
 
     // D. Khôi phục Vật liệu & Bảng màu
     if (snapshot.materialProps) {
@@ -4842,11 +5550,16 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         }
     }
 
-    function getVoxelMap() {
+    function getVoxelMap(targetLayerId = AppState.activeLayerId) {
         const map = new Map();
         if (!AppState.model || !AppState.model.voxels) return map;
+        const defaultLayerId = AppState.layers[0]?.id;
+        const targetId = Number(targetLayerId);
         for (const v of AppState.model.voxels) {
-            map.set(`${v.x},${v.y},${v.z}`, v);
+            const lid = Number((v.l !== undefined) ? v.l : defaultLayerId);
+            if (lid === targetId) {
+                map.set(`${v.x},${v.y},${v.z}`, v);
+            }
         }
         return map;
     }
@@ -4854,8 +5567,15 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 	function executeFaceErase(targetVoxel, normalVec) {
         if (!AppState.model || !targetVoxel || !normalVec) return false;
 
-        if (isVoxelLocked(targetVoxel)) {
-            showToast(`Layer "${getLayerOfVoxel(targetVoxel).name}" is locked!`, "error");
+        const defaultLayerId = AppState.layers[0]?.id;
+        const activeId = Number(AppState.activeLayerId);
+        const voxelLayerId = Number((targetVoxel.l !== undefined) ? targetVoxel.l : defaultLayerId);
+        // Chỉ cho phép xóa trên đúng Layer đang được chọn
+        if (voxelLayerId !== activeId) return false;
+
+        const activeLayer = getActiveLayer();
+        if (activeLayer && activeLayer.locked) {
+            showToast(`Layer "${activeLayer.name}" is locked!`, "error");
             return false;
         }
 
@@ -4865,7 +5585,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         // Gom tất cả tọa độ gốc và tọa độ đối xứng Mirror
         const targetKeysToDelete = new Set();
         for (const fv of faceVoxels) {
-            if (isVoxelLocked(fv)) continue;
             const symList = getSymmetryVoxelList(fv.x, fv.y, fv.z);
             for (const sc of symList) {
                 targetKeysToDelete.add(`${sc.x},${sc.y},${sc.z}`);
@@ -4875,11 +5594,15 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
         const beforeCount = AppState.model.voxels.length;
         AppState.model.voxels = AppState.model.voxels.filter(v => {
-            if (targetKeysToDelete.has(`${v.x},${v.y},${v.z}`) && !isVoxelLocked(v)) {
+            const lid = Number((v.l !== undefined) ? v.l : defaultLayerId);
+            if (lid !== activeId) return true; // Giữ nguyên 100% voxel thuộc các Layer khác
+            if (targetKeysToDelete.has(`${v.x},${v.y},${v.z}`)) {
                 return false;
             }
             return true;
         });
+		
+		
         const removedCount = beforeCount - AppState.model.voxels.length;
         if (removedCount === 0) return false;
 
@@ -4890,13 +5613,18 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
         strokeDidModify = true;
         rebuildMesh();
+        renderLayerUI();
         buildPaletteUI();
         showToast(`Face Erase: Removed ${removedCount} voxels!`, "success");
         return true;
     }
 
     function getCoplanarFaceVoxels(startVoxel, normalVec, matchColor = true) {
-        const vMap = getVoxelMap();
+        const targetLayerId = (AppState.action === 'erase')
+            ? AppState.activeLayerId
+            : ((startVoxel && startVoxel.l !== undefined) ? startVoxel.l : AppState.activeLayerId);
+        const vMap = getVoxelMap(targetLayerId);
+		
         const faceVoxels = [];
         const visited = new Set();
         const queue = [startVoxel];
@@ -4956,9 +5684,12 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             return false;
         }
 
-        const sx = AppState.model.size.x;
-        const sy = AppState.model.size.y;
-        const sz = AppState.model.size.z;
+
+
+        const activeSize = getActiveLayerSize();
+        const sx = activeSize.x;
+        const sy = activeSize.y;
+        const sz = activeSize.z;
         const vMap = getVoxelMap();
         const pType = gridHit.planeType;
         let modified = false;
@@ -4999,14 +5730,16 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             }
         }
 
-        if (modified) {
+       if (modified) {
             strokeDidModify = true;
-            AppState.usedIndices.add(AppState.selectedColorIndex);
+            AppState.usedIndices.clear();
+            AppState.model.voxels.forEach(v => { if (v.i > 0) AppState.usedIndices.add(v.i); });
             rebuildMesh();
+            renderLayerUI();
             buildPaletteUI();
-            showToast("Filled boundary plane (Face Mode)", "success");
+            return true;
         }
-        return modified;
+        return false;
     }
 
     function applyFaceExtrudeOffset(targetSteps) {
@@ -5019,9 +5752,13 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         }
 
         const { nx, ny, nz } = AppState.faceExtrudeVoxelDir;
-        const sx = AppState.model.size.x;
-        const sy = AppState.model.size.y;
-        const sz = AppState.model.size.z;
+        const activeSize = getActiveLayerSize();
+        const sx = activeSize.x;
+        const sy = activeSize.y;
+        const sz = activeSize.z;
+		
+		
+		
         const colorIdx = AppState.selectedColorIndex;
 
         // Khôi phục model về trạng thái snapshot ban đầu trước khi đùn
@@ -5073,9 +5810,13 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         if (targetColor === newColor) return;
 
         const snapshotBefore = captureStateSnapshot();
+        const defaultLayerId = AppState.layers[0]?.id;
+        const targetLayerId = (targetVoxel.l !== undefined) ? targetVoxel.l : AppState.activeLayerId;
 
         let count = 0;
         for (const v of AppState.model.voxels) {
+            const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+            if (lid !== targetLayerId) continue; // Chỉ đổ màu trong phạm vi Layer đang thao tác
             if (v.i === targetColor) {
                 if (isVoxelLocked(v)) continue; // Bỏ qua các khối nằm trong layer bị khóa
                 v.i = newColor;
@@ -5191,12 +5932,16 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             AppState.selectedVoxels.clear();
         }
 
+        const defaultLayerId = AppState.layers[0]?.id;
         for (const v of AppState.model.voxels) {
+            const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+            if (lid !== AppState.activeLayerId) continue;
             if (!isVoxelVisible(v)) continue;
             if (v.x >= minX && v.x <= maxX && v.y >= minY && v.y <= maxY && v.z >= minZ && v.z <= maxZ) {
                 AppState.selectedVoxels.add(`${v.x},${v.y},${v.z}`);
             }
         }
+		
 
         if (AppState.selectedVoxels.size > 0) {
             recalculateSelectionBoundsFromSet();
@@ -5251,7 +5996,13 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 }
             }
             if (modified) AppState.usedIndices.add(AppState.selectedColorIndex);
-        } else if (AppState.action === 'erase') {
+			
+       } else if (AppState.action === 'erase') {
+            const activeLayer = getActiveLayer();
+            if (activeLayer && activeLayer.locked) {
+                showToast(`Layer "${activeLayer.name}" is locked!`, "error");
+                return false;
+            }
             const delSet = new Set();
             for (let x = minX; x <= maxX; x++) {
                 for (let y = minY; y <= maxY; y++) {
@@ -5263,15 +6014,21 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     }
                 }
             }
+            const defaultLayerId = AppState.layers[0]?.id;
+            const activeId = Number(AppState.activeLayerId);
             AppState.model.voxels = AppState.model.voxels.filter(v => {
+                const lid = Number((v.l !== undefined) ? v.l : defaultLayerId);
+                // Bắt buộc chỉ xóa Voxel nằm trên Layer đang chọn hiện tại
+                if (lid !== activeId) return true;
                 if (delSet.has(`${v.x},${v.y},${v.z}`)) {
-                    if (isVoxelLocked(v)) return true; // Giữ lại khối nếu thuộc layer bị khóa
                     modified = true;
                     return false;
                 }
                 return true;
             });
         } else if (AppState.action === 'paint') {
+		
+		
             for (let x = minX; x <= maxX; x++) {
                 for (let y = minY; y <= maxY; y++) {
                     for (let z = minZ; z <= maxZ; z++) {
@@ -5289,11 +6046,12 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             if (modified) AppState.usedIndices.add(AppState.selectedColorIndex);
         }
 
-        if (modified) {
+       if (modified) {
             strokeDidModify = true;
             AppState.usedIndices.clear();
             AppState.model.voxels.forEach(v => { if (v.i > 0) AppState.usedIndices.add(v.i); });
             rebuildMesh();
+            renderLayerUI();
             buildPaletteUI();
             return true;
         }
@@ -5330,23 +6088,31 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         }
 
         // 2. Chiếu tia chuột vào mặt phẳng kéo (dragPlane) và kẹp (clamp) chính xác về biên [0, size - 1]
+        // 2. Chiếu tia chuột (đã chuyển về hệ tọa độ cục bộ của Layer) vào mặt phẳng kéo
+        // 2. Chiếu tia chuột (đã chuyển về hệ tọa độ cục bộ của Layer) vào mặt phẳng kéo
         updateRaycasterFromClientCoords(event.clientX, event.clientY);
 
-        const startWorld = new THREE.Vector3(
+        const curLayer = getActiveLayer();
+        ensureLayerProperties(curLayer);
+        const invMat = getLayerWorldMatrix(curLayer).clone().invert();
+        const localRay = AppState.raycaster.ray.clone().applyMatrix4(invMat);
+
+        const startLocal = new THREE.Vector3(
             boxDragStart.x - cx + 0.5,
             boxDragStart.z + 0.5,
             boxDragStart.y - cy + 0.5
         );
         const planeNormal = boxDragNormal ? boxDragNormal.clone() : new THREE.Vector3(0, 1, 0);
-        const dragPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(planeNormal, startWorld);
+        const dragPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(planeNormal, startLocal);
         const planeHit = new THREE.Vector3();
 
-        if (AppState.raycaster.ray.intersectPlane(dragPlane, planeHit)) {
+        if (localRay.intersectPlane(dragPlane, planeHit)) {
             const vx = Math.max(0, Math.min(sx - 1, Math.round(planeHit.x + cx - 0.5)));
             const vy = Math.max(0, Math.min(sy - 1, Math.round(planeHit.z + cy - 0.5)));
             const vz = Math.max(0, Math.min(sz - 1, Math.round(planeHit.y - 0.5)));
             return { x: vx, y: vy, z: vz };
         }
+		
 
         // 3. Fallback: Nếu không cắt mặt phẳng, giữ nguyên vị trí hợp lệ gần nhất
         return boxDragCurrent || boxDragStart;
@@ -5377,12 +6143,29 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         const cx = sx / 2;
         const cy = sy / 2;
 
-        AppState.ghostBoxMesh.scale.set(width, height, depth);
-        AppState.ghostBoxMesh.position.set(
+        const curLayer = getActiveLayer();
+        ensureLayerProperties(curLayer);
+        const layerMat = getLayerWorldMatrix(curLayer);
+
+        const localCenter = new THREE.Vector3(
             (minX + maxX) / 2 - cx + 0.5,
             (minZ + maxZ) / 2 + 0.5,
             (minY + maxY) / 2 - cy + 0.5
         );
+        localCenter.applyMatrix4(layerMat);
+
+        AppState.ghostBoxMesh.position.copy(localCenter);
+        AppState.ghostBoxMesh.rotation.set(
+            curLayer.rotation.x || 0,
+            curLayer.rotation.y || 0,
+            curLayer.rotation.z || 0
+        );
+        AppState.ghostBoxMesh.scale.set(
+            width * (curLayer.scale.x ?? 1),
+            height * (curLayer.scale.y ?? 1),
+            depth * (curLayer.scale.z ?? 1)
+        );
+		
 
         if (AppState.action === 'select') {
             AppState.ghostBoxMesh.material.color.setHex(0xf59e0b);
@@ -5436,6 +6219,21 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
     }
 
     // Các chế độ vẽ (Attach, Paint, Erase, Select...)
+    // Nếu đang ở chế độ Transform Layer Mode: Ưu tiên bắt trục Gizmo của Layer trước tiên
+    if (AppState.layerTransformMode) {
+        const hitAxis = checkGizmoHit(event.clientX, event.clientY);
+        if (hitAxis) {
+            AppState.transformControls.axis = hitAxis;
+            AppState.isTransformingGizmo = true;
+            if (AppState.controls) AppState.controls.enabled = false;
+        } else {
+            AppState.isTransformingGizmo = false;
+            if (AppState.controls) AppState.controls.enabled = true;
+        }
+        return;
+    }
+
+    // Các chế độ vẽ (Attach, Paint, Erase, Select...)
     if (AppState.action !== 'select' || AppState.selectionMode !== 'transform') {
         AppState.isTransformingGizmo = false;
         if (event.button === 0 && event.pointerType === 'mouse') {
@@ -5447,14 +6245,16 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 if (AppState.controls) AppState.controls.enabled = true;
             }
         } else if (event.pointerType !== 'mouse') {
-            // Trên Mobile / iPad: Luôn để OrbitControls nhận sự kiện ngón tay đầu tiên
-            // để khi có ngón thứ 2 chạm vào sẽ tự động kích hoạt xoay/zoom/pan ngay
             if (AppState.controls) AppState.controls.enabled = true;
         }
         return;
     }
 
     const hitAxis = checkGizmoHit(event.clientX, event.clientY);
+	
+	
+	
+	
     if (hitAxis) {
         AppState.transformControls.axis = hitAxis;
         AppState.isTransformingGizmo = true;
@@ -5537,6 +6337,59 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 		}
 
 		if (AppState.isSpaceDown) return;
+		
+		// 0. XỬ LÝ KHI ĐANG BẬT CHẾ ĐỘ TRANSFORM LAYER MODE (KHÔNG EDIT VOXEL, CHỈ CHỌN & TRANSFORM LAYER)
+        if (AppState.layerTransformMode) {
+            if (AppState.isTransformingGizmo) {
+                event.stopImmediatePropagation();
+                if (AppState.controls) AppState.controls.enabled = false;
+                return;
+            }
+            if (event.button === 0 || event.pointerType !== 'mouse') {
+                const ray = getRaycastIntersection(event);
+                if (ray && ray.voxel) {
+                    const hitLayer = getLayerOfVoxel(ray.voxel);
+                    if (hitLayer && hitLayer.visible) {
+                        if (hitLayer.locked) {
+                            showToast(`Layer "${hitLayer.name}" is locked!`, "error");
+                        } else if (AppState.activeLayerId !== hitLayer.id) {
+                            AppState.activeLayerId = hitLayer.id;
+                            syncActiveLayerWorkspaceUI();
+                            renderLayerUI();
+                            showToast(`Selected layer: "${hitLayer.name}"`, "success");
+                        }
+                    }
+                }
+            }
+            if (AppState.controls) AppState.controls.enabled = true;
+            return;
+        }
+
+        // TỰ ĐỘNG CHUYỂN LAYER KHI BẬT AUTO-SELECT LAYER (ÁP DỤNG CHO MỌI THAO TÁC EDIT: ATTACH, ERASE, PAINT, SELECT)
+        // TỰ ĐỘNG CHUYỂN LAYER KHI BẬT AUTO-SELECT LAYER (KHÔNG ÁP DỤNG CHO ERASE ĐỂ CHỈ XÓA TRÊN LAYER ĐANG CHỌN)
+        if ((event.button === 0 || event.pointerType !== 'mouse') && AppState.action !== 'erase') {
+            const preRay = getRaycastIntersection(event);
+            if (preRay && preRay.voxel) {
+                const hitLayer = getLayerOfVoxel(preRay.voxel);
+                if (hitLayer && hitLayer.id !== AppState.activeLayerId) {
+                    if (AppState.autoSelectLayer) {
+                        if (!hitLayer.locked && hitLayer.visible) {
+                            AppState.activeLayerId = hitLayer.id;
+                            syncActiveLayerWorkspaceUI();
+                            renderLayerUI();
+                            showToast(`Auto-selected layer: "${hitLayer.name}"`, "success");
+                        } else if (hitLayer.locked) {
+                            showToast(`Layer "${hitLayer.name}" is locked!`, "error");
+                            return;
+                        }
+                    } else {
+                        // Nếu tắt Auto-select mà click trúng khối của Layer khác, chặn sửa nhầm Layer khác
+                        showToast(`Voxel belongs to layer "${hitLayer.name}" (Enable Auto-select or switch layer)`, "error");
+                        return;
+                    }
+                }
+            }
+        }
 
         // 1. XỬ LÝ KHI Ở CHẾ ĐỘ TRANSFORM
 		// 1. XỬ LÝ KHI Ở CHẾ ĐỘ TRANSFORM
@@ -5613,6 +6466,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
             let hitInsideBounds = false;
             if (AppState.selectionBounds && !hitSelectedVoxel) {
+			
                 updateRaycasterFromClientCoords(event.clientX, event.clientY);
                 const cx = AppState.model.size.x / 2;
                 const cy = AppState.model.size.y / 2;
@@ -5712,20 +6566,35 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 const faceVoxels = getCoplanarFaceVoxels(ray.voxel, ray.normal, true);
                 AppState.faceBaseVoxels = faceVoxels.map(v => ({ x: v.x, y: v.y, z: v.z, i: v.i }));
 
-                const cx = AppState.model.size.x / 2;
-                const cy = AppState.model.size.y / 2;
+                const curLayer = getActiveLayer();
+                ensureLayerProperties(curLayer);
+                const layerMat = getLayerWorldMatrix(curLayer);
+
+                const cx = curLayer.size.x / 2;
+                const cy = curLayer.size.y / 2;
                 const originWorld = new THREE.Vector3(
                     ray.voxel.x - cx + 0.5,
                     ray.voxel.z + 0.5,
                     ray.voxel.y - cy + 0.5
-                );
+                ).applyMatrix4(layerMat);
+                if (AppState.renderMode === 'pathtrace' && AppState.ptGridOffset) {
+                    originWorld.sub(AppState.ptGridOffset);
+                }
                 AppState.faceExtrudeOrigin = originWorld.clone();
+				
+
+                const rotMat = new THREE.Matrix4().makeRotationFromEuler(
+                    new THREE.Euler(curLayer.rotation.x || 0, curLayer.rotation.y || 0, curLayer.rotation.z || 0, 'XYZ')
+                );
+                AppState.faceExtrudeNormal = ray.normal.clone().applyMatrix4(rotMat).normalize();
 
                 const camDir = new THREE.Vector3();
                 AppState.camera.getWorldDirection(camDir);
                 
                 let planeNorm = new THREE.Vector3().crossVectors(AppState.faceExtrudeNormal, camDir).normalize();
                 planeNorm.cross(AppState.faceExtrudeNormal).normalize();
+				
+				
                 if (planeNorm.lengthSq() < 0.05) {
                     planeNorm.set(0, 1, 0);
                     if (Math.abs(AppState.faceExtrudeNormal.y) > 0.8) planeNorm.set(0, 0, 1);
@@ -5754,10 +6623,16 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     pendingGridPlaneHit = gridHit;
                     return;
                 }
-            }
+            
         }
 
-		if (ray) {
+
+		// Nếu ở Face mode mà không trúng Voxel của Layer hiện tại thì kết thúc ngay
+            if (AppState.controls) AppState.controls.enabled = true;
+            return;
+        }
+
+		if (ray && ray.voxel) {
             if (event.pointerType === 'mouse') event.stopImmediatePropagation();
             if (AppState.controls) AppState.controls.enabled = false;
 
@@ -5782,7 +6657,8 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             return;
         }
 
-		const gridHit = getGridPlaneIntersection(event);
+        // Chỉ bắt mặt lưới trống (Grid) khi đang ở chế độ Attach (tránh Erase nhầm khi click vào Layer khác)
+		const gridHit = (AppState.action === 'attach') ? getGridPlaneIntersection(event) : null;
         if (gridHit && gridHit.isInsideBase) {
             if (event.pointerType === 'mouse') event.stopImmediatePropagation();
             if (AppState.controls) AppState.controls.enabled = false;
@@ -5800,6 +6676,8 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
         if (AppState.controls) AppState.controls.enabled = true;
     }
+	
+	
 	
 	
 	function executeFaceStep(startVoxel, norm, isShift = false) {
@@ -5886,12 +6764,20 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             }
         }
         // 3. ERASE FACE (Kèm Mirror X, Y, Z)
+		
+        // 3. ERASE FACE (Kèm Mirror X, Y, Z)
+		// 3. ERASE FACE (Kèm Mirror X, Y, Z)
         else if (AppState.action === 'erase') {
-            if (isVoxelLocked(startVoxel)) return false;
+            const activeLayer = getActiveLayer();
+            if (activeLayer && activeLayer.locked) return false;
+
+            const defaultLayerId = AppState.layers[0]?.id;
+            const activeId = Number(AppState.activeLayerId);
+            const startLid = Number((startVoxel.l !== undefined) ? startVoxel.l : defaultLayerId);
+            if (startLid !== activeId) return false;
 
             const delSet = new Set();
             for (const fv of faceVoxels) {
-                if (isVoxelLocked(fv)) continue;
                 const symList = getSymmetryVoxelList(fv.x, fv.y, fv.z);
                 for (const sc of symList) {
                     delSet.add(`${sc.x},${sc.y},${sc.z}`);
@@ -5900,8 +6786,13 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             if (delSet.size === 0) return false;
 
             const prevLen = AppState.model.voxels.length;
-            AppState.model.voxels = AppState.model.voxels.filter(v => !(delSet.has(`${v.x},${v.y},${v.z}`) && !isVoxelLocked(v)));
+            AppState.model.voxels = AppState.model.voxels.filter(v => {
+                const lid = Number((v.l !== undefined) ? v.l : defaultLayerId);
+                if (lid !== activeId) return true; // Giữ nguyên 100% voxel thuộc các Layer khác
+                return !delSet.has(`${v.x},${v.y},${v.z}`);
+            });
             modified = (AppState.model.voxels.length !== prevLen);
+			
 
             const vMap = getVoxelMap();
             const deeperKey = `${startVoxel.x - nx},${startVoxel.y - ny},${startVoxel.z - nz}`;
@@ -5911,6 +6802,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 AppState.lastFaceTargetVoxel = null;
             }
         }
+		
         // 4. PAINT FACE (Kèm Mirror X, Y, Z)
         else if (AppState.action === 'paint') {
             if (isVoxelLocked(startVoxel)) return false;
@@ -5970,12 +6862,15 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         }
 		
 		// Nếu ngón tay di chuyển lệch quá 8px (đang xoay hoặc pan camera) thì huỷ lệnh tạo mặt phẳng
-        if (pendingGridPlaneHit) {
+        // Trên màn hình cảm ứng: nếu ngón tay vuốt lệch quá 12px (đang xoay/pan camera) thì huỷ lệnh tạo mặt phẳng
+        if (pendingGridPlaneHit && event.pointerType !== 'mouse') {
             const distMoved = Math.hypot(event.clientX - pointerDownStartPos.x, event.clientY - pointerDownStartPos.y);
-            if (distMoved > 8) {
+            if (distMoved > 12) {
                 pendingGridPlaneHit = null;
             }
         }
+		
+		
 
         // Khi dùng 1 ngón tay vẽ trên màn hình cảm ứng: Tạm khóa OrbitControls để không bị giật camera
         if (event.pointerType !== 'mouse' && AppState.isInteracting) {
@@ -6038,24 +6933,10 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             }
             updateGhostBox(boxDragStart, currentVoxel);
         } else {
-            updateRaycasterFromClientCoords(event.clientX, event.clientY);
-
-            const sx = AppState.model.size.x;
-            const sy = AppState.model.size.y;
-            const sz = AppState.model.size.z;
-            const cx = sx / 2;
-            const cy = sy / 2;
-
-            const startWorld = new THREE.Vector3(boxDragStart.x - cx + 0.5, boxDragStart.z + 0.5, boxDragStart.y - cy + 0.5);
-            const planeNormal = (boxDragNormal) ? boxDragNormal.clone() : new THREE.Vector3(0, 1, 0);
-            const dragPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(planeNormal, startWorld);
-            const planeHit = new THREE.Vector3();
-
-            if (AppState.raycaster.ray.intersectPlane(dragPlane, planeHit)) {
-                const vx = Math.max(0, Math.min(sx - 1, Math.round(planeHit.x + cx - 0.5)));
-                const vy = Math.max(0, Math.min(sy - 1, Math.round(planeHit.z + cy - 0.5)));
-                const vz = Math.max(0, Math.min(sz - 1, Math.round(planeHit.y - 0.5)));
-                updateGhostBox(boxDragStart, { x: vx, y: vy, z: vz });
+            const targetVoxel = getBoxTargetVoxel(event);
+            if (targetVoxel) {
+                boxDragCurrent = targetVoxel;
+                updateGhostBox(boxDragStart, targetVoxel);
             }
         }
     }
@@ -6152,48 +7033,51 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
     }
 
 	function getRaycastIntersectionFromCoords(clientX, clientY) {
-      if (!AppState.voxelMesh || !AppState.camera || !AppState.model) return null;
+        if (!AppState.voxelMesh || !AppState.camera || !AppState.model) return null;
 
-      // Luôn cập nhật ma trận mới nhất tránh sai lệch toạ độ
-      AppState.camera.updateMatrixWorld();
-      AppState.scene.updateMatrixWorld();
+        AppState.camera.updateMatrixWorld();
+        AppState.scene.updateMatrixWorld();
 
-      updateRaycasterFromClientCoords(clientX, clientY);
+        updateRaycasterFromClientCoords(clientX, clientY);
 
-      const intersects = AppState.raycaster.intersectObject(AppState.voxelMesh, true);
-      if (intersects.length > 0) {
-          const intersect = intersects[0];
-          const mesh = intersect.object;
-          const matrix = new THREE.Matrix4();
-          mesh.getMatrixAt(intersect.instanceId, matrix);
-          const position = new THREE.Vector3().setFromMatrixPosition(matrix);
+        const intersects = AppState.raycaster.intersectObject(AppState.voxelMesh, true);
+        if (intersects.length > 0) {
+            // Nếu đang dùng Erase HOẶC tắt Auto-select layer HOẶC đang giữ chuột thao tác -> Chỉ nhận tương tác trên đúng Layer đang chọn
+            let intersect = intersects[0];
+            if ((AppState.action === 'erase' || !AppState.autoSelectLayer || AppState.isInteracting) && !AppState.layerTransformMode && AppState.action !== 'pick') {
+                const activeId = Number(AppState.activeLayerId);
+                const activeHit = intersects.find(hit => hit.object && hit.object.userData && Number(hit.object.userData.layerId) === activeId);
+                if (!activeHit) return null;
+                intersect = activeHit;
+            }
+			
 
-          const cx = AppState.model.size.x / 2;
-          const cy = AppState.model.size.y / 2;
+            const mesh = intersect.object;
+            const hitLayerId = mesh.userData.layerId || AppState.activeLayerId;
+            const voxelList = mesh.userData.voxelList;
+            const foundVoxel = (voxelList && voxelList[intersect.instanceId]) ? voxelList[intersect.instanceId] : null;
 
-          const clickedVx = Math.round(position.x + cx - 0.5);
-          const clickedVz = Math.round(position.y - 0.5); 
-          const clickedVy = Math.round(position.z + cy - 0.5); 
+            const matrix = new THREE.Matrix4();
+            mesh.getMatrixAt(intersect.instanceId, matrix);
+            matrix.premultiply(mesh.matrixWorld);
+            const position = new THREE.Vector3().setFromMatrixPosition(matrix);
 
-          let normal = intersect.face.normal.clone();
-          const normalMatrix = new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld);
-          normal.applyMatrix3(normalMatrix).normalize();
+            // Pháp tuyến mặt phẳng cục bộ của khối Voxel (-X, +X, -Y, +Y, -Z, +Z)
+            let normal = intersect.face.normal.clone();
+            const absX = Math.abs(normal.x);
+            const absY = Math.abs(normal.y);
+            const absZ = Math.abs(normal.z);
+            if (absX > absY && absX > absZ) normal.set(Math.sign(normal.x), 0, 0);
+            else if (absY > absX && absY > absZ) normal.set(0, Math.sign(normal.y), 0);
+            else normal.set(0, 0, Math.sign(normal.z));
 
-          const absX = Math.abs(normal.x);
-          const absY = Math.abs(normal.y);
-          const absZ = Math.abs(normal.z);
-          if (absX > absY && absX > absZ) { normal.set(Math.sign(normal.x), 0, 0); }
-          else if (absY > absX && absY > absZ) { normal.set(0, Math.sign(normal.y), 0); }
-          else { normal.set(0, 0, Math.sign(normal.z)); }
+            const colorIdx = mesh.userData.colorIndex || 1;
+            const voxel = foundVoxel || { x: 0, y: 0, z: 0, i: colorIdx, l: hitLayerId };
 
-          const colorIdx = mesh.userData.colorIndex || 1;
-          const foundVoxel = AppState.model.voxels.find(v => v.x === clickedVx && v.y === clickedVy && v.z === clickedVz);
-          const voxel = foundVoxel || { x: clickedVx, y: clickedVy, z: clickedVz, i: colorIdx };
-
-          return { voxel, normal, position, colorIndex: colorIdx };
-      }
-      return null;
-  }
+            return { voxel, normal, position, colorIndex: colorIdx, layerId: hitLayerId };
+        }
+        return null;
+    }
 
     function getRaycastIntersection(event) {
         if (!event) return null;
@@ -6770,61 +7654,102 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         }
 
         AppState.voxelMesh = new THREE.Group();
-		
-        const visibleVoxelMap = new Map();
-        for (const v of AppState.model.voxels) {
-            if (!isVoxelVisible(v)) continue;
-            visibleVoxelMap.set(`${v.x},${v.y},${v.z}`, v);
-        }
-        const voxelsByColor = {};
-        for (const v of visibleVoxelMap.values()) {
-            if (!voxelsByColor[v.i]) voxelsByColor[v.i] = [];
-            voxelsByColor[v.i].push(v);
-        }
-
         const geometry = new THREE.BoxGeometry(1.0, 1.0, 1.0);
-        const cx = AppState.model.size.x / 2;
-        const cy = AppState.model.size.y / 2;
+        const defaultLayerId = AppState.layers[0]?.id;
 
-        voxelGridUniforms.uModelCenter.value.set(cx, cy, AppState.model.size.z / 2);
-        // Cập nhật để không hiển thị grid khi đang bật P-Tracing
+        const curActiveLayer = getActiveLayer();
+        if (curActiveLayer) {
+            ensureLayerProperties(curActiveLayer);
+            voxelGridUniforms.uModelCenter.value.set(
+                curActiveLayer.size.x / 2,
+                curActiveLayer.size.y / 2,
+                curActiveLayer.size.z / 2
+            );
+        }
         voxelGridUniforms.uShowVoxelGrid.value = (AppState.showVoxelGrid && AppState.renderMode !== 'pathtrace') ? 1.0 : 0.0;
 
-        for (let i = 1; i <= 256; i++) {
-            const list = voxelsByColor[i];
-            if (!list || list.length === 0) continue;
+        // Vẽ từng Layer thành một Group độc lập để có thể overlap và Transform riêng biệt
+        for (const layer of AppState.layers) {
+            if (!layer.visible) continue;
+            ensureLayerProperties(layer);
 
-            // Ở Preview: Cloud vẫn hiển thị khối đặc và có đường viền lưới voxel
-		   const isCloud = (AppState.renderMode !== 'preview') && (AppState.materialProps[i].type === 'cloud');
-		   const material = new THREE.MeshPhysicalMaterial(createMaterialConfig(i));
-		   attachVoxelGridShader(material, isCloud);
+           const layerVoxelMap = new Map();
+            for (const v of AppState.model.voxels) {
+                if (v.l === undefined) v.l = defaultLayerId;
+                if (v.l === layer.id) {
+                    layerVoxelMap.set(`${v.x},${v.y},${v.z}`, v);
+                }
+            }
+			
+			
+            if (layerVoxelMap.size === 0) continue;
 
-		   const iMesh = new THREE.InstancedMesh(geometry, material, list.length);
-		   iMesh.userData.colorIndex = i;
+            const voxelsByColor = {};
+            for (const v of layerVoxelMap.values()) {
+                if (!voxelsByColor[v.i]) voxelsByColor[v.i] = [];
+                voxelsByColor[v.i].push(v);
+            }
 
-		   const isTransparentMat = (material.transparent || material.transmission > 0.05);
-			const isEmit = (AppState.materialProps[i].type === 'emit');
-		   // Trong Preview: Mọi khối đều đổ bóng 100% như MagicaVoxel
-		   iMesh.castShadow = (AppState.renderMode === 'preview') ? true : (AppState.sampleOptions.shadow && (!isTransparentMat || AppState.sampleOptions.trShadow) && !isEmit);
-		   iMesh.receiveShadow = true;
+            const layerGroup = new THREE.Group();
+            layerGroup.userData.layerId = layer.id;
+
+            const cx = layer.size.x / 2;
+            const cy = layer.size.y / 2;
+            const cz = layer.size.z / 2;
+
+            layerGroup.position.set(
+                layer.offset.x || 0,
+                cz + (layer.offset.y || 0),
+                layer.offset.z || 0
+            );
+            layerGroup.rotation.set(layer.rotation.x || 0, layer.rotation.y || 0, layer.rotation.z || 0);
+            layerGroup.scale.set(layer.scale.x ?? 1, layer.scale.y ?? 1, layer.scale.z ?? 1);
 
             const dummy = new THREE.Object3D();
-            for (let j = 0; j < list.length; j++) {
-                const v = list[j];
-                dummy.position.set(v.x - cx + 0.5, v.z + 0.5, v.y - cy + 0.5);
-                dummy.updateMatrix();
-                iMesh.setMatrixAt(j, dummy.matrix);
+            for (let i = 1; i <= 256; i++) {
+                const list = voxelsByColor[i];
+                if (!list || list.length === 0) continue;
+
+                const isCloud = (AppState.renderMode !== 'preview') && (AppState.materialProps[i].type === 'cloud');
+                const material = new THREE.MeshPhysicalMaterial(createMaterialConfig(i));
+                attachVoxelGridShader(material, isCloud);
+
+                const iMesh = new THREE.InstancedMesh(geometry, material, list.length);
+                iMesh.userData.colorIndex = i;
+                iMesh.userData.layerId = layer.id;
+                iMesh.userData.voxelList = list;
+
+                const isTransparentMat = (material.transparent || material.transmission > 0.05);
+                const isEmit = (AppState.materialProps[i].type === 'emit');
+                iMesh.castShadow = (AppState.renderMode === 'preview') ? true : (AppState.sampleOptions.shadow && (!isTransparentMat || AppState.sampleOptions.trShadow) && !isEmit);
+                iMesh.receiveShadow = true;
+
+                for (let j = 0; j < list.length; j++) {
+                    const v = list[j];
+                    dummy.position.set(v.x - cx + 0.5, v.z - cz + 0.5, v.y - cy + 0.5);
+                    dummy.updateMatrix();
+                    iMesh.setMatrixAt(j, dummy.matrix);
+                }
+               iMesh.instanceMatrix.needsUpdate = true;
+                iMesh.frustumCulled = false;
+                iMesh.computeBoundingBox();
+                iMesh.computeBoundingSphere();
+                layerGroup.add(iMesh);
             }
-            iMesh.instanceMatrix.needsUpdate = true;
-            iMesh.computeBoundingBox();
-            iMesh.computeBoundingSphere();
-            AppState.voxelMesh.add(iMesh);
+
+            AppState.voxelMesh.add(layerGroup);
+        }
+
+        if (AppState.renderMode === 'pathtrace' && AppState.ptGridOffset) {
+            AppState.voxelMesh.position.copy(AppState.ptGridOffset).negate();
         }
 
         AppState.scene.add(AppState.voxelMesh);
 
         updateSelectionBoxVisual();
+        updateLayerTransformGizmoAndBoxes();
         AppState.needsCubeMapUpdate = true;
+        AppState.needsVoxelTextureUpdate = true;
         if (AppState.isRendering) AppState.needsAccumulationReset = true;
     }
 
@@ -6868,13 +7793,24 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         AppState.usedIndices.clear();
 		
 		AppState.layers = [
-            { id: 1, name: 'Imported (.vox)', visible: true, locked: false }
+            {
+                id: 1,
+                name: 'Imported (.vox)',
+                visible: true,
+                locked: false,
+                size: { x: voxData.size.x, y: voxData.size.y, z: voxData.size.z },
+                offset: { x: 0, y: 0, z: 0 },
+                rotation: { x: 0, y: 0, z: 0 },
+                scale: { x: 1, y: 1, z: 1 }
+            }
         ];
         AppState.activeLayerId = 1;
+        AppState.layerTransformMode = false;
         renderLayerUI();
 		
 
 		voxData.voxels.forEach(v => {
+			  if (v.l === undefined) v.l = 1;
 			  if (v.i > 0) AppState.usedIndices.add(v.i);
 		  });
 
@@ -6979,20 +7915,57 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
     function applyLoadedSettings(settings) {
         if (!settings) return;
-		if (settings.layers) {
-			AppState.layers = JSON.parse(JSON.stringify(settings.layers));
-			AppState.activeLayerId = settings.activeLayerId || AppState.layers[0]?.id;
-			renderLayerUI();
-		}
-        // Khôi phục kích thước khung làm việc
-        if (settings.size && AppState.model) {
+        if (settings.layers && Array.isArray(settings.layers) && settings.layers.length > 0) {
+            AppState.layers = JSON.parse(JSON.stringify(settings.layers));
+            AppState.layers.forEach(l => ensureLayerProperties(l, settings.size));
+            AppState.activeLayerId = settings.activeLayerId || AppState.layers[0]?.id;
+            if (!AppState.layers.some(l => l.id === AppState.activeLayerId)) {
+                AppState.activeLayerId = AppState.layers[0].id;
+            }
+
+            // Khôi phục toàn bộ Voxel riêng biệt của từng Layer (nếu đã được lưu trong savedVoxels)
+            const restoredVoxels = [];
+            let hasSavedLayerVoxels = false;
+            for (const layer of AppState.layers) {
+                if (Array.isArray(layer.savedVoxels)) {
+                    hasSavedLayerVoxels = true;
+                    const arr = layer.savedVoxels;
+                    for (let k = 0; k < arr.length; k += 4) {
+                        restoredVoxels.push({
+                            x: arr[k],
+                            y: arr[k + 1],
+                            z: arr[k + 2],
+                            i: arr[k + 3],
+                            l: layer.id
+                        });
+                    }
+                }
+            }
+
+            if (hasSavedLayerVoxels && AppState.model) {
+                AppState.model.voxels = restoredVoxels;
+                AppState.usedIndices.clear();
+                for (const v of AppState.model.voxels) {
+                    if (v.i > 0) AppState.usedIndices.add(v.i);
+                }
+            } else if (AppState.model && AppState.model.voxels) {
+                const firstLayerId = AppState.layers[0].id;
+                for (const v of AppState.model.voxels) {
+                    if (v.l === undefined) v.l = firstLayerId;
+                }
+            }
+
+            syncActiveLayerWorkspaceUI();
+            renderLayerUI();
+        } else if (settings.size && AppState.model) {
             AppState.model.size = { ...settings.size };
-            safeSetVal('input-size-x', settings.size.x);
-            safeSetVal('input-size-y', settings.size.y);
-            safeSetVal('input-size-z', settings.size.z);
-            updateBoundingBoxFrame(settings.size);
-            buildMagicaVoxelGrids(settings.size);
+            if (AppState.layers[0]) {
+                AppState.layers[0].size = { ...settings.size };
+            }
+            syncActiveLayerWorkspaceUI();
         }
+		
+		
 
         // Khôi phục thuộc tính 256 vật liệu đã lưu
         if (settings.materialProps) {
@@ -7142,7 +8115,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         safeSetVal('render-height', AppState.resolutionHeight);
 
         if (AppState.bloomPass) AppState.bloomPass.strength = AppState.bloomStrength;
-        AppState.renderer.toneMappingExposure = AppState.exposure;
+        AppState.renderer.toneMappingExposure = (AppState.renderMode === 'preview') ? 1.0 : AppState.exposure;
         updateSunPosition();
         updateFilterUniforms();
     }
@@ -7265,6 +8238,31 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         });
     }
 
+	function syncPathTraceCameraOffset(enablePT) {
+        if (!AppState.cameraPersp || !AppState.cameraOrtho || !AppState.controls) return;
+        if (!AppState.ptAppliedCamOffset) AppState.ptAppliedCamOffset = new THREE.Vector3(0, 0, 0);
+
+        // Hoàn trả độ lệch cũ (nếu có) trước khi áp dụng trạng thái mới
+        if (AppState.ptAppliedCamOffset.lengthSq() > 0) {
+            AppState.cameraPersp.position.add(AppState.ptAppliedCamOffset);
+            AppState.cameraOrtho.position.add(AppState.ptAppliedCamOffset);
+            AppState.controls.target.add(AppState.ptAppliedCamOffset);
+            AppState.ptAppliedCamOffset.set(0, 0, 0);
+        }
+
+        if (enablePT && AppState.ptGridOffset) {
+            AppState.ptAppliedCamOffset.copy(AppState.ptGridOffset);
+            AppState.cameraPersp.position.sub(AppState.ptAppliedCamOffset);
+            AppState.cameraOrtho.position.sub(AppState.ptAppliedCamOffset);
+            AppState.controls.target.sub(AppState.ptAppliedCamOffset);
+        }
+
+        AppState.cameraPersp.updateMatrixWorld();
+        AppState.cameraOrtho.updateMatrixWorld();
+        AppState.controls.update();
+        syncCameraState();
+    }
+
 	function setRenderMode(mode) {
         AppState.renderMode = mode;
         AppState.isRendering = (mode === 'pathtrace');
@@ -7284,46 +8282,46 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
         const statusOverlay = document.getElementById('render-status-overlay');
         updateControlsConfiguration();
-		
-		// --- BẮT ĐẦU ĐOẠN MỚI CHÈN VÀO ---
-		if (mode === 'pathtrace') {
-			if (AppState.controls) AppState.controls.enableDamping = false;
-		} else {
-			if (AppState.controls) AppState.controls.enableDamping = true;
-		}
-		// --- KẾT THÚC ĐOẠN MỚI CHÈN VÀO ---
 
-		if (mode === 'preview') {
-            if (AppState.voxelMesh) AppState.voxelMesh.visible = true;
-			if (AppState.wallGridGroup) AppState.wallGridGroup.visible = AppState.showFloorGrid;
-			if (AppState.boxFrameHelper) AppState.boxFrameHelper.visible = AppState.showBoxFrame;
-			if (AppState.groundPlane) AppState.groundPlane.visible = AppState.showFloorPlane;
-			if (AppState.skyMesh) AppState.skyMesh.visible = false;
-			AppState.scene.fog = null;
+        if (mode === 'pathtrace') {
+            if (AppState.controls) AppState.controls.enableDamping = false;
+        } else {
+            if (AppState.controls) AppState.controls.enableDamping = true;
+        }
 
-            // Đặt lại nền và mặt sàn về xám đen chuẩn MagicaVoxel
+        if (mode === 'preview') {
+            syncPathTraceCameraOffset(false);
+            syncActiveLayerWorkspaceUI();
+            if (AppState.voxelMesh) {
+                AppState.voxelMesh.position.set(0, 0, 0);
+                AppState.voxelMesh.visible = true;
+            }
+            if (AppState.wallGridGroup) AppState.wallGridGroup.visible = AppState.showFloorGrid && !AppState.layerTransformMode;
+            if (AppState.boxFrameHelper) AppState.boxFrameHelper.visible = AppState.showBoxFrame && !AppState.layerTransformMode;
+            if (AppState.groundPlane) AppState.groundPlane.visible = AppState.showFloorPlane;
+            if (AppState.skyMesh) AppState.skyMesh.visible = false;
+            AppState.scene.fog = null;
+
             AppState.scene.background = new THREE.Color(0x282828);
             if (AppState.groundPlane && AppState.groundPlane.material) {
                 AppState.groundPlane.material.color.setHex(0x282828);
                 AppState.groundPlane.material.needsUpdate = true;
             }
 
-            // Kích hoạt ánh sáng Preview trung tính & bóng đổ
             updateSunPosition();
             updateSkyboxColors();
 
-			if (AppState.dirLight) {
-				AppState.dirLight.visible = true;
-				AppState.dirLight.castShadow = true;
-				AppState.dirLight.shadow.bias = -0.0005;
-				AppState.dirLight.shadow.mapSize.width = 2048;
-				AppState.dirLight.shadow.mapSize.height = 2048;
-			}
+            if (AppState.dirLight) {
+                AppState.dirLight.visible = true;
+                AppState.dirLight.castShadow = true;
+                AppState.dirLight.shadow.bias = -0.0005;
+                AppState.dirLight.shadow.mapSize.width = 2048;
+                AppState.dirLight.shadow.mapSize.height = 2048;
+            }
 
-			if (AppState.previewLightGroup) AppState.previewLightGroup.visible = false;
+            if (AppState.previewLightGroup) AppState.previewLightGroup.visible = false;
             if (AppState.dynamicEmitLightsGroup) AppState.dynamicEmitLightsGroup.visible = false;
 
-            // Xóa bỏ môi trường phản xạ và trả exposure về chuẩn 1.0 không bị lóa
             AppState.scene.environment = null;
             AppState.renderer.toneMappingExposure = 1.0;
 
@@ -7331,35 +8329,39 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             AppState.renderer.setRenderTarget(null);
             rebuildMesh();
             updateRenderViewportSize();
-        } 
-			
-			else if (mode === 'pathtrace') {
-				if (AppState.voxelMesh) AppState.voxelMesh.visible = true;
-				if (AppState.wallGridGroup) AppState.wallGridGroup.visible = false;
-				if (AppState.boxFrameHelper) AppState.boxFrameHelper.visible = false;
-				if (AppState.groundPlane) AppState.groundPlane.visible = AppState.showFloorPlane;
-				if (AppState.skyMesh) AppState.skyMesh.visible = AppState.sky.enabled;
-				
-				// 1. Cập nhật viewport và kích thước render chuẩn của màn hình trước
-				updateRenderViewportSize();
+        } else if (mode === 'pathtrace') {
+            if (AppState.voxelMesh) AppState.voxelMesh.visible = true;
+            if (AppState.wallGridGroup) AppState.wallGridGroup.visible = false;
+            if (AppState.boxFrameHelper) AppState.boxFrameHelper.visible = false;
+            if (AppState.layerBoxHelpersGroup) AppState.layerBoxHelpersGroup.visible = false;
+            if (AppState.worldTransformGridGroup) AppState.worldTransformGridGroup.visible = false;
+            if (AppState.groundPlane) AppState.groundPlane.visible = AppState.showFloorPlane;
+            if (AppState.skyMesh) AppState.skyMesh.visible = AppState.sky.enabled;
 
-				updateSkyboxColors();
-				updateFog();
-				updateSunPosition();
+            // 1. Tạo Texture 3D bám sát vừa khít các Voxel thực tế và đồng bộ Camera theo ptGridOffset
+            updateVoxel3DTexture();
+            updateDynamicEmitLights();
+            syncPathTraceCameraOffset(true);
+            if (AppState.voxelMesh && AppState.ptGridOffset) {
+                AppState.voxelMesh.position.copy(AppState.ptGridOffset).negate();
+            }
+            updateRenderViewportSize();
 
-				if (AppState.dirLight) AppState.dirLight.visible = true;
-				if (AppState.hemiLight) AppState.hemiLight.visible = true;
-				if (AppState.previewLightGroup) AppState.previewLightGroup.visible = false;
-				if (AppState.dynamicEmitLightsGroup) AppState.dynamicEmitLightsGroup.visible = true;
+            updateSkyboxColors();
+            updateFog();
+            updateSunPosition();
 
-				statusOverlay.classList.add('is-visible');
-				
-				updateDynamicEmitLights();
-				updateVoxel3DTexture();
-				AppState.accumulatedFrames = 0;
-				AppState.latestAccumTarget = null;
-				AppState.needsAccumulationReset = true;
-			}
+            if (AppState.dirLight) AppState.dirLight.visible = true;
+            if (AppState.hemiLight) AppState.hemiLight.visible = true;
+            if (AppState.previewLightGroup) AppState.previewLightGroup.visible = false;
+            if (AppState.dynamicEmitLightsGroup) AppState.dynamicEmitLightsGroup.visible = true;
+
+            statusOverlay.classList.add('is-visible');
+
+            AppState.accumulatedFrames = 0;
+            AppState.latestAccumTarget = null;
+            AppState.needsAccumulationReset = true;
+        }
     }
 
     function initDefaultProject() {
@@ -7375,10 +8377,11 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
         const sx = 40, sy = 40, sz = 40;
         const initialVoxels = [];
+		
         for (let x = 0; x < sx; x++) {
             for (let y = 0; y < sy; y++) {
                 for (let z = 0; z < sz; z++) {
-                    initialVoxels.push({ x, y, z, i: 1 });
+                    initialVoxels.push({ x, y, z, i: 1, l: 1 });
                 }
             }
         }
@@ -7621,78 +8624,185 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
     function updateVoxel3DTexture() {
         if (!AppState.model || !AppState.renderer) return;
-		
-        const sx = AppState.model.size.x;
-        const sy = AppState.model.size.y;
-        const sz = AppState.model.size.z;
+
+
+
+       // 1. Chuẩn bị ma trận World cho tất cả các Layer
+        
+
+        // 1. Chuẩn bị ma trận World cho tất cả các Layer
+        // Chỉ tạo Texture 3D khi đang ở chế độ P-Tracing để thao tác bên Preview luôn mượt tức thì
+        if (AppState.renderMode !== 'pathtrace') return;
+
+        // 1. Chuẩn bị ma trận World cho tất cả các Layer
+        const layerMatrices = new Map();
+        for (const layer of AppState.layers) {
+            ensureLayerProperties(layer);
+            layerMatrices.set(layer.id, getLayerWorldMatrix(layer));
+        }
+
+        // 2. Tìm Bounding Box sát nhất (Tight Bounds) của các hạt Voxel thực tế đang hiển thị
+        let wMinX = Infinity, wMaxX = -Infinity;
+        let wMinY = Infinity, wMaxY = -Infinity;
+        let wMinZ = Infinity, wMaxZ = -Infinity;
+
+        const tempPos = new THREE.Vector3();
+        for (const v of AppState.model.voxels) {
+            if (!isVoxelVisible(v)) continue;
+            const layer = getLayerOfVoxel(v);
+            const lMat = layerMatrices.get(layer.id);
+            const lcx = layer.size.x / 2, lcy = layer.size.y / 2;
+            tempPos.set(v.x - lcx + 0.5, v.z + 0.5, v.y - lcy + 0.5);
+            if (lMat) tempPos.applyMatrix4(lMat);
+
+            if (tempPos.x - 0.5 < wMinX) wMinX = tempPos.x - 0.5;
+            if (tempPos.x + 0.5 > wMaxX) wMaxX = tempPos.x + 0.5;
+            if (tempPos.y - 0.5 < wMinY) wMinY = tempPos.y - 0.5;
+            if (tempPos.y + 0.5 > wMaxY) wMaxY = tempPos.y + 0.5;
+            if (tempPos.z - 0.5 < wMinZ) wMinZ = tempPos.z - 0.5;
+            if (tempPos.z + 0.5 > wMaxZ) wMaxZ = tempPos.z + 0.5;
+        }
+
+        if (wMinX === Infinity) {
+            wMinX = -10; wMaxX = 10;
+            wMinY = 0;   wMaxY = 20;
+            wMinZ = -10; wMaxZ = 10;
+        }
+
+        // Tâm dịch chuyển của khối Voxel thực tế (giúp thu nhỏ tối đa Texture 3D và không bị giới hạn khi kéo xa gốc)
+        const offsetX = Math.round((wMinX + wMaxX) * 0.5);
+        const offsetY = Math.min(0, Math.floor(wMinY));
+        const offsetZ = Math.round((wMinZ + wMaxZ) * 0.5);
+
+        if (!AppState.ptGridOffset) AppState.ptGridOffset = new THREE.Vector3();
+        AppState.ptGridOffset.set(offsetX, offsetY, offsetZ);
+
+        // Kích thước Texture 3D vừa khít với các Voxel thực tế (không cộng phần rỗng của Layer)
+        const halfSpanX = Math.ceil(Math.max(wMaxX - offsetX, offsetX - wMinX)) + 1;
+        const halfSpanZ = Math.ceil(Math.max(wMaxZ - offsetZ, offsetZ - wMinZ)) + 1;
+        const spanY = Math.ceil(wMaxY - offsetY) + 1;
+
+        const sx = Math.min(512, Math.max(4, halfSpanX * 2));
+        const sy = Math.min(512, Math.max(4, halfSpanZ * 2));
+        const sz = Math.min(512, Math.max(4, spanY));
+        const cx = sx / 2, cy = sy / 2;
+
+
+        if (!AppState.ptGridSize) AppState.ptGridSize = new THREE.Vector3();
+        AppState.ptGridSize.set(sx, sy, sz);
+
         const size = sx * sy * sz * 4;
+		
+		
         const data = new Uint8Array(size);
 
-        let minVx = Infinity, maxVx = -Infinity;
+		let minVx = Infinity, maxVx = -Infinity;
         let minVy = Infinity, maxVy = -Infinity;
         let minVz = Infinity, maxVz = -Infinity;
 
+        // Lưu Bounding Box chặt (Tight AABB) cho từng Layer riêng biệt để bỏ qua khoảng trống giữa các Layer
+        const perLayerBounds = new Map();
+
         for (const v of AppState.model.voxels) {
-            if (v.x >= 0 && v.x < sx && v.y >= 0 && v.y < sy && v.z >= 0 && v.z < sz) {
-				if (!isVoxelVisible(v)) continue; // Không đưa vào texture 3D nếu layer bị ẩn
-				if (v.x < minVx) minVx = v.x;
-				if (v.x > maxVx) maxVx = v.x;
-				if (v.y < minVy) minVy = v.y;
-				if (v.y > maxVy) maxVy = v.y;
-				if (v.z < minVz) minVz = v.z;
-				if (v.z > maxVz) maxVz = v.z;
-				
-				
-                const idx = (v.x + v.y * sx + v.z * sx * sy) * 4;
+            if (!isVoxelVisible(v)) continue;
+            const layer = getLayerOfVoxel(v);
+            ensureLayerProperties(layer);
+            const lMat = layerMatrices.get(layer.id);
+
+            const lcx = layer.size.x / 2, lcy = layer.size.y / 2;
+            tempPos.set(v.x - lcx + 0.5, v.z + 0.5, v.y - lcy + 0.5);
+            if (lMat) tempPos.applyMatrix4(lMat);
+
+            const gx = Math.round(tempPos.x - offsetX + cx - 0.5);
+            const gz = Math.round(tempPos.y - offsetY - 0.5);
+            const gy = Math.round(tempPos.z - offsetZ + cy - 0.5);
+
+            if (gx >= 0 && gx < sx && gy >= 0 && gy < sy && gz >= 0 && gz < sz) {
+                if (gx < minVx) minVx = gx;
+                if (gx > maxVx) maxVx = gx;
+                if (gy < minVy) minVy = gy;
+                if (gy > maxVy) maxVy = gy;
+                if (gz < minVz) minVz = gz;
+                if (gz > maxVz) maxVz = gz;
+
+                let lb = perLayerBounds.get(layer.id);
+                if (!lb) {
+                    lb = { minVx: gx, maxVx: gx, minVy: gy, maxVy: gy, minVz: gz, maxVz: gz };
+                    perLayerBounds.set(layer.id, lb);
+                } else {
+                    if (gx < lb.minVx) lb.minVx = gx;
+                    if (gx > lb.maxVx) lb.maxVx = gx;
+                    if (gy < lb.minVy) lb.minVy = gy;
+                    if (gy > lb.maxVy) lb.maxVy = gy;
+                    if (gz < lb.minVz) lb.minVz = gz;
+                    if (gz > lb.maxVz) lb.maxVz = gz;
+                }
+
+                const idx = (gx + gy * sx + gz * sx * sy) * 4;
                 const p = AppState.materialProps[v.i];
                 if (p) {
-                    // Chuyển sang giá trị sRGB [0..255] chuẩn xác trước khi đưa vào Texture
                     const srgb = colorToSRGBUint8(p.color);
                     data[idx]     = srgb.r;
                     data[idx + 1] = srgb.g;
                     data[idx + 2] = srgb.b;
 
-                    // Phân loại vật liệu qua kênh Alpha cho Path Tracing Shader
-                    // Phân loại vật liệu qua kênh Alpha cho Path Tracing Shader
-					if (p.type === 'emit') {
-						const em = p.emission !== undefined ? p.emission : 0.0;
-						const fl = p.power !== undefined ? p.power : 1.0;
-						if (em <= 0.01) {
-							data[idx + 3] = 50;
-						} else if (p.lightSource) {
-							// Tag 225..255: Emit có tích chọn Light Source (Cửa sổ phát sáng -> Cho phép nắng & Godray xuyên qua)
-							const emitLevel = Math.min(30, Math.round((em / 100.0) * (15.0 + fl * 3.0)));
-							data[idx + 3] = 225 + emitLevel;
-						} else {
-							// Tag 195..220: Emit nội thất (Đèn bàn, đèn ngủ -> Phát sáng nhưng không cho nắng xuyên qua)
-							const emitLevel = Math.min(25, Math.round((em / 100.0) * (12.0 + fl * 2.5)));
-							data[idx + 3] = 195 + emitLevel;
-						}
-					}
-					
-					
-					else if (p.type === 'glass') {
-						// Tag 150: Glass
-						const trans = p.transparent !== undefined ? p.transparent : 0.95;
-						const transByte = Math.round(THREE.MathUtils.clamp(trans, 0.0, 1.0) * 45.0);
-						data[idx + 3] = 140 + transByte;
-					} else if (p.type === 'metal') {
-						// Tag 100..139: Lưu kèm độ nhám Roughness vào kênh Alpha để shader tán xạ nhám
-						const roughByte = Math.round(THREE.MathUtils.clamp(p.roughness ?? 0.1, 0.0, 1.0) * 39.0);
-						data[idx + 3] = 100 + roughByte;
-					} else if (p.type === 'cloud') {
-						// Tag 60..79: Lưu mật độ Density của Cloud
-						const densByte = Math.round(THREE.MathUtils.clamp((p.density ?? 50) / 100.0, 0.0, 1.0) * 19.0);
-						data[idx + 3] = 60 + densByte;
-					} else if (p.type === 'blend') {
-						// Tag 80..99: Lưu độ trong suốt Transparency của Blend
-						const trans = (p.transparent !== undefined) ? p.transparent : 0.0;
-						const transByte = Math.round(THREE.MathUtils.clamp(trans, 0.0, 1.0) * 19.0);
-						data[idx + 3] = 80 + transByte;
-					} else {
-						// Tag 50: Diffuse chuẩn
-						data[idx + 3] = 50;
-					}
+                    if (p.type === 'emit') {
+                        const em = p.emission !== undefined ? p.emission : 0.0;
+                        const fl = p.power !== undefined ? p.power : 1.0;
+                        if (em <= 0.01) {
+                            data[idx + 3] = 50;
+                        } else if (p.lightSource) {
+                            const emitLevel = Math.min(30, Math.round((em / 100.0) * (15.0 + fl * 3.0)));
+                            data[idx + 3] = 225 + emitLevel;
+                        } else {
+                            const emitLevel = Math.min(25, Math.round((em / 100.0) * (12.0 + fl * 2.5)));
+                            data[idx + 3] = 195 + emitLevel;
+                        }
+                    } else if (p.type === 'glass') {
+                        const trans = p.transparent !== undefined ? p.transparent : 0.95;
+                        const transByte = Math.round(THREE.MathUtils.clamp(trans, 0.0, 1.0) * 45.0);
+                        data[idx + 3] = 140 + transByte;
+                    } else if (p.type === 'metal') {
+                        const roughByte = Math.round(THREE.MathUtils.clamp(p.roughness ?? 0.1, 0.0, 1.0) * 39.0);
+                        data[idx + 3] = 100 + roughByte;
+                    } else if (p.type === 'cloud') {
+                        const densByte = Math.round(THREE.MathUtils.clamp((p.density ?? 50) / 100.0, 0.0, 1.0) * 19.0);
+                        data[idx + 3] = 60 + densByte;
+                    } else if (p.type === 'blend') {
+                        const trans = (p.transparent !== undefined) ? p.transparent : 0.0;
+                        const transByte = Math.round(THREE.MathUtils.clamp(trans, 0.0, 1.0) * 19.0);
+                        data[idx + 3] = 80 + transByte;
+                    } else {
+                        data[idx + 3] = 50;
+                    }
+                }
+            }
+        }
+
+        // Chỉ quét cột cửa sổ bên trong vùng chứa Voxel thực tế của từng Layer (bỏ qua toàn bộ khoảng trống giữa các Layer)
+        const scannedCols = new Uint8Array(sx * sy);
+        for (const lb of perLayerBounds.values()) {
+            for (let gy = lb.minVy; gy <= lb.maxVy; gy++) {
+                for (let gx = lb.minVx; gx <= lb.maxVx; gx++) {
+                    const colIdx = gx + gy * sx;
+                    if (scannedCols[colIdx]) continue;
+                    scannedCols[colIdx] = 1;
+
+                    let minZ = -1, maxZ = -1;
+                    for (let gz = lb.minVz; gz <= lb.maxVz; gz++) {
+                        if (data[(colIdx + gz * sx * sy) * 4 + 3] > 0) {
+                            if (minZ === -1) minZ = gz;
+                            maxZ = gz;
+                        }
+                    }
+                    if (minZ !== -1 && maxZ > minZ + 1) {
+                        for (let gz = minZ + 1; gz < maxZ; gz++) {
+                            const idx = (colIdx + gz * sx * sy) * 4;
+                            if (data[idx + 3] === 0) {
+                                data[idx] = 255;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -7705,19 +8815,72 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         voxel3DTexture.magFilter = THREE.NearestFilter;
         voxel3DTexture.unpackAlignment = 1;
         voxel3DTexture.needsUpdate = true;
-		if (pathTraceMaterial && pathTraceMaterial.uniforms) {
+
+        if (!AppState.layerBoxMin) {
+            AppState.layerBoxMin = Array.from({ length: 16 }, () => new THREE.Vector3());
+            AppState.layerBoxMax = Array.from({ length: 16 }, () => new THREE.Vector3());
+            AppState.godrayBoxMin = Array.from({ length: 16 }, () => new THREE.Vector3());
+            AppState.godrayBoxMax = Array.from({ length: 16 }, () => new THREE.Vector3());
+        }
+
+        const boundsArr = Array.from(perLayerBounds.values());
+        const numBoxes = Math.min(16, Math.max(1, boundsArr.length));
+        AppState.numLayerBoxes = numBoxes;
+
+        if (boundsArr.length > 0) {
+            for (let i = 0; i < numBoxes; i++) {
+                const b = boundsArr[i];
+                if (i === 15 && boundsArr.length > 16) {
+                    for (let k = 16; k < boundsArr.length; k++) {
+                        const extra = boundsArr[k];
+                        b.minVx = Math.min(b.minVx, extra.minVx);
+                        b.maxVx = Math.max(b.maxVx, extra.maxVx);
+                        b.minVy = Math.min(b.minVy, extra.minVy);
+                        b.maxVy = Math.max(b.maxVy, extra.maxVy);
+                        b.minVz = Math.min(b.minVz, extra.minVz);
+                        b.maxVz = Math.max(b.maxVz, extra.maxVz);
+                    }
+                }
+                const lMinX = b.minVx - cx, lMaxX = b.maxVx - cx + 1.0;
+                const lMinY = Math.max(0.0, b.minVz), lMaxY = b.maxVz + 1.0;
+                const lMinZ = b.minVy - cy, lMaxZ = b.maxVy - cy + 1.0;
+
+                AppState.layerBoxMin[i].set(lMinX, lMinY, lMinZ);
+                AppState.layerBoxMax[i].set(lMaxX, lMaxY, lMaxZ);
+
+                // Hộp giới hạn Godray riêng cho từng Layer (mở rộng nhẹ để tia nắng chiếu vát qua cửa sổ chạm sàn)
+                AppState.godrayBoxMin[i].set(Math.max(-cx, lMinX - 10.0), 0.0, Math.max(-cy, lMinZ - 10.0));
+                AppState.godrayBoxMax[i].set(Math.min(cx, lMaxX + 10.0), lMaxY, Math.min(cy, lMaxZ + 10.0));
+            }
+        } else {
+            AppState.layerBoxMin[0].set(-cx, 0, -cy);
+            AppState.layerBoxMax[0].set(cx, sz, cy);
+            AppState.godrayBoxMin[0].set(-cx, 0, -cy);
+            AppState.godrayBoxMax[0].set(cx, sz, cy);
+        }
+
+        if (pathTraceMaterial && pathTraceMaterial.uniforms) {
             if (pathTraceMaterial.uniforms.tVoxelGrid) {
                 pathTraceMaterial.uniforms.tVoxelGrid.value = voxel3DTexture;
             }
             if (pathTraceMaterial.uniforms.uGridSize) {
                 pathTraceMaterial.uniforms.uGridSize.value.set(sx, sy, sz);
             }
+            if (pathTraceMaterial.uniforms.uNumLayerBoxes) {
+                pathTraceMaterial.uniforms.uNumLayerBoxes.value = AppState.numLayerBoxes;
+                for (let i = 0; i < 16; i++) {
+                    pathTraceMaterial.uniforms.uLayerBoxMin.value[i].copy(AppState.layerBoxMin[i]);
+                    pathTraceMaterial.uniforms.uLayerBoxMax.value[i].copy(AppState.layerBoxMax[i]);
+                    pathTraceMaterial.uniforms.uGodrayBoxMin.value[i].copy(AppState.godrayBoxMin[i]);
+                    pathTraceMaterial.uniforms.uGodrayBoxMax.value[i].copy(AppState.godrayBoxMax[i]);
+                }
+            }
         }
-		
-		if (minVx !== Infinity) {
+
+        if (minVx !== Infinity) {
             const cx = sx * 0.5, cy = sy * 0.5;
             const minWx = minVx - cx, maxWx = maxVx - cx + 1.0;
-            const minWy = Math.max(0.0, minVz), maxWy = maxVz + 1.0;
+            const minWy = 0.0, maxWy = maxVz + 1.0;
             const minWz = minVy - cy, maxWz = maxVy - cy + 1.0;
             AppState.modelMin.set(minWx, minWy, minWz);
             AppState.modelMax.set(maxWx, maxWy, maxWz);
@@ -7731,21 +8894,30 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             AppState.modelCenter.set(0, sz * 0.5, 0);
             AppState.modelRadius = 20.0;
         }
-		
-		
     }
+
+      
 
     // Shader DDA Path Tracing lấy cảm hứng từ cấu trúc của erichlof/THREE.js-PathTracing-Renderer
 	function createPathTraceMaterial() {
         const MAX_LIGHTS = 16;
+		
         const uEmitMin = [];
         const uEmitMax = [];
         const uEmitCol = [];
         const uEmitPwr = new Float32Array(MAX_LIGHTS);
+        const uLayerBoxMin = [];
+        const uLayerBoxMax = [];
+        const uGodrayBoxMin = [];
+        const uGodrayBoxMax = [];
         for (let i = 0; i < MAX_LIGHTS; i++) {
             uEmitMin.push(new THREE.Vector3());
             uEmitMax.push(new THREE.Vector3());
             uEmitCol.push(new THREE.Vector3());
+            uLayerBoxMin.push(new THREE.Vector3(-20, 0, -20));
+            uLayerBoxMax.push(new THREE.Vector3(20, 40, 20));
+            uGodrayBoxMin.push(new THREE.Vector3(-20, 0, -20));
+            uGodrayBoxMax.push(new THREE.Vector3(20, 40, 20));
         }
 
         return new THREE.ShaderMaterial({
@@ -7754,6 +8926,13 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             depthWrite: false,
             uniforms: {
                 tVoxelGrid: { value: voxel3DTexture },
+                uNumLayerBoxes: { value: 1 },
+                uLayerBoxMin: { value: uLayerBoxMin },
+                uLayerBoxMax: { value: uLayerBoxMax },
+                uGodrayBoxMin: { value: uGodrayBoxMin },
+                uGodrayBoxMax: { value: uGodrayBoxMax },
+				
+				
                 uGridSize: { value: new THREE.Vector3(40, 40, 40) },
                 uProjInverse: { value: new THREE.Matrix4() },
                 uCamWorld: { value: new THREE.Matrix4() },
@@ -7885,6 +9064,14 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 				uniform float uEnableAA;
 				uniform float uEnableShadow;
 				
+				
+				#define MAX_LAYER_BOXES 16
+                uniform int uNumLayerBoxes;
+                uniform vec3 uLayerBoxMin[MAX_LAYER_BOXES];
+                uniform vec3 uLayerBoxMax[MAX_LAYER_BOXES];
+                uniform vec3 uGodrayBoxMin[MAX_LAYER_BOXES];
+                uniform vec3 uGodrayBoxMax[MAX_LAYER_BOXES];
+
 				uint pcg_hash(inout uint seed) {
 					uint state = seed * 747796405u + 2891336453u;
 					uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
@@ -7938,8 +9125,52 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     
                     return tFar > max(tNear, 0.0);
                 }
-				
-                // Trích xuất sắc độ bộ lọc màu từ Voxel (tách bớt nền trắng pastel để lọc màu rõ nét)
+
+                // Kiểm tra tia với danh sách Bounding Box chặt của từng Layer (bỏ qua hoàn toàn khoảng trống giữa các Layer)
+                bool intersectLayerBoxes(vec3 ro, vec3 rd, float maxDist, out float tNear, out float tFar, out vec3 normNear) {
+                    tNear = 1e9;
+                    tFar = -1e9;
+                    normNear = vec3(0.0, 1.0, 0.0);
+                    bool hitAny = false;
+                    for (int i = 0; i < MAX_LAYER_BOXES; i++) {
+                        if (i >= uNumLayerBoxes) break;
+                        float tn, tf;
+                        vec3 nn;
+                        if (intersectBoxExt(ro, rd, uLayerBoxMin[i], uLayerBoxMax[i], tn, tf, nn)) {
+                            if (tn < maxDist && tf > 0.0) {
+                                if (tn < tNear) {
+                                    tNear = tn;
+                                    normNear = nn;
+                                }
+                                if (tf > tFar) {
+                                    tFar = tf;
+                                }
+                                hitAny = true;
+                            }
+                        }
+                    }
+                    return hitAny;
+                }
+
+                bool intersectGodrayBoxes(vec3 ro, vec3 rd, float maxDist, out float tNear, out float tFar) {
+                    tNear = 1e9;
+                    tFar = -1e9;
+                    bool hitAny = false;
+                    for (int i = 0; i < MAX_LAYER_BOXES; i++) {
+                        if (i >= uNumLayerBoxes) break;
+                        float tn, tf;
+                        vec3 nn;
+                        if (intersectBoxExt(ro, rd, uGodrayBoxMin[i], uGodrayBoxMax[i], tn, tf, nn)) {
+                            if (tn < maxDist && tf > 0.0) {
+                                if (tn < tNear) tNear = tn;
+                                if (tf > tFar) tFar = tf;
+                                hitAny = true;
+                            }
+                        }
+                    }
+                    return hitAny;
+                }
+
                 vec3 extractFilterTint(vec3 srgbCol) {
                     vec3 lin = pow(srgbCol, vec3(2.2));
                     float maxC = max(lin.r, max(lin.g, max(lin.b, 0.001)));
@@ -7949,7 +9180,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     return clamp(mix(normLin, chroma, 0.65), vec3(0.08), vec3(1.0));
                 }
 
-                // Kết hợp 2 bộ lọc màu quang học khi tia sáng đi xuyên qua nhiều lớp kính/vật liệu khác màu
                 vec3 combineOpticalFilters(vec3 filterA, vec3 filterB) {
                     vec3 multFilter = sqrt(max(filterA * filterB, vec3(0.0001)));
                     vec3 blendFilter = 0.5 * (filterA + filterB);
@@ -7966,13 +9196,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     bool hasSurfaceTint = false;
                     vec3 lastLayerRgb = vec3(-1.0);
 
-                    vec3 boxMin = vec3(-uGridSize.x * 0.5, 0.0, -uGridSize.y * 0.5);
-                    vec3 boxMax = vec3(uGridSize.x * 0.5, uGridSize.z, uGridSize.y * 0.5);
-
-                    float tNear, tFar;
-                    vec3 boxNormNear;
-                    bool hitBox = intersectBoxExt(ro, rd, boxMin, boxMax, tNear, tFar, boxNormNear);
-
                     if (uShowFloorPlane > 0.5 && rd.y < -0.0001) {
                         float tFloor = -ro.y / rd.y;
                         if (tFloor > 0.001 && tFloor < maxDist) {
@@ -7980,9 +9203,13 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                         }
                     }
 
-                    if (!hitBox || tNear >= maxDist) return vec3(1.0);
+                    float tNear, tFar;
+                    vec3 boxNormNear;
+                    if (!intersectLayerBoxes(ro, rd, maxDist, tNear, tFar, boxNormNear)) return vec3(1.0);
 
+                    vec3 boxMin = vec3(-uGridSize.x * 0.5, 0.0, -uGridSize.y * 0.5);
                     float tBox = max(0.0, tNear);
+                    float tLimit = min(maxDist, tFar + 0.01);
                     float tStart = tBox;
                     vec3 pStart = ro + rd * (tBox + 0.0001);
                     vec3 localPos = vec3(pStart.x - boxMin.x, pStart.z - boxMin.z, pStart.y - boxMin.y);
@@ -7999,7 +9226,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
                     int maxShadowSteps = int(uGridSize.x + uGridSize.y + uGridSize.z);
                     for (int i = 0; i < 512; i++) {
-                        if (i >= maxShadowSteps || tStart >= maxDist) break;
+                        if (i >= maxShadowSteps || tStart >= tLimit) break;
 
                         vec3 uv3 = (vec3(mapPos) + 0.5) / uGridSize;
                         vec4 voxel = texture(tVoxelGrid, uv3);
@@ -8011,7 +9238,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
                             if (tag >= 60.0 && tag <= 79.0) {
                                 float minSide = min(min(sideDist.x, sideDist.y), sideDist.z);
-                                float dt = max(0.001, minSide - tStart);
+                                float dt = max(0.001, (tBox + minSide) - tStart);
                                 float density = clamp((tag - 60.0) / 19.0, 0.02, 1.0);
                                 float att = exp(-density * 0.45 * dt);
                                 transmittance *= att;
@@ -8054,7 +9281,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     hasSurfaceTint = true;
                                     lastLayerRgb = voxel.rgb;
                                 } else if (isNewColorLayer) {
-                                    // Khi tia sáng đi qua nhiều lớp kính khác màu: Cộng dồn bộ lọc màu quang học
                                     filterColor = combineOpticalFilters(filterColor, vividTint);
                                     lastLayerRgb = voxel.rgb;
                                 }
@@ -8091,11 +9317,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     }
                     return transmittance * filterColor;
                 }
-				
-				// Hàm kiểm tra tia nắng chuyên biệt cho Godray (Nhanh gấp 3 lần shadowTraversal)
-                // Hàm kiểm tra tia nắng xuyên cửa sổ / khe hở chuẩn Unity (Window Light Shafts)
-                // Hàm kiểm tra tia nắng xuyên cửa sổ siêu nhẹ (Chỉ 1 lần đọc Texture/bước, tối đa 28 bước)
-                // Biến lưu màu vật liệu mà tia Godray đi xuyên qua tại mỗi bước lấy mẫu
+
                 vec3 gGodrayColor = vec3(1.0);
                 float gGodrayTinted = 0.0;
 
@@ -8107,13 +9329,13 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
                     if (uShowFloorPlane > 0.5 && rd.y < -0.0001 && (-ro.y / rd.y) > 0.001) return 0.0;
 
-                    vec3 boxMin = vec3(-uGridSize.x * 0.5, 0.0, -uGridSize.y * 0.5);
-                    vec3 boxMax = vec3(uGridSize.x * 0.5, uGridSize.z, uGridSize.y * 0.5);
                     float tNear, tFar;
                     vec3 normNear;
-                    if (!intersectBoxExt(ro, rd, boxMin, boxMax, tNear, tFar, normNear)) return 0.0;
+                    if (!intersectLayerBoxes(ro, rd, 1000.0, tNear, tFar, normNear)) return 0.0;
 
+                    vec3 boxMin = vec3(-uGridSize.x * 0.5, 0.0, -uGridSize.y * 0.5);
                     float tBox = max(0.0, tNear);
+                    float tLimit = tFar + 0.01;
                     float tCurrent = tBox;
                     vec3 pStart = ro + rd * (tBox + 0.001);
                     vec3 localPos = vec3(pStart.x - boxMin.x, pStart.z - boxMin.z, pStart.y - boxMin.y);
@@ -8128,12 +9350,11 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
                     float trans = 1.0;
                     bool passedWindow = false;
-                    int maxZ = int(uGridSize.z) - 1;
-                    int topWallZ = clamp(int(uModelMax.y) - 1, 0, maxZ);
+                    bool inWindowAperture = false;
 
                     int maxSteps = int(uGridSize.x + uGridSize.y + uGridSize.z);
                     for (int i = 0; i < 384; i++) {
-                        if (i >= maxSteps) break;
+                        if (i >= maxSteps || tCurrent > tLimit) break;
 
                         vec4 vox = texture(tVoxelGrid, (vec3(mapPos) + 0.5) / uGridSize);
                         float aVal = vox.a;
@@ -8144,7 +9365,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                             bool isNewColorLayer = (distance(vox.rgb, lastLayerRgb) > 0.03);
 
                             if (tag >= 225.0) {
-                                // 1. Emit có bật Light Source
                                 if (gGodrayTinted < 0.5) {
                                     gGodrayColor = matTint;
                                     gGodrayTinted = 1.0;
@@ -8158,7 +9378,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     distToWindow = tCurrent;
                                 }
                             } else if (tag >= 140.0 && tag <= 189.0) {
-                                // 2. Cửa kính (Glass)
                                 float transparency = clamp((tag - 140.0) / 45.0, 0.0, 1.0);
                                 if (transparency <= 0.005) return 0.0;
 
@@ -8168,7 +9387,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     gGodrayTinted = 1.0;
                                     lastLayerRgb = vox.rgb;
                                 } else if (isNewColorLayer) {
-                                    // Kết hợp bộ lọc màu khi tia Godray xuyên qua lớp kính khác màu tiếp theo
                                     gGodrayColor = combineOpticalFilters(gGodrayColor, matTint);
                                     lastLayerRgb = vox.rgb;
                                 }
@@ -8177,7 +9395,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     distToWindow = tCurrent;
                                 }
                             } else if (tag >= 80.0 && tag <= 99.0) {
-                                // 3. Blend
                                 float transparency = clamp((tag - 80.0) / 19.0, 0.0, 1.0);
                                 if (transparency <= 0.005) return 0.0;
 
@@ -8195,7 +9412,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     distToWindow = tCurrent;
                                 }
                             } else if (tag >= 60.0 && tag <= 79.0) {
-                                // 4. Cloud
                                 trans *= 0.88;
                                 if (gGodrayTinted < 0.5) {
                                     gGodrayColor = matTint;
@@ -8213,11 +9429,12 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                 return 0.0;
                             }
                             if (trans < 0.05) return 0.0;
-                        } else if (!passedWindow && mapPos.z < topWallZ - 1) {
-                            float aTop = texture(tVoxelGrid, (vec3(float(mapPos.x), float(mapPos.y), float(topWallZ)) + 0.5) / uGridSize).a;
-                            if (aTop > 0.01) {
-                                passedWindow = true;
+                        } else if (!passedWindow) {
+                            if (vox.r > 0.5) {
+                                inWindowAperture = true;
                                 distToWindow = tCurrent;
+                            } else if (inWindowAperture) {
+                                passedWindow = true;
                             }
                         }
 
@@ -8231,37 +9448,29 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                             mapPos.z < 0 || mapPos.z >= int(uGridSize.z)) break;
                     }
 
+                    if (inWindowAperture) passedWindow = true;
                     return passedWindow ? trans : 0.0;
                 }
-				
-				
 
 			    bool voxelTraversal(vec3 ro, vec3 rd, out vec3 hitNormal, out vec4 hitColor, out vec3 hitPos, out bool isVolume, inout uint seed) {
                     isVolume = false;
-                    vec3 boxMin = vec3(-uGridSize.x * 0.5, 0.0, -uGridSize.y * 0.5);
-                    vec3 boxMax = vec3(uGridSize.x * 0.5, uGridSize.z, uGridSize.y * 0.5);
 
                     float tNear, tFar;
                     vec3 boxNormNear;
-                    bool hitBox = intersectBoxExt(ro, rd, boxMin, boxMax, tNear, tFar, boxNormNear);
+                    bool hitBox = intersectLayerBoxes(ro, rd, 10000.0, tNear, tFar, boxNormNear);
 
-                    // XỬ LÝ MẶT SÀN:
                     bool canHitFloor = false;
                     float tFloor = -1.0;
                     if (uShowFloorPlane > 0.5 && rd.y < -0.0001) {
                         bool isOrtho = (uProjInverse[3][3] > 0.5);
-                        // Ở Ortho: tia hướng xuống luôn cắt sàn y=0 mà không bị lỗi clipping plane
-                        // Ở Persp/Free: camera ở trên mặt đất thì cắt sàn
                         if (isOrtho || ro.y > 0.001) {
                             tFloor = -ro.y / rd.y;
                             canHitFloor = true;
                         }
                     }
 
-                    // Nếu tia hướng xuống cắt sàn trước khi chạm hộp voxel:
-                   if (canHitFloor && (!hitBox || tFloor < tNear)) {
+                    if (canHitFloor && (!hitBox || tFloor < tNear)) {
                         hitNormal = vec3(0.0, 1.0, 0.0);
-                        // Khi Sky tắt: Mặt sàn tối màu (#18181a) để kim loại phản chiếu màu đen huyền bí
                         vec3 floorBaseCol = (uSkyEnabled > 0.5) ? uSkyGround : vec3(0.08, 0.08, 0.09);
                         hitColor = vec4(floorBaseCol, 0.04);
                         hitPos = ro + rd * tFloor;
@@ -8269,7 +9478,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                         return true;
                     }
 
-                    // Nếu tia hoàn toàn không chạm hộp voxel:
                     if (!hitBox) {
                         if (canHitFloor) {
                             hitNormal = vec3(0.0, 1.0, 0.0);
@@ -8281,7 +9489,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                         return false;
                     }
 
+                    vec3 boxMin = vec3(-uGridSize.x * 0.5, 0.0, -uGridSize.y * 0.5);
                     float tBox = max(0.0, tNear);
+                    float tLimit = tFar + 0.01;
                     float tStart = tBox;
                     vec3 pStart = ro + rd * (tBox + 0.0001);
                     vec3 localPos = vec3(pStart.x - boxMin.x, pStart.z - boxMin.z, pStart.y - boxMin.y);
@@ -8302,7 +9512,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
 					int maxSteps = int(uGridSize.x + uGridSize.y + uGridSize.z);
 					for (int i = 0; i < 768; i++) {
-						if (i >= maxSteps) break;
+						if (i >= maxSteps || tStart > tLimit) break;
 
 						float minSide = min(min(sideDist.x, sideDist.y), sideDist.z);
 						float tNext = tBox + minSide;
@@ -8355,7 +9565,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                         }
                     }
 
-                    // Xuyên qua hết hộp voxel mà không trúng gì, nếu tia nhìn xuống sàn thì chạm sàn:
                     if (canHitFloor) {
                         hitNormal = vec3(0.0, 1.0, 0.0);
                         hitColor = vec4(uSkyGround, 0.04);
@@ -8932,14 +10141,16 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     // --- UNITY-STYLE WINDOW GODRAY (CHUẨN XÁC CHO CỬA SỔ TRỐNG, GLASS & EMIT LIGHT SOURCE) ---
                     // TÍNH VOLUMETRIC GODRAY (ĐỔI MÀU THEO EMIT / GLASS / BLEND KHI XUYÊN QUA)
                     if (uSunGodray > 0.5 && uSunInt > 0.01 && uGodrayDensity > 0.001) {
+					
                         float tGrNear, tGrFar;
-                        vec3 grNorm;
-                        if (intersectBoxExt(primaryRo, primaryRd, uModelMin, uModelMax, tGrNear, tGrFar, grNorm)) {
+                        float grMaxDist = (primaryHitDist > 0.0) ? primaryHitDist : 10000.0;
+                        if (intersectGodrayBoxes(primaryRo, primaryRd, grMaxDist, tGrNear, tGrFar)) {
                             float tStart = max(0.0, tGrNear);
                             float tEnd = (primaryHitDist > 0.0) ? min(tGrFar, primaryHitDist) : tGrFar;
 
                             if (tEnd > tStart) {
-                                const int MARCH_STEPS = 20;
+                                const int MARCH_STEPS = 14;
+								
                                 float stepSize = (tEnd - tStart) / float(MARCH_STEPS);
                                 vec3 sunDir = normalize(uSunDir);
 
@@ -9170,11 +10381,18 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         const width = AppState.resolutionWidth;
         const height = AppState.resolutionHeight;
 
+		////////////////////////////////////
         if (AppState.needsAccumulationReset) {
             initPingPongTargets(width, height);
-            // Luôn đồng bộ lại toàn bộ danh sách đèn Emit và Texture vật liệu mỗi khi reset render
-            updateDynamicEmitLights();
-            updateVoxel3DTexture();
+            if (!voxel3DTexture || AppState.needsVoxelTextureUpdate) {
+                updateVoxel3DTexture();
+                updateDynamicEmitLights();
+                syncPathTraceCameraOffset(true);
+                if (AppState.voxelMesh && AppState.ptGridOffset) {
+                    AppState.voxelMesh.position.copy(AppState.ptGridOffset).negate();
+                }
+                AppState.needsVoxelTextureUpdate = false;
+            }
             AppState.accumulatedFrames = 0;
             AppState.latestAccumTarget = null;
             AppState.needsAccumulationReset = false;
@@ -9229,7 +10447,15 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             pathTraceMaterial.uniforms.tVoxelGrid.value = voxel3DTexture;
             pathTraceMaterial.uniforms.uFrameSeed.value = Math.random();
             pathTraceMaterial.uniforms.uResolution.value.set(width, height);
-            pathTraceMaterial.uniforms.uGridSize.value.set(AppState.model.size.x, AppState.model.size.y, AppState.model.size.z);
+            if (AppState.ptGridSize) {
+                pathTraceMaterial.uniforms.uGridSize.value.copy(AppState.ptGridSize);
+            } else {
+                pathTraceMaterial.uniforms.uGridSize.value.set(AppState.model.size.x, AppState.model.size.y, AppState.model.size.z);
+            }
+			
+			
+			
+			
 			pathTraceMaterial.uniforms.uShowFloorPlane.value = AppState.showFloorPlane ? 1.0 : 0.0; // <-- THÊM DÒNG NÀY
 			pathTraceMaterial.uniforms.uEnableShadow.value = AppState.sampleOptions.shadow ? 1.0 : 0.0;
 			pathTraceMaterial.uniforms.uEnableAA.value = AppState.sampleOptions.aa ? 1.0 : 0.0;
@@ -9600,6 +10826,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
     function generateVoxBinaryBuffer() {
         if (!AppState.model || !AppState.model.voxels) return null;
 
+        // Đóng gói toàn bộ Voxel theo từng Layer vào AppState.layers trước khi tạo buffer .vox
+        packMultiLayerVoxelsForSave();
+
         const matlChunks = [];
         const encodeDict = (dict) => {
             let bytes = [];
@@ -9633,14 +10862,12 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             }
 
             const dictBytes = encodeDict(dict);
-            // SỬA: Ghi matId chuẩn 1-based (1..256) để MagicaVoxel nhận diện chính xác
             matlChunks.push({ id: i, dictBytes });
         }
 
         let matlTotalSize = 0;
         for (const mc of matlChunks) matlTotalSize += 16 + mc.dictBytes.length;
 
-        // Lọc danh sách voxel hợp lệ để file không bị lỗi
         const validVoxels = AppState.model.voxels.filter(v => v.i > 0 && v.x >= 0 && v.y >= 0 && v.z >= 0);
 
         const matPropsExport = {};
@@ -9664,25 +10891,43 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             };
         }
 
+        // Bù lại độ lệch Camera nếu người dùng bấm Download/Save khi đang ở trong chế độ P-Tracing
+        const camOffset = AppState.ptAppliedCamOffset || { x: 0, y: 0, z: 0 };
+        const activeLayer = getActiveLayer();
+        const savedModelSize = (activeLayer && activeLayer.size) ? { ...activeLayer.size } : { ...AppState.model.size };
+
         const customSettings = {
+            layers: JSON.parse(JSON.stringify(AppState.layers)),
+            activeLayerId: AppState.activeLayerId,
+            autoSelectLayer: AppState.autoSelectLayer,
+            layerTransformMode: AppState.layerTransformMode,
+            size: savedModelSize,
             renderMode: AppState.renderMode,
             cameraMode: AppState.cameraMode,
-            cameraPos: AppState.camera ? { x: AppState.camera.position.x, y: AppState.camera.position.y, z: AppState.camera.position.z } : null,
-            controlsTarget: AppState.controls ? { x: AppState.controls.target.x, y: AppState.controls.target.y, z: AppState.controls.target.z } : null,
-            sun: { pitch: 45, yaw: 215, area: 3, intensity: 1.80, color: new THREE.Color(0xfff5e6) },
-			sky: {
-				enabled: false, // Mặc định tắt Skybox như MagicaVoxel để khối kim loại có nền phản chiếu tối sâu thẳm
-				zenith: new THREE.Color(0x282828),
-				horizon: new THREE.Color(0x383838),
-				ground: new THREE.Color(0x242426),
-				ambientIntensity: 0.25
-			},
+            cameraPos: AppState.camera ? {
+                x: AppState.camera.position.x + camOffset.x,
+                y: AppState.camera.position.y + camOffset.y,
+                z: AppState.camera.position.z + camOffset.z
+            } : null,
+            controlsTarget: AppState.controls ? {
+                x: AppState.controls.target.x + camOffset.x,
+                y: AppState.controls.target.y + camOffset.y,
+                z: AppState.controls.target.z + camOffset.z
+            } : null,
+            sun: { ...AppState.sun, color: colorToSRGBHex(AppState.sun.color) },
+            sky: {
+                enabled: AppState.sky.enabled,
+                zenith: colorToSRGBHex(AppState.sky.zenith),
+                horizon: colorToSRGBHex(AppState.sky.horizon),
+                ground: colorToSRGBHex(AppState.sky.ground),
+                ambientIntensity: AppState.sky.ambientIntensity
+            },
             fog: {
                 enabled: AppState.fog.enabled,
                 color: colorToSRGBHex(AppState.fog.color),
                 density: AppState.fog.density
             },
-            sampleOptions: AppState.sampleOptions,
+            sampleOptions: { ...AppState.sampleOptions },
             postProcess: {
                 filterEnabled: AppState.filterEnabled,
                 exposure: AppState.exposure,
@@ -9702,6 +10947,8 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             materialProps: matPropsExport
         };
         const settingsBytes = new TextEncoder().encode(JSON.stringify(customSettings));
+		
+		
 
         const numVoxels = validVoxels.length;
         const sizeChunkSize = 24; 
@@ -9935,16 +11182,31 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         }
     });
 
-    function extractVoxelMeshFaces() {
+    function extractVoxelMeshFaces(targetLayer = null) {
         if (!AppState.model || !AppState.model.voxels || AppState.model.voxels.length === 0) return null;
-        const voxels = AppState.model.voxels;
-        const size = AppState.model.size;
+        const defaultLayerId = AppState.layers[0]?.id;
+
+        const layerObj = targetLayer || getActiveLayer();
+        ensureLayerProperties(layerObj);
+        const size = layerObj ? layerObj.size : AppState.model.size;
         const cx = size.x / 2;
         const cy = size.y / 2;
 
+        const layerMat = layerObj ? getLayerWorldMatrix(layerObj) : new THREE.Matrix4();
+        const rotMat = new THREE.Matrix4().extractRotation(layerMat);
+
+        const layerVoxels = AppState.model.voxels.filter(v => {
+            if (targetLayer) {
+                const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+                return lid === targetLayer.id;
+            }
+            return isVoxelVisible(v);
+        });
+
+        if (layerVoxels.length === 0) return null;
+
         const voxelMap = new Map();
-        for (const v of voxels) {
-		if (!isVoxelVisible(v)) continue;
+        for (const v of layerVoxels) {
             voxelMap.set(`${v.x},${v.y},${v.z}`, v.i);
         }
 
@@ -9956,11 +11218,24 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             return true;
         };
 
+        const transformFace = (rawPts, rawNorm, matIdx, color) => {
+            const transformedPts = rawPts.map(pt => {
+                const vec = new THREE.Vector3(pt[0], pt[1], pt[2]).applyMatrix4(layerMat);
+                return [vec.x, vec.y, vec.z];
+            });
+            const nVec = new THREE.Vector3(rawNorm[0], rawNorm[1], rawNorm[2]).applyMatrix4(rotMat).normalize();
+            return {
+                pts: transformedPts,
+                norm: [Number(nVec.x.toFixed(4)), Number(nVec.y.toFixed(4)), Number(nVec.z.toFixed(4))],
+                matIdx,
+                color
+            };
+        };
+
         const faces = [];
         const h = 0.5;
 
-        for (const v of voxels) {
-		if (!isVoxelVisible(v)) continue;
+        for (const v of layerVoxels) {
             const matIdx = v.i;
             const color = AppState.materialProps[matIdx]?.color || new THREE.Color(1, 1, 1);
             const posX = v.x - cx + 0.5;
@@ -9968,22 +11243,22 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             const posZ = v.y - cy + 0.5;
 
             if (!isOpaque(voxelMap.get(`${v.x},${v.y},${v.z + 1}`))) {
-                faces.push({ pts: [[posX - h, posY + h, posZ - h], [posX - h, posY + h, posZ + h], [posX + h, posY + h, posZ + h], [posX + h, posY + h, posZ - h]], norm: [0, 1, 0], matIdx, color });
+                faces.push(transformFace([[posX - h, posY + h, posZ - h], [posX - h, posY + h, posZ + h], [posX + h, posY + h, posZ + h], [posX + h, posY + h, posZ - h]], [0, 1, 0], matIdx, color));
             }
             if (!isOpaque(voxelMap.get(`${v.x},${v.y},${v.z - 1}`))) {
-                faces.push({ pts: [[posX - h, posY - h, posZ + h], [posX - h, posY - h, posZ - h], [posX + h, posY - h, posZ - h], [posX + h, posY - h, posZ + h]], norm: [0, -1, 0], matIdx, color });
+                faces.push(transformFace([[posX - h, posY - h, posZ + h], [posX - h, posY - h, posZ - h], [posX + h, posY - h, posZ - h], [posX + h, posY - h, posZ + h]], [0, -1, 0], matIdx, color));
             }
             if (!isOpaque(voxelMap.get(`${v.x},${v.y + 1},${v.z}`))) {
-                faces.push({ pts: [[posX - h, posY - h, posZ + h], [posX + h, posY - h, posZ + h], [posX + h, posY + h, posZ + h], [posX - h, posY + h, posZ + h]], norm: [0, 0, 1], matIdx, color });
+                faces.push(transformFace([[posX - h, posY - h, posZ + h], [posX + h, posY - h, posZ + h], [posX + h, posY + h, posZ + h], [posX - h, posY + h, posZ + h]], [0, 0, 1], matIdx, color));
             }
             if (!isOpaque(voxelMap.get(`${v.x},${v.y - 1},${v.z}`))) {
-                faces.push({ pts: [[posX + h, posY - h, posZ - h], [posX - h, posY - h, posZ - h], [posX - h, posY + h, posZ - h], [posX + h, posY + h, posZ - h]], norm: [0, 0, -1], matIdx, color });
+                faces.push(transformFace([[posX + h, posY - h, posZ - h], [posX - h, posY - h, posZ - h], [posX - h, posY + h, posZ - h], [posX + h, posY + h, posZ - h]], [0, 0, -1], matIdx, color));
             }
             if (!isOpaque(voxelMap.get(`${v.x + 1},${v.y},${v.z}`))) {
-                faces.push({ pts: [[posX + h, posY - h, posZ + h], [posX + h, posY - h, posZ - h], [posX + h, posY + h, posZ - h], [posX + h, posY + h, posZ + h]], norm: [1, 0, 0], matIdx, color });
+                faces.push(transformFace([[posX + h, posY - h, posZ + h], [posX + h, posY - h, posZ - h], [posX + h, posY + h, posZ - h], [posX + h, posY + h, posZ + h]], [1, 0, 0], matIdx, color));
             }
             if (!isOpaque(voxelMap.get(`${v.x - 1},${v.y},${v.z}`))) {
-                faces.push({ pts: [[posX - h, posY - h, posZ - h], [posX - h, posY - h, posZ + h], [posX - h, posY + h, posZ + h], [posX - h, posY + h, posZ - h]], norm: [-1, 0, 0], matIdx, color });
+                faces.push(transformFace([[posX - h, posY - h, posZ - h], [posX - h, posY - h, posZ + h], [posX - h, posY + h, posZ + h], [posX - h, posY + h, posZ - h]], [-1, 0, 0], matIdx, color));
             }
         }
         return faces;
@@ -10401,24 +11676,55 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         return writer.getBuffer();
     }
 
-    function handleExportMesh(format) {
+   async function handleExportMesh(format) {
         if (!AppState.model || !AppState.model.voxels || AppState.model.voxels.length === 0) return;
 
-        const faces = extractVoxelMeshFaces();
-        if (!faces || faces.length === 0) return;
-
         const rawName = (AppState.currentFileName || 'voxel_model').replace(/\.vox$/i, '');
+        const hasMultipleLayers = AppState.layers && AppState.layers.length > 1;
 
-        if (format === 'obj') {
-            const { obj, mtl } = generateOBJ(faces, rawName);
-            triggerFileDownload(new TextEncoder().encode(obj), `${rawName}.obj`);
-            triggerFileDownload(new TextEncoder().encode(mtl), `${rawName}.mtl`);
-            showToast(`Exported ${rawName}.obj & .mtl!`, "success");
-        } else if (format === 'fbx') {
-            const fbxBuffer = generateFBX(faces, rawName);
-            triggerFileDownload(fbxBuffer, `${rawName}.fbx`);
-            showToast(`Exported ${rawName}.fbx!`, "success");
+        // Lọc các Layer đang hiển thị và có chứa Voxel
+        const exportJobs = [];
+        for (let i = 0; i < AppState.layers.length; i++) {
+            const layer = AppState.layers[i];
+            if (!layer.visible) continue;
+            const faces = extractVoxelMeshFaces(layer);
+            if (faces && faces.length > 0) {
+                const cleanLayerName = (layer.name || `Layer_${i + 1}`).trim().replace(/[\\/:*?"<>|]/g, '_');
+                const fileBaseName = hasMultipleLayers ? `${rawName}_${cleanLayerName}` : rawName;
+                exportJobs.push({ layer, faces, fileBaseName });
+            }
         }
+
+        if (exportJobs.length === 0) {
+            showToast("No visible voxels to export!", "error", true);
+            return;
+        }
+
+        const waitDelay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+        for (let i = 0; i < exportJobs.length; i++) {
+            const { faces, fileBaseName } = exportJobs[i];
+            if (format === 'obj') {
+                const { obj, mtl } = generateOBJ(faces, fileBaseName);
+                triggerFileDownload(new TextEncoder().encode(obj), `${fileBaseName}.obj`);
+                await waitDelay(200);
+                triggerFileDownload(new TextEncoder().encode(mtl), `${fileBaseName}.mtl`);
+            } else if (format === 'fbx') {
+                const fbxBuffer = generateFBX(faces, fileBaseName);
+                triggerFileDownload(fbxBuffer, `${fileBaseName}.fbx`);
+            }
+            if (i < exportJobs.length - 1) {
+                await waitDelay(300);
+            }
+        }
+
+        showToast(
+            exportJobs.length > 1
+                ? `Exported ${exportJobs.length} layers (.${format.toUpperCase()})!`
+                : `Exported ${exportJobs[0].fileBaseName}.${format}!`,
+            "success",
+            true
+        );
     }
 
     document.getElementById('btn-export-mesh').addEventListener('click', () => {
