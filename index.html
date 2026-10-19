@@ -5469,11 +5469,15 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
     let touchCount = 0;             // Đếm số điểm chạm thực tế trên màn hình cảm ứng
     let isThreeFingerRotating = false; // Cờ xoay camera bằng 3 ngón tay
     let threeFingerStartPos = { x: 0, y: 0 };
-    let boxDragStart = null;
+	
+  let boxDragStart = null;
     let boxDragNormal = null;
     let boxDragCurrent = null;
+    let boxHasDragged = false;
 	
 	let pendingGridPlaneHit = null; // Lưu toạ độ sàn/vách grid chờ xác nhận Tap hợp lệ
+	
+	
     let pointerDownStartPos = new THREE.Vector2(); // Lưu vị trí chạm ban đầu để phân biệt Tap với Drag
 
     // Tính tọa độ trung bình (tâm) của 3 ngón tay
@@ -5539,7 +5543,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         boxDragStart = null;
         boxDragCurrent = null;
         boxDragNormal = null;
+        boxHasDragged = false;
         pendingGridPlaneHit = null; // Huỷ bỏ lệnh thêm mặt phẳng khi có cử chỉ 2 ngón
+		
         if (AppState.ghostBoxMesh) AppState.ghostBoxMesh.visible = false;
 		
 		
@@ -6515,6 +6521,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         // 4. CÁC TÁC VỤ VẼ MÔ HÌNH (FACE / BOX KHI Ở ATTACH / ERASE / PAINT)
 		// 4. CÁC TÁC VỤ VẼ MÔ HÌNH (FACE / BOX KHI Ở ATTACH / ERASE / PAINT)
        if (AppState.brushShape === 'face') {
+	   
             if (ray && ray.voxel) {
                 if (event.pointerType === 'mouse') event.stopImmediatePropagation();
                 if (AppState.controls) AppState.controls.enabled = false;
@@ -6639,14 +6646,17 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             AppState.isInteracting = true;
             strokeSnapshot = captureStateSnapshot();
 			strokeDidModify = false;
+            pointerDownStartPos.set(event.clientX, event.clientY);
+            boxHasDragged = false;
 
+            const activeSize = getActiveLayerSize();
             if (AppState.action === 'attach') {
                 const nx = Math.round(ray.normal.x);
                 const ny = Math.round(ray.normal.z);
                 const nz = Math.round(ray.normal.y);
-                const tx = Math.max(0, Math.min(AppState.model.size.x - 1, ray.voxel.x + nx));
-                const ty = Math.max(0, Math.min(AppState.model.size.y - 1, ray.voxel.y + ny));
-                const tz = Math.max(0, Math.min(AppState.model.size.z - 1, ray.voxel.z + nz));
+                const tx = Math.max(0, Math.min(activeSize.x - 1, ray.voxel.x + nx));
+                const ty = Math.max(0, Math.min(activeSize.y - 1, ray.voxel.y + ny));
+                const tz = Math.max(0, Math.min(activeSize.z - 1, ray.voxel.z + nz));
                 boxDragStart = { x: tx, y: ty, z: tz };
             } else {
                 boxDragStart = { x: ray.voxel.x, y: ray.voxel.y, z: ray.voxel.z };
@@ -6666,6 +6676,8 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             AppState.isInteracting = true;
             strokeSnapshot = captureStateSnapshot();
 			strokeDidModify = false;
+            pointerDownStartPos.set(event.clientX, event.clientY);
+            boxHasDragged = false;
 
             boxDragStart = gridHit.voxelCoord;
             boxDragNormal = gridHit.normal;
@@ -6673,6 +6685,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             updateGhostBox(boxDragStart, boxDragCurrent);
             return;
         }
+		
+		
+		
 
         if (AppState.controls) AppState.controls.enabled = true;
     }
@@ -6904,11 +6919,25 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             return;
         }
 		
-		if (boxDragStart && AppState.isInteracting && AppState.brushShape === 'box') {
-            const targetVoxel = getBoxTargetVoxel(event);
-            if (targetVoxel) {
-                boxDragCurrent = targetVoxel;
+		/////////////////////
+		
+           if (boxDragStart && AppState.isInteracting && AppState.brushShape === 'box') {
+            const distMoved = Math.hypot(event.clientX - pointerDownStartPos.x, event.clientY - pointerDownStartPos.y);
+            const dragThreshold = (event.pointerType === 'mouse') ? 4 : 14;
+
+            if (distMoved >= dragThreshold) {
+                boxHasDragged = true;
+            }
+
+            if (!boxHasDragged) {
+                boxDragCurrent = { ...boxDragStart };
                 updateGhostBox(boxDragStart, boxDragCurrent);
+            } else {
+                const targetVoxel = getBoxTargetVoxel(event);
+                if (targetVoxel) {
+                    boxDragCurrent = targetVoxel;
+                    updateGhostBox(boxDragStart, boxDragCurrent);
+                }
             }
             return;
         }
@@ -7006,15 +7035,23 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 		
 
 		if (boxDragStart && AppState.isInteracting && AppState.brushShape === 'box') {
-            // Lấy tọa độ đích cuối cùng (kể cả khi chuột nhả ngoài màn hình / ngoài grid)
-            const targetVoxel = getBoxTargetVoxel(event);
-            const endVoxel = targetVoxel || boxDragCurrent || boxDragStart;
+            let endVoxel = boxDragStart;
+            if (boxHasDragged) {
+                if (event && event.pointerType === 'mouse') {
+                    const targetVoxel = getBoxTargetVoxel(event);
+                    endVoxel = targetVoxel || boxDragCurrent || boxDragStart;
+                } else {
+                    // Trên Mobile: lấy đúng vị trí Ghost Box cuối cùng trước khi nhấc ngón tay để không bị trượt sang ô bên cạnh
+                    endVoxel = boxDragCurrent || boxDragStart;
+                }
+            }
 
             executeBoxAction(boxDragStart, endVoxel);
 
             boxDragStart = null;
             boxDragCurrent = null;
             boxDragNormal = null;
+            boxHasDragged = false;
             if (AppState.ghostBoxMesh) AppState.ghostBoxMesh.visible = false;
         }
 		
@@ -10804,18 +10841,18 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         const config = createMaterialConfig(index);
         const isCloud = (AppState.renderMode !== 'preview') && (AppState.materialProps[index].type === 'cloud');
 
-        for (const child of AppState.voxelMesh.children) {
-            if (child.userData.colorIndex === index) {
-                child.material.dispose();
+        AppState.voxelMesh.traverse((child) => {
+            if (child.isInstancedMesh && child.userData.colorIndex === index) {
+                if (child.material) child.material.dispose();
                 const newMat = new THREE.MeshPhysicalMaterial(config);
                 attachVoxelGridShader(newMat, isCloud);
                 child.material = newMat;
                 child.material.needsUpdate = true;
-                break;
             }
-        }
+        });
 
         AppState.needsCubeMapUpdate = true;
+        AppState.needsVoxelTextureUpdate = true;
         if (AppState.renderMode === 'pathtrace') {
             updateVoxel3DTexture(); // Đảm bảo Texture 3D được cập nhật ngay khi thay đổi vật liệu
             updateDynamicEmitLights(); // Cập nhật lại danh sách Area Light
@@ -11839,38 +11876,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 });
 
 	// ================= DÁN ĐOẠN MỚI TẠI ĐÂY =================
-    let colorChangeSnapshot = null;
-
-    const colorPickerEl = document.getElementById('color-picker');
-    if (colorPickerEl) {
-        // Lưu trạng thái trước khi mở bảng màu hoặc trước khi chỉnh
-        colorPickerEl.addEventListener('focus', () => {
-            colorChangeSnapshot = captureStateSnapshot();
-        });
-        colorPickerEl.addEventListener('click', () => {
-            colorChangeSnapshot = captureStateSnapshot();
-        });
-
-        // Khi đang rê chuột chọn màu trong bảng: Cập nhật màu thời gian thực
-        colorPickerEl.addEventListener('input', (e) => {
-            // Nạp mã màu sRGB nguyên bản từ Color Picker vào Three.js
-            AppState.materialProps[AppState.selectedColorIndex].color.setHex(parseInt(e.target.value.replace('#', '0x')), THREE.SRGBColorSpace);
-            const swatch = document.getElementById(`swatch-${AppState.selectedColorIndex}`);
-            if (swatch) {
-                swatch.style.backgroundColor = e.target.value;
-            }
-            AppState.usedIndices.add(AppState.selectedColorIndex);
-            updateInstancedMaterial(AppState.selectedColorIndex);
-        });
-
-        // Khi người dùng chọn xong màu và nhả chuột (hoặc đóng picker): Lưu vào Undo
-        colorPickerEl.addEventListener('change', () => {
-            if (colorChangeSnapshot) {
-                recordUndoStep(colorChangeSnapshot);
-                colorChangeSnapshot = null;
-            }
-        });
-    }
+    // Đã đồng bộ sự kiện color-picker duy nhất trong setupMaterialControls()
+	
+	
 	
 	let propChangeSnapshot = null;
 	const bindProp = (id, propName) => {
