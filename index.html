@@ -1678,7 +1678,13 @@ function updateLocalCubemap() {
             if (elGodrayWrap) elGodrayWrap.classList.toggle('hidden', !AppState.sun.godray);
             if (elGodrayTxt) elGodrayTxt.textContent = AppState.sun.godray ? 'On' : 'Off';
             recordUndoStep(snap);
-            if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
+            if (AppState.sun.godray) {
+                AppState.needsVoxelTextureUpdate = true;
+            }
+            if (AppState.renderMode === 'pathtrace') {
+                if (AppState.sun.godray) updateVoxel3DTexture();
+                AppState.needsAccumulationReset = true;
+            }
         });
     }
 
@@ -3365,18 +3371,26 @@ function setupSkyControls() {
 	
 	function updateEmitLightsForShader() {
         if (!AppState.model || !pathTraceMaterial) return;
+        if (AppState.renderMode !== 'pathtrace') {
+            AppState.needsVoxelTextureUpdate = true;
+            return;
+        }
 
-        const sx = AppState.model.size.x;
-        const sy = AppState.model.size.y;
-        const sz = AppState.model.size.z;
-        const cx = sx / 2;
-        const cy = sy / 2;
+        const visibleLayerIds = new Set();
+        const defaultLayerId = AppState.layers[0]?.id;
+        for (const l of AppState.layers) {
+            if (l.visible !== false) visibleLayerIds.add(l.id);
+        }
 
-        const emitVoxels = AppState.model.voxels.filter(v => {
-            if (!isVoxelVisible(v)) return false; // Không tính nguồn sáng emit nếu layer bị ẩn
+        const emitVoxels = [];
+        for (const v of AppState.model.voxels) {
+            const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+            if (!visibleLayerIds.has(lid)) continue;
             const p = AppState.materialProps[v.i];
-            return p && p.type === 'emit' && ((p.emission || 0) > 0.05);
-        });
+            if (p && p.type === 'emit' && ((p.emission || 0) > 0.05)) {
+                emitVoxels.push(v);
+            }
+        }
 
         if (emitVoxels.length === 0) {
             if (pathTraceMaterial.uniforms.uNumEmitLights) {
@@ -3385,24 +3399,31 @@ function setupSkyControls() {
             return;
         }
 
-        // Gom nhóm các voxel emit liền kề nhau bằng thuật toán BFS
+        // Gom nhóm các voxel emit liền kề nhau bằng thuật toán BFS O(N) dùng con trỏ chỉ số
         const vKeyMap = new Map();
-        emitVoxels.forEach(v => vKeyMap.set(`${v.x},${v.y},${v.z}`, v));
+        for (let i = 0; i < emitVoxels.length; i++) {
+            const v = emitVoxels[i];
+            vKeyMap.set(`${v.x},${v.y},${v.z}`, v);
+        }
 
         const visited = new Set();
         const clusters = [];
 
-        for (const v of emitVoxels) {
+        for (let i = 0; i < emitVoxels.length; i++) {
+            const v = emitVoxels[i];
             const key = `${v.x},${v.y},${v.z}`;
             if (visited.has(key)) continue;
 
             const cluster = [];
             const queue = [v];
             visited.add(key);
+            let qHead = 0;
 
-            while (queue.length > 0) {
-                const curr = queue.shift();
+            while (qHead < queue.length) {
+                const curr = queue[qHead++];
                 cluster.push(curr);
+				
+				
 
                 for (let dx = -1; dx <= 1; dx++) {
                     for (let dy = -1; dy <= 1; dy++) {
@@ -8359,7 +8380,10 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
             statusOverlay.classList.remove('is-visible');
             AppState.renderer.setRenderTarget(null);
+			
+            const wasVoxTexDirty = AppState.needsVoxelTextureUpdate;
             rebuildMesh();
+            AppState.needsVoxelTextureUpdate = wasVoxTexDirty;
             updateRenderViewportSize();
         } else if (mode === 'pathtrace') {
             if (AppState.voxelMesh) AppState.voxelMesh.visible = true;
@@ -8370,14 +8394,18 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             if (AppState.groundPlane) AppState.groundPlane.visible = AppState.showFloorPlane;
             if (AppState.skyMesh) AppState.skyMesh.visible = AppState.sky.enabled;
 
-            // 1. Tạo Texture 3D bám sát vừa khít các Voxel thực tế và đồng bộ Camera theo ptGridOffset
-            updateVoxel3DTexture();
-            updateDynamicEmitLights();
-            AppState.needsVoxelTextureUpdate = false;
+            // Chỉ tạo lại Texture 3D nếu mô hình thực sự có thay đổi hoặc chưa khởi tạo
+            if (!voxel3DTexture || AppState.needsVoxelTextureUpdate || !AppState.ptGridSize) {
+                updateVoxel3DTexture();
+                updateDynamicEmitLights();
+                AppState.needsVoxelTextureUpdate = false;
+            } else {
+                updateMaterialLUTTexture();
+                updateDynamicEmitLights();
+            }
             AppState.needsCubeMapUpdate = false;
             syncPathTraceCameraOffset(true);
-			
-			
+
             if (AppState.voxelMesh && AppState.ptGridOffset) {
                 AppState.voxelMesh.position.copy(AppState.ptGridOffset).negate();
             }
@@ -8386,6 +8414,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             updateSkyboxColors();
             updateFog();
             updateSunPosition();
+            AppState.needsCubeMapUpdate = false;
 
             if (AppState.dirLight) AppState.dirLight.visible = true;
             if (AppState.hemiLight) AppState.hemiLight.visible = true;
@@ -8398,6 +8427,8 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             AppState.latestAccumTarget = null;
             AppState.needsAccumulationReset = true;
         }
+		
+		
     }
 
     function initDefaultProject() {
@@ -8737,7 +8768,8 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         // Chỉ tạo Texture 3D khi đang ở chế độ P-Tracing để thao tác bên Preview luôn mượt tức thì
         if (AppState.renderMode !== 'pathtrace') return;
 /////////////////////////////////////////////////////////////////////////////////
-        /// 1. Chuẩn bị ma trận World & Map tra cứu O(1) cho tất cả các Layer + Cache 256 màu sRGB
+/////////////////////////////////////////////////////////////////////////////////
+        // 1. Chuẩn bị ma trận World & Map tra cứu O(1) cho tất cả các Layer + Cache 256 màu sRGB
         const layerMatrices = new Map();
         const layerLookup = new Map();
         const defaultLayer = AppState.layers[0];
@@ -8761,13 +8793,23 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             }
         }
 
-        // 2. Tìm Bounding Box sát nhất (Tight Bounds) của các hạt Voxel thực tế đang hiển thị
+        // 2. Duyệt 1 lần duy nhất để tính tọa độ World, lưu vào bộ đệm phẳng và tìm Tight Bounds
         let wMinX = Infinity, wMaxX = -Infinity;
         let wMinY = Infinity, wMaxY = -Infinity;
         let wMinZ = Infinity, wMaxZ = -Infinity;
 
+        const voxels = AppState.model.voxels;
+        const totalVox = voxels.length;
+        const cachedWx = new Float32Array(totalVox);
+        const cachedWy = new Float32Array(totalVox);
+        const cachedWz = new Float32Array(totalVox);
+        const cachedCol = new Uint8Array(totalVox);
+        const cachedLayerId = new Float64Array(totalVox);
+        let validCount = 0;
+
         const tempPos = new THREE.Vector3();
-        for (const v of AppState.model.voxels) {
+        for (let idxV = 0; idxV < totalVox; idxV++) {
+            const v = voxels[idxV];
             const lid = (v.l !== undefined) ? v.l : defaultLayerId;
             const layer = layerLookup.get(lid) || defaultLayer;
             if (!layer || layer.visible === false) continue;
@@ -8777,12 +8819,20 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             tempPos.set(v.x - lcx + 0.5, v.z + 0.5, v.y - lcy + 0.5);
             if (lMat) tempPos.applyMatrix4(lMat);
 
-            if (tempPos.x - 0.5 < wMinX) wMinX = tempPos.x - 0.5;
-            if (tempPos.x + 0.5 > wMaxX) wMaxX = tempPos.x + 0.5;
-            if (tempPos.y - 0.5 < wMinY) wMinY = tempPos.y - 0.5;
-            if (tempPos.y + 0.5 > wMaxY) wMaxY = tempPos.y + 0.5;
-            if (tempPos.z - 0.5 < wMinZ) wMinZ = tempPos.z - 0.5;
-            if (tempPos.z + 0.5 > wMaxZ) wMaxZ = tempPos.z + 0.5;
+            const wx = tempPos.x, wy = tempPos.y, wz = tempPos.z;
+            if (wx - 0.5 < wMinX) wMinX = wx - 0.5;
+            if (wx + 0.5 > wMaxX) wMaxX = wx + 0.5;
+            if (wy - 0.5 < wMinY) wMinY = wy - 0.5;
+            if (wy + 0.5 > wMaxY) wMaxY = wy + 0.5;
+            if (wz - 0.5 < wMinZ) wMinZ = wz - 0.5;
+            if (wz + 0.5 > wMaxZ) wMaxZ = wz + 0.5;
+
+            cachedWx[validCount] = wx;
+            cachedWy[validCount] = wy;
+            cachedWz[validCount] = wz;
+            cachedCol[validCount] = Math.min(255, Math.max(1, v.i));
+            cachedLayerId[validCount] = layer.id;
+            validCount++;
         }
 
         if (wMinX === Infinity) {
@@ -8791,7 +8841,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             wMinZ = -10; wMaxZ = 10;
         }
 
-        // Tâm dịch chuyển của khối Voxel thực tế (giúp thu nhỏ tối đa Texture 3D và không bị giới hạn khi kéo xa gốc)
+        // Tâm dịch chuyển của khối Voxel thực tế
         const offsetX = Math.round((wMinX + wMaxX) * 0.5);
         const offsetY = Math.min(0, Math.floor(wMinY));
         const offsetZ = Math.round((wMinZ + wMaxZ) * 0.5);
@@ -8799,7 +8849,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         if (!AppState.ptGridOffset) AppState.ptGridOffset = new THREE.Vector3();
         AppState.ptGridOffset.set(offsetX, offsetY, offsetZ);
 
-        // Kích thước Texture 3D vừa khít với các Voxel thực tế (không cộng phần rỗng của Layer)
+        // Kích thước Texture 3D vừa khít với các Voxel thực tế
         const halfSpanX = Math.ceil(Math.max(wMaxX - offsetX, offsetX - wMinX)) + 1;
         const halfSpanZ = Math.ceil(Math.max(wMaxZ - offsetZ, offsetZ - wMinZ)) + 1;
         const spanY = Math.ceil(wMaxY - offsetY) + 1;
@@ -8819,23 +8869,16 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         let minVy = Infinity, maxVy = -Infinity;
         let minVz = Infinity, maxVz = -Infinity;
 
-        // Lưu Bounding Box chặt (Tight AABB) cho từng Layer riêng biệt để bỏ qua khoảng trống giữa các Layer
         const perLayerBounds = new Map();
         const sxy = sx * sy;
+        const shiftX = cx - offsetX - 0.5;
+        const shiftY = -offsetY - 0.5;
+        const shiftZ = cy - offsetZ - 0.5;
 
-        for (const v of AppState.model.voxels) {
-            const lid = (v.l !== undefined) ? v.l : defaultLayerId;
-            const layer = layerLookup.get(lid) || defaultLayer;
-            if (!layer || layer.visible === false) continue;
-
-            const lMat = layerMatrices.get(layer.id);
-            const lcx = layer.size.x * 0.5, lcy = layer.size.y * 0.5;
-            tempPos.set(v.x - lcx + 0.5, v.z + 0.5, v.y - lcy + 0.5);
-            if (lMat) tempPos.applyMatrix4(lMat);
-
-            const gx = Math.round(tempPos.x - offsetX + cx - 0.5);
-            const gz = Math.round(tempPos.y - offsetY - 0.5);
-            const gy = Math.round(tempPos.z - offsetZ + cy - 0.5);
+        for (let k = 0; k < validCount; k++) {
+            const gx = Math.round(cachedWx[k] + shiftX);
+            const gz = Math.round(cachedWy[k] + shiftY);
+            const gy = Math.round(cachedWz[k] + shiftZ);
 
             if (gx >= 0 && gx < sx && gy >= 0 && gy < sy && gz >= 0 && gz < sz) {
                 if (gx < minVx) minVx = gx;
@@ -8845,10 +8888,11 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 if (gz < minVz) minVz = gz;
                 if (gz > maxVz) maxVz = gz;
 
-                let lb = perLayerBounds.get(layer.id);
+                const lid = cachedLayerId[k];
+                let lb = perLayerBounds.get(lid);
                 if (!lb) {
                     lb = { minVx: gx, maxVx: gx, minVy: gy, maxVy: gy, minVz: gz, maxVz: gz };
-                    perLayerBounds.set(layer.id, lb);
+                    perLayerBounds.set(lid, lb);
                 } else {
                     if (gx < lb.minVx) lb.minVx = gx;
                     if (gx > lb.maxVx) lb.maxVx = gx;
@@ -8859,7 +8903,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 }
 
                 const idx = (gx + gy * sx + gz * sxy) * 4;
-                const cIdx = Math.min(255, Math.max(1, v.i));
+                const cIdx = cachedCol[k];
                 data[idx]     = srgbCacheR[cIdx];
                 data[idx + 1] = srgbCacheG[cIdx];
                 data[idx + 2] = srgbCacheB[cIdx];
@@ -8867,33 +8911,38 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             }
         }
 
-        // Chỉ quét cột cửa sổ bên trong vùng chứa Voxel thực tế của từng Layer (bỏ qua toàn bộ khoảng trống giữa các Layer)
-        const scannedCols = new Uint8Array(sx * sy);
-        for (const lb of perLayerBounds.values()) {
-            for (let gy = lb.minVy; gy <= lb.maxVy; gy++) {
-                for (let gx = lb.minVx; gx <= lb.maxVx; gx++) {
-                    const colIdx = gx + gy * sx;
-                    if (scannedCols[colIdx]) continue;
-                    scannedCols[colIdx] = 1;
+        // Chỉ quét cột cửa sổ khi đang bật hiệu ứng Sun Godray
+        if (AppState.sun && AppState.sun.godray) {
+            const scannedCols = new Uint8Array(sxy);
+            for (const lb of perLayerBounds.values()) {
+                for (let gy = lb.minVy; gy <= lb.maxVy; gy++) {
+                    const rowOff = gy * sx;
+                    for (let gx = lb.minVx; gx <= lb.maxVx; gx++) {
+                        const colIdx = gx + rowOff;
+                        if (scannedCols[colIdx]) continue;
+                        scannedCols[colIdx] = 1;
 
-                    let minZ = -1, maxZ = -1;
-                    for (let gz = lb.minVz; gz <= lb.maxVz; gz++) {
-                        if (data[(colIdx + gz * sx * sy) * 4 + 3] > 0) {
-                            if (minZ === -1) minZ = gz;
-                            maxZ = gz;
+                        let minZ = -1, maxZ = -1;
+                        for (let gz = lb.minVz; gz <= lb.maxVz; gz++) {
+                            if (data[(colIdx + gz * sxy) * 4 + 3] > 0) {
+                                if (minZ === -1) minZ = gz;
+                                maxZ = gz;
+                            }
                         }
-                    }
-                    if (minZ !== -1 && maxZ > minZ + 1) {
-                        for (let gz = minZ + 1; gz < maxZ; gz++) {
-                            const idx = (colIdx + gz * sx * sy) * 4;
-                            if (data[idx + 3] === 0) {
-                                data[idx] = 255;
+                        if (minZ !== -1 && maxZ > minZ + 1) {
+                            for (let gz = minZ + 1; gz < maxZ; gz++) {
+                                const idx = (colIdx + gz * sxy) * 4;
+                                if (data[idx + 3] === 0) {
+                                    data[idx] = 255;
+                                }
                             }
                         }
                     }
                 }
             }
         }
+		
+		
 
         if (voxel3DTexture) voxel3DTexture.dispose();
         voxel3DTexture = new THREE.Data3DTexture(data, sx, sy, sz);
@@ -9013,72 +9062,74 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             depthTest: false,
             depthWrite: false,
             uniforms: {
-                tVoxelGrid: { value: voxel3DTexture },
+			/////////////////////////////////////////////////////////////////////////
+			/////////////////////////////////////////////////////////////////////////
+			/////////////////////////////////////////////////////////////////////////
+            tVoxelGrid: { value: voxel3DTexture },
                 tMaterialLUT: { value: materialLUTTexture },
+                tAccum: { value: null },
+                uMixRatio: { value: 0.0 },
+                uMaxBounces: { value: 4 },
                 uNumLayerBoxes: { value: 1 },
                 uLayerBoxMin: { value: uLayerBoxMin },
                 uLayerBoxMax: { value: uLayerBoxMax },
                 uGodrayBoxMin: { value: uGodrayBoxMin },
                 uGodrayBoxMax: { value: uGodrayBoxMax },
-				
-				
+
                 uGridSize: { value: new THREE.Vector3(40, 40, 40) },
                 uProjInverse: { value: new THREE.Matrix4() },
                 uCamWorld: { value: new THREE.Matrix4() },
                 uFrameSeed: { value: 0.0 },
                 uSunDir: { value: new THREE.Vector3(0, 1, 0) },
-				
+
                 uSunCol: { value: new THREE.Vector3(1, 1, 1) },
                 uSunInt: { value: 1.5 },
-                uSunArea: { value: 4.0 }, // <-- THÊM DÒNG NÀY ĐỂ ĐIỀU KHIỂN ĐỘ NÉT BÓNG ĐỔ
-				
-				uSunGodray: { value: 0.0 },
+                uSunArea: { value: 4.0 },
+
+                uSunGodray: { value: 0.0 },
                 uGodrayDensity: { value: 0.35 },
                 uModelCenter: { value: new THREE.Vector3(0, 15, 0) },
                 uModelRadius: { value: 25.0 },
                 uModelMin: { value: new THREE.Vector3(-20, 0, -20) },
                 uModelMax: { value: new THREE.Vector3(20, 30, 20) },
-				
-				uBlendIOR: { value: 1.30 },
-				uBlendRoughness: { value: 0.10 },
-				uBlendMetallic: { value: 0.0 },
-				uBlendSpecular: { value: 1.0 },
-				uBlendDensity: { value: 50.0 },
-				uBlendPhase: { value: 0.0 },
-				
-				// --- BỔ SUNG UNIFORMS CHO METAL ---
+
+                uBlendIOR: { value: 1.30 },
+                uBlendRoughness: { value: 0.10 },
+                uBlendMetallic: { value: 0.0 },
+                uBlendSpecular: { value: 1.0 },
+                uBlendDensity: { value: 50.0 },
+                uBlendPhase: { value: 0.0 },
+
                 uMetalMetallic: { value: 1.0 },
                 uMetalSpecular: { value: 1.0 },
                 uMetalRoughness: { value: 0.1 },
                 uMetalIOR: { value: 1.5 },
-                // ----------------------------------
-				
-				uFogEnabled: { value: AppState.fog.enabled ? 1.0 : 0.0 },
+
+                uFogEnabled: { value: AppState.fog.enabled ? 1.0 : 0.0 },
                 uFogCol: { value: new THREE.Vector3(0.66, 0.83, 0.96) },
                 uFogDensity: { value: AppState.fog.density || 0.0 },
-				
+
                 uSkyZenith: { value: new THREE.Vector3(0.26, 0.53, 0.96) },
                 uSkyHorizon: { value: new THREE.Vector3(0.7, 0.85, 1.0) },
                 uSkyGround: { value: new THREE.Vector3(0.2, 0.2, 0.2) },
                 uSkyAmbientInt: { value: 1.2 },
-				uSkyEnabled: { value: 1.0 }, // <-- THÊM DÒNG NÀY
-				uShowFloorPlane: { value: AppState.showFloorPlane ? 1.0 : 0.0 }, // <-- THÊM DÒNG NÀY
+                uSkyEnabled: { value: 1.0 },
+                uShowFloorPlane: { value: AppState.showFloorPlane ? 1.0 : 0.0 },
                 uResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
-				
+
                 uNumEmitLights: { value: 0 },
-				 uEmitMin: { value: uEmitMin },
-				 uEmitMax: { value: uEmitMax },
-				 uEmitCol: { value: uEmitCol },
-				 uEmitPwr: { value: uEmitPwr },
-					uEmitLdr: { value: new Float32Array(MAX_LIGHTS) },
-					uGlassIOR: { value: 1.45 },
-					uGlassRoughness: { value: 0.0 },
-				 uGlassDensity: { value: 50.0 }, // Bổ sung Density cho Glass
-					uCloudPhase: { value: 0.0 },
-				
-				uEnableShadow: { value: AppState.sampleOptions.shadow ? 1.0 : 0.0 },
-				uEnableAA: { value: AppState.sampleOptions.aa ? 1.0 : 0.0 }
-				
+                uEmitMin: { value: uEmitMin },
+                uEmitMax: { value: uEmitMax },
+                uEmitCol: { value: uEmitCol },
+                uEmitPwr: { value: uEmitPwr },
+                uEmitLdr: { value: new Float32Array(MAX_LIGHTS) },
+                uGlassIOR: { value: 1.45 },
+                uGlassRoughness: { value: 0.0 },
+                uGlassDensity: { value: 50.0 },
+                uCloudPhase: { value: 0.0 },
+
+                uEnableShadow: { value: AppState.sampleOptions.shadow ? 1.0 : 0.0 },
+                uEnableAA: { value: AppState.sampleOptions.aa ? 1.0 : 0.0 }
             },
             vertexShader: `
                 out vec2 vUv;
@@ -9087,7 +9138,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     gl_Position = vec4(position.xy, 0.0, 1.0);
                 }
             `,
-           fragmentShader: `
+            fragmentShader: `
                 precision highp float;
                 precision highp sampler3D;
 
@@ -9096,97 +9147,97 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
                 uniform sampler3D tVoxelGrid;
                 uniform sampler2D tMaterialLUT;
+                uniform sampler2D tAccum;
+                uniform float uMixRatio;
+                uniform int uMaxBounces;
                 uniform vec3 uGridSize;
-				
+
                 uniform mat4 uProjInverse;
                 uniform mat4 uCamWorld;
                 uniform float uFrameSeed;
                 uniform vec3 uSunDir;
-				
-				uniform float uBlendIOR;
-				uniform float uBlendRoughness;
-				uniform float uBlendMetallic;
-				uniform float uBlendSpecular;
-				uniform float uBlendDensity;
-				uniform float uBlendPhase;
-				
-				// Khai báo Uniforms cho Metal
+
+                uniform float uBlendIOR;
+                uniform float uBlendRoughness;
+                uniform float uBlendMetallic;
+                uniform float uBlendSpecular;
+                uniform float uBlendDensity;
+                uniform float uBlendPhase;
+
                 uniform float uMetalMetallic;
                 uniform float uMetalSpecular;
                 uniform float uMetalRoughness;
                 uniform float uMetalIOR;
-				
+
                 uniform vec3 uSunCol;
                 uniform float uSunInt;
-                uniform float uSunArea; // <-- THÊM DÒNG NÀY
-				
-				
+                uniform float uSunArea;
+
                 uniform float uSunGodray;
                 uniform float uGodrayDensity;
                 uniform vec3 uModelCenter;
                 uniform float uModelRadius;
                 uniform vec3 uModelMin;
                 uniform vec3 uModelMax;
-				
-				uniform float uFogEnabled;
+
+                uniform float uFogEnabled;
                 uniform vec3 uFogCol;
                 uniform float uFogDensity;
-				
+
                 uniform vec3 uSkyZenith;
                 uniform vec3 uSkyHorizon;
                 uniform vec3 uSkyGround;
                 uniform float uSkyAmbientInt;
-				uniform float uSkyEnabled;
-				uniform float uShowFloorPlane; // <-- THÊM DÒNG NÀY
-				
+                uniform float uSkyEnabled;
+                uniform float uShowFloorPlane;
+
                 uniform vec2 uResolution;
-				uniform float uGlassIOR;
-			    uniform float uGlassRoughness;
-				uniform float uGlassDensity; // Khai báo uniform nhận giá trị
-			    uniform float uCloudPhase;
-				
+                uniform float uGlassIOR;
+                uniform float uGlassRoughness;
+                uniform float uGlassDensity;
+                uniform float uCloudPhase;
+
                 #define MAX_EMIT_LIGHTS 16
                 uniform int uNumEmitLights;
                 uniform vec3 uEmitMin[MAX_EMIT_LIGHTS];
                 uniform vec3 uEmitMax[MAX_EMIT_LIGHTS];
                 uniform vec3 uEmitCol[MAX_EMIT_LIGHTS];
                 uniform float uEmitPwr[MAX_EMIT_LIGHTS];
-				uniform float uEmitLdr[MAX_EMIT_LIGHTS];
-				uniform float uEnableAA;
-				uniform float uEnableShadow;
-				
-				
-				#define MAX_LAYER_BOXES 16
+                uniform float uEmitLdr[MAX_EMIT_LIGHTS];
+                uniform float uEnableAA;
+                uniform float uEnableShadow;
+
+                #define MAX_LAYER_BOXES 16
                 uniform int uNumLayerBoxes;
                 uniform vec3 uLayerBoxMin[MAX_LAYER_BOXES];
                 uniform vec3 uLayerBoxMax[MAX_LAYER_BOXES];
                 uniform vec3 uGodrayBoxMin[MAX_LAYER_BOXES];
                 uniform vec3 uGodrayBoxMax[MAX_LAYER_BOXES];
 
-				uint pcg_hash(inout uint seed) {
-					uint state = seed * 747796405u + 2891336453u;
-					uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
-					seed = state;
-					return (word >> 22u) ^ word;
-				}
+                uint pcg_hash(inout uint seed) {
+                    uint state = seed * 747796405u + 2891336453u;
+                    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+                    seed = state;
+                    return (word >> 22u) ^ word;
+                }
 
-				float rand(inout uint seed) {
-					return float(pcg_hash(seed)) / 4294967295.0;
-				}
+                float rand(inout uint seed) {
+                    return float(pcg_hash(seed)) / 4294967295.0;
+                }
 
-				vec3 sampleSphere(inout uint seed) {
-					float z = 1.0 - 2.0 * rand(seed);
-					float r = sqrt(max(0.0, 1.0 - z * z));
-					float phi = 6.28318530718 * rand(seed);
-					return vec3(r * cos(phi), r * sin(phi), z);
-				}
+                vec3 sampleSphere(inout uint seed) {
+                    float z = 1.0 - 2.0 * rand(seed);
+                    float r = sqrt(max(0.0, 1.0 - z * z));
+                    float phi = 6.28318530718 * rand(seed);
+                    return vec3(r * cos(phi), r * sin(phi), z);
+                }
 
-				float phaseHG(float cosTheta, float g) {
-					if (abs(g) < 0.02) return 0.25;
-					float g2 = g * g;
-					float denom = 1.0 + g2 - 2.0 * g * cosTheta;
-					return 0.25 * (1.0 - g2) / max(0.001, denom * sqrt(max(0.0001, denom)));
-				}
+                float phaseHG(float cosTheta, float g) {
+                    if (abs(g) < 0.02) return 0.25;
+                    float g2 = g * g;
+                    float denom = 1.0 + g2 - 2.0 * g * cosTheta;
+                    return 0.25 * (1.0 - g2) / max(0.001, denom * sqrt(max(0.0001, denom)));
+                }
 
                 vec3 cosineWeightedHemisphere(vec3 n, inout uint seed) {
                     float u1 = rand(seed);
@@ -9200,8 +9251,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     vec3 bitangent = cross(n, tangent);
                     return normalize(tangent * h.x + bitangent * h.y + n * h.z);
                 }
-////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////
+
                 bool intersectBoxFast(vec3 ro, vec3 rdSign, vec3 invD, vec3 boxMin, vec3 boxMax, out float tNear, out float tFar, out vec3 normNear) {
                     vec3 t0 = (boxMin - ro) * invD;
                     vec3 t1 = (boxMax - ro) * invD;
@@ -9217,14 +9267,19 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     return tFar > max(tNear, 0.0);
                 }
 
-                // Kiểm tra tia với danh sách Bounding Box chặt của từng Layer (tính invD 1 lần ngoài vòng lặp)
                 bool intersectLayerBoxes(vec3 ro, vec3 rd, float maxDist, out float tNear, out float tFar, out vec3 normNear) {
+                    vec3 rdSign = sign(rd);
+                    vec3 invD = rdSign / max(abs(rd), vec3(0.00001));
+                    if (uNumLayerBoxes <= 1) {
+                        if (intersectBoxFast(ro, rdSign, invD, uLayerBoxMin[0], uLayerBoxMax[0], tNear, tFar, normNear)) {
+                            return (tNear < maxDist && tFar > 0.0);
+                        }
+                        return false;
+                    }
                     tNear = 1e9;
                     tFar = -1e9;
                     normNear = vec3(0.0, 1.0, 0.0);
                     bool hitAny = false;
-                    vec3 rdSign = sign(rd);
-                    vec3 invD = rdSign / max(abs(rd), vec3(0.00001));
                     for (int i = 0; i < MAX_LAYER_BOXES; i++) {
                         if (i >= uNumLayerBoxes) break;
                         float tn, tf;
@@ -9246,11 +9301,18 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 }
 
                 bool intersectGodrayBoxes(vec3 ro, vec3 rd, float maxDist, out float tNear, out float tFar) {
+                    vec3 rdSign = sign(rd);
+                    vec3 invD = rdSign / max(abs(rd), vec3(0.00001));
+                    if (uNumLayerBoxes <= 1) {
+                        vec3 nn;
+                        if (intersectBoxFast(ro, rdSign, invD, uGodrayBoxMin[0], uGodrayBoxMax[0], tNear, tFar, nn)) {
+                            return (tNear < maxDist && tFar > 0.0);
+                        }
+                        return false;
+                    }
                     tNear = 1e9;
                     tFar = -1e9;
                     bool hitAny = false;
-                    vec3 rdSign = sign(rd);
-                    vec3 invD = rdSign / max(abs(rd), vec3(0.00001));
                     for (int i = 0; i < MAX_LAYER_BOXES; i++) {
                         if (i >= uNumLayerBoxes) break;
                         float tn, tf;
@@ -9319,9 +9381,17 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     ivec3 rayStep = ivec3(raySign);
                     vec3 sideDist = (raySign * (vec3(mapPos) - localPos) + (raySign * 0.5) + 0.5) * deltaDist;
                     vec3 mask = vec3(0.0);
-
+///////////////////////////////
                     bool enteredGlassShadow = false;
+                    int lastMatIdx = -1;
+                    vec4 m0 = vec4(0.0);
+                    vec4 m1 = vec4(0.0);
+                    vec3 cachedAbsorbRate = vec3(0.0);
+                    vec3 cachedVividTint = vec3(1.0);
+                    float cachedCloudRate = 0.0;
+                    vec3 totalOpticalDepth = vec3(0.0);
                     int maxShadowSteps = gridDims.x + gridDims.y + gridDims.z;
+
                     for (int i = 0; i < 512; i++) {
                         if (i >= maxShadowSteps || tStart >= tLimit) break;
 
@@ -9329,10 +9399,28 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
                         if (voxel.a > 0.002) {
                             int matIdx = int(floor(voxel.a * 255.0 + 0.5));
-                            vec4 m0 = texelFetch(tMaterialLUT, ivec2(matIdx, 0), 0);
+                            if (matIdx != lastMatIdx) {
+                                m0 = texelFetch(tMaterialLUT, ivec2(matIdx, 0), 0);
+                                float mt = m0.r;
+                                if (mt >= 1.5) {
+                                    m1 = texelFetch(tMaterialLUT, ivec2(matIdx, 1), 0);
+                                    if ((mt > 1.5 && mt < 2.5) || (mt > 3.5 && mt < 4.5)) {
+                                        float trans = clamp(m0.a, 0.0, 1.0);
+                                        vec3 alb = pow(voxel.rgb, vec3(2.2));
+                                        float densN = clamp(m1.r / 100.0, 0.0, 1.0);
+                                        float transLog = -0.25 * log(max(trans, 0.0001));
+                                        cachedAbsorbRate = -log(max(alb, vec3(0.01))) * (densN * 0.95) + vec3(transLog);
+                                    } else if (mt > 2.5 && mt < 3.5) {
+                                        cachedCloudRate = clamp(m1.r / 100.0, 0.01, 1.0) * 0.45;
+                                        cachedVividTint = extractFilterTint(voxel.rgb);
+                                    } else if (mt > 5.5) {
+                                        cachedVividTint = extractFilterTint(voxel.rgb);
+                                    }
+                                }
+                                lastMatIdx = matIdx;
+                            }
                             float mType = m0.r;
 
-                            // Thoát sớm ngay lập tức nếu gặp khối cản sáng hoàn toàn (Diffuse / Metal)
                             if (mType < 1.5) return vec3(0.0);
 
                             if (mType > 4.5 && mType < 5.5) {
@@ -9342,7 +9430,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                 float dt = max(0.001, min(tLimit, tBox + minSideStep) - tStart);
 
                                 if (mType > 1.5 && mType < 2.5) {
-                                    // Glass
                                     float transparency = clamp(m0.a, 0.0, 1.0);
                                     if (transparency <= 0.005) return vec3(0.0);
 
@@ -9350,15 +9437,10 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                         transmittance *= 0.26 * transparency * transparency;
                                         enteredGlassShadow = true;
                                     }
-                                    vec4 m1 = texelFetch(tMaterialLUT, ivec2(matIdx, 1), 0);
-                                    vec3 albedo = pow(voxel.rgb, vec3(2.2));
-                                    float densityNorm = clamp(m1.r / 100.0, 0.0, 1.0);
-                                    vec3 absorb = -log(max(albedo, vec3(0.01))) * (densityNorm * 0.95);
-                                    transmittance *= exp(-absorb * dt) * pow(transparency, 0.25 * dt);
-                                    if (max(transmittance.r, max(transmittance.g, transmittance.b)) < 0.005) return vec3(0.0);
+                                    totalOpticalDepth += cachedAbsorbRate * dt;
+                                    if (min(totalOpticalDepth.r, min(totalOpticalDepth.g, totalOpticalDepth.b)) > 5.3) return vec3(0.0);
                                 }
                                 else if (mType > 3.5 && mType < 4.5) {
-                                    // Blend
                                     float transparency = clamp(m0.a, 0.0, 1.0);
                                     if (transparency <= 0.005) return vec3(0.0);
 
@@ -9366,38 +9448,28 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                         transmittance *= 0.28 * transparency * transparency;
                                         enteredGlassShadow = true;
                                     }
-                                    vec4 m1 = texelFetch(tMaterialLUT, ivec2(matIdx, 1), 0);
-                                    vec3 albedo = pow(voxel.rgb, vec3(2.2));
-                                    float densityNorm = clamp(m1.r / 100.0, 0.0, 1.0);
-                                    vec3 absorb = -log(max(albedo, vec3(0.01))) * (densityNorm * 0.95);
-                                    transmittance *= exp(-absorb * dt) * pow(transparency, 0.25 * dt);
-                                    if (max(transmittance.r, max(transmittance.g, transmittance.b)) < 0.005) return vec3(0.0);
+                                    totalOpticalDepth += cachedAbsorbRate * dt;
+                                    if (min(totalOpticalDepth.r, min(totalOpticalDepth.g, totalOpticalDepth.b)) > 5.3) return vec3(0.0);
                                 }
                                 else if (mType > 2.5 && mType < 3.5) {
-                                    // Cloud
-                                    vec4 m1 = texelFetch(tMaterialLUT, ivec2(matIdx, 1), 0);
-                                    float density = clamp(m1.r / 100.0, 0.01, 1.0);
-                                    float att = exp(-density * 0.45 * dt);
-                                    transmittance *= att;
-                                    vec3 vividTint = extractFilterTint(voxel.rgb);
+                                    totalOpticalDepth += vec3(cachedCloudRate * dt);
                                     if (!hasSurfaceTint) {
-                                        filterColor = vividTint;
+                                        filterColor = cachedVividTint;
                                         hasSurfaceTint = true;
                                         lastLayerRgb = voxel.rgb;
                                     } else if (distance(voxel.rgb, lastLayerRgb) > 0.03) {
-                                        filterColor = combineOpticalFilters(filterColor, vividTint);
+                                        filterColor = combineOpticalFilters(filterColor, cachedVividTint);
                                         lastLayerRgb = voxel.rgb;
                                     }
-                                    if (max(transmittance.r, max(transmittance.g, transmittance.b)) < 0.01) return vec3(0.0);
+                                    if (min(totalOpticalDepth.r, min(totalOpticalDepth.g, totalOpticalDepth.b)) > 4.6) return vec3(0.0);
                                 }
                                 else if (mType > 5.5) {
-                                    vec3 vividTint = extractFilterTint(voxel.rgb);
                                     if (!hasSurfaceTint) {
-                                        filterColor = vividTint;
+                                        filterColor = cachedVividTint;
                                         hasSurfaceTint = true;
                                         lastLayerRgb = voxel.rgb;
                                     } else if (distance(voxel.rgb, lastLayerRgb) > 0.03) {
-                                        filterColor = combineOpticalFilters(filterColor, vividTint);
+                                        filterColor = combineOpticalFilters(filterColor, cachedVividTint);
                                         lastLayerRgb = voxel.rgb;
                                     }
                                 }
@@ -9416,7 +9488,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                             break;
                         }
                     }
-                    return transmittance * filterColor;
+                    return transmittance * exp(-totalOpticalDepth) * filterColor;
                 }
 
                 vec3 gGodrayColor = vec3(1.0);
@@ -9467,7 +9539,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                             vec4 m0 = texelFetch(tMaterialLUT, ivec2(matIdx, 0), 0);
                             float mType = m0.r;
 
-                            // Thoát sớm ngay nếu gặp khối cản sáng (Diffuse, Metal, hoặc Emit thường không phải LightSource)
                             if (mType < 1.5 || (mType > 4.5 && mType < 5.5)) return 0.0;
 
                             bool isNewColorLayer = (distance(vox.rgb, lastLayerRgb) > 0.03);
@@ -9625,7 +9696,11 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                         mask = abs(vec3(boxNormNear.x, boxNormNear.z, boxNormNear.y));
                     }
 
+                    int lastMatIdx = -1;
+                    float mType = 0.0;
+                    float cloudDens = 0.5;
                     int maxSteps = gridDims.x + gridDims.y + gridDims.z;
+
                     for (int i = 0; i < 768; i++) {
                         if (i >= maxSteps || tStart > tLimit) break;
 
@@ -9636,14 +9711,18 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
                         if (voxel.a > 0.002) {
                             int matIdx = int(floor(voxel.a * 255.0 + 0.5));
-                            vec4 m0 = texelFetch(tMaterialLUT, ivec2(matIdx, 0), 0);
-                            float mType = m0.r;
+                            if (matIdx != lastMatIdx) {
+                                vec4 m0 = texelFetch(tMaterialLUT, ivec2(matIdx, 0), 0);
+                                mType = m0.r;
+                                if (mType > 2.5 && mType < 3.5) {
+                                    cloudDens = clamp(texelFetch(tMaterialLUT, ivec2(matIdx, 1), 0).r / 100.0, 0.01, 1.0);
+                                }
+                                lastMatIdx = matIdx;
+                            }
 
                             if (mType > 2.5 && mType < 3.5) {
-                                vec4 m1 = texelFetch(tMaterialLUT, ivec2(matIdx, 1), 0);
                                 float dt = max(0.001, tNext - tStart);
-                                float density = clamp(m1.r / 100.0, 0.01, 1.0);
-                                float probScatter = 1.0 - exp(-density * 0.55 * dt);
+                                float probScatter = 1.0 - exp(-cloudDens * 0.55 * dt);
 
                                 if (rand(seed) < probScatter) {
                                     float tScatter = tStart + rand(seed) * dt;
@@ -9727,8 +9806,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     float totalRayDist = 0.0;
                     bool foundSolidPrimary = false;
 
-                    // Giữ nguyên 4 bounces
+                    // Dùng điều kiện động uMaxBounces để chặn ANGLE unroll nhân bản mã máy
                     for (int bounce = 0; bounce < 4; bounce++) {
+                        if (bounce >= uMaxBounces) break;
                         vec3 hitNormal, hitPos;
                         vec4 hitColor;
                         bool isVolume = false;
@@ -9753,7 +9833,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                             bool isBlend = (mType > 3.5 && mType < 4.5);
                             bool isEmit  = (mType > 4.5);
 
-                            // Lấy thông số vật liệu riêng biệt của đúng ô màu matIdx (1..255)
                             float matRough    = clamp(m0.g, 0.0, 1.0);
                             float matIOR      = max(1.0, m0.b);
                             float matTrans    = clamp(m0.a, 0.0, 1.0);
@@ -9767,7 +9846,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                             float metalSpecular = isMetal ? matSpecular : 1.0;
                             float metalIOR      = isMetal ? matIOR : 1.5;
 
-                            // Phản xạ Fresnel chuẩn MagicaVoxel (dùng đa thức Schlick nhanh thay cho pow)
                             float rRatio = (metalIOR - 1.0) / (metalIOR + 1.0);
                             float R0_diel = rRatio * rRatio;
                             float F0_diel = clamp(R0_diel * metalSpecular, 0.0, 1.0);
@@ -9793,7 +9871,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                 throughput *= exp(-absorb * distInGlass);
                             }
 
-                            // A. KHỐI EMIT PHÁT SÁNG (CƠ CHẾ LDR & HDR CHUẨN MAGICAVOXEL)
                             if (isEmit) {
                                 vec3 emitBaseColor = albedo;
                                 
@@ -9834,7 +9911,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                 break;
                             }
 
-                            // B. NGUỒN SÁNG EMIT (CHIẾU SÁNG MẶT SÀN VÀ CÁC ĐIM XUNG QUANH CHUẨN MAGICAVOXEL)
                             if (diffuseWeight > 0.001 && uNumEmitLights > 0) {
                                 int li = int(rand(seed) * float(uNumEmitLights));
                                 li = clamp(li, 0, uNumEmitLights - 1);
@@ -9861,7 +9937,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     sampleLightPos.y = mix(lMin.y, lMax.y, r1 + 0.5);
                                     sampleLightPos.z = mix(lMin.z, lMax.z, r2 + 0.5);
                                     faceArea = lSize.y * lSize.z;
-                                    
                                 } else if (aOffset.y >= aOffset.x && aOffset.y >= aOffset.z) {
                                     float s = (offset.y >= 0.0) ? 1.0 : -1.0;
                                     lightFaceNorm = vec3(0.0, s, 0.0);
@@ -9907,7 +9982,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                 }
                             }
 
-                            // C. ÁNH SÁNG MẶT TRỜI TRỰC TIẾP (KHUẾCH TÁN + PHẢN XẠ KIM LOẠI/GƯƠNG)
                             if (uSunInt > 0.01) {
                                 float shadowJitter = (uSunArea > 0.0) ? (uSunArea * 0.0008) : 0.0;
                                 vec3 jitterSun = (shadowJitter > 0.0) 
@@ -9958,7 +10032,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                 }
                             }
 
-                            // D. PHẢN XẠ & KHÚC XẠ BƯỚC TIẾP THEO (ĐỘC LẬP TỪNG Ô MÀU)
                             if (isVolume) {
                                 vec3 randDir = sampleSphere(seed);
                                 rd = (abs(matPhase) > 0.02) ? normalize(randDir + rd * matPhase * 1.2) : randDir;
@@ -9996,10 +10069,12 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     if (roughness > 0.001) {
                                         refr = normalize(refr + sampleSphere(seed) * (roughness * 0.12));
                                     }
-
+//////////////////////////////////////////////////////////////////////
+                                    int curGlassIdx = matIdx;
                                     vec3 curAlbedo = albedo;
                                     float curDensityNorm = clamp(matDensity / 100.0, 0.0, 1.0);
-                                    vec3 attenGlass = vec3(1.0);
+                                    vec3 curStepAbsorb = -log(max(curAlbedo, vec3(0.01))) * (curDensityNorm * 1.15);
+                                    vec3 totalGlassOpticalDepth = vec3(0.0);
 
                                     vec3 curPosIn = hitPos + refr * 0.002;
                                     vec3 boxMinIn = vec3(-uGridSize.x * 0.5, 0.0, -uGridSize.y * 0.5);
@@ -10031,8 +10106,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                         if (refr.y < -0.0001 && curPosIn.y > 0.0) {
                                             float tFl = -curPosIn.y / refr.y;
                                             if (tFl > 0.0 && tFl <= dtStep) {
-                                                vec3 stepAbsorb = -log(max(curAlbedo, vec3(0.01))) * (curDensityNorm * 1.15);
-                                                attenGlass *= exp(-stepAbsorb * tFl);
+                                                totalGlassOpticalDepth += curStepAbsorb * tFl;
                                                 dGlass += tFl;
                                                 curPosIn += refr * tFl;
                                                 hitFloorInside = true;
@@ -10040,8 +10114,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                             }
                                         }
 
-                                        vec3 stepAbsorb = -log(max(curAlbedo, vec3(0.01))) * (curDensityNorm * 1.15);
-                                        attenGlass *= exp(-stepAbsorb * dtStep);
+                                        totalGlassOpticalDepth += curStepAbsorb * dtStep;
                                         dGlass += dtStep;
                                         curPosIn += refr * dtStep;
                                         sideDistIn -= vec3(dtStep);
@@ -10054,11 +10127,17 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                             vec4 vNext = texelFetch(tVoxelGrid, nextMapPos, 0);
                                             if (vNext.a > 0.002) {
                                                 int nextIdx = int(floor(vNext.a * 255.0 + 0.5));
-                                                vec4 m0Next = texelFetch(tMaterialLUT, ivec2(nextIdx, 0), 0);
-                                                if (m0Next.r > 1.5 && m0Next.r < 2.5) {
+                                                if (nextIdx == curGlassIdx) {
                                                     nextIsGlass = true;
-                                                    curAlbedo = pow(vNext.rgb, vec3(2.2));
-                                                    curDensityNorm = clamp(texelFetch(tMaterialLUT, ivec2(nextIdx, 1), 0).r / 100.0, 0.0, 1.0);
+                                                } else {
+                                                    vec4 m0Next = texelFetch(tMaterialLUT, ivec2(nextIdx, 0), 0);
+                                                    if (m0Next.r > 1.5 && m0Next.r < 2.5) {
+                                                        nextIsGlass = true;
+                                                        curGlassIdx = nextIdx;
+                                                        curAlbedo = pow(vNext.rgb, vec3(2.2));
+                                                        curDensityNorm = clamp(texelFetch(tMaterialLUT, ivec2(nextIdx, 1), 0).r / 100.0, 0.0, 1.0);
+                                                        curStepAbsorb = -log(max(curAlbedo, vec3(0.01))) * (curDensityNorm * 1.15);
+                                                    }
                                                 }
                                             }
                                         }
@@ -10092,7 +10171,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                         }
                                     }
 
-                                    throughput *= attenGlass;
+                                    throughput *= exp(-totalGlassOpticalDepth);
+									
+									
                                     totalRayDist += dGlass;
 
                                     if (hitFloorInside) {
@@ -10171,10 +10252,12 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     if (roughness > 0.001) {
                                         refr = normalize(refr + sampleSphere(seed) * (roughness * 0.15));
                                     }
-
+////////////////////////////////////////////////////////////////////
+                                    int curBlendIdx = matIdx;
                                     vec3 curAlbedo = albedo;
                                     float curDensityNorm = clamp(matDensity / 100.0, 0.0, 1.0);
-                                    vec3 attenBlend = vec3(1.0);
+                                    vec3 curStepAbsorb = -log(max(curAlbedo, vec3(0.01))) * (curDensityNorm * 1.15);
+                                    vec3 totalBlendOpticalDepth = vec3(0.0);
 
                                     vec3 pIn = hitPos + refr * 0.002;
                                     float tFloorIn = (refr.y < -0.0001) ? (-pIn.y / refr.y) : -1.0;
@@ -10213,18 +10296,21 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                             vec4 vIn = texelFetch(tVoxelGrid, mapPosIn, 0);
                                             if (vIn.a <= 0.002) break;
                                             int nextIdx = int(floor(vIn.a * 255.0 + 0.5));
-                                            vec4 m0In = texelFetch(tMaterialLUT, ivec2(nextIdx, 0), 0);
-                                            if (m0In.r < 3.5 || m0In.r > 4.5) break;
-                                            curAlbedo = pow(vIn.rgb, vec3(2.2));
-                                            curDensityNorm = clamp(texelFetch(tMaterialLUT, ivec2(nextIdx, 1), 0).r / 100.0, 0.0, 1.0);
+                                            if (nextIdx != curBlendIdx) {
+                                                vec4 m0In = texelFetch(tMaterialLUT, ivec2(nextIdx, 0), 0);
+                                                if (m0In.r < 3.5 || m0In.r > 4.5) break;
+                                                curBlendIdx = nextIdx;
+                                                curAlbedo = pow(vIn.rgb, vec3(2.2));
+                                                curDensityNorm = clamp(texelFetch(tMaterialLUT, ivec2(nextIdx, 1), 0).r / 100.0, 0.0, 1.0);
+                                                curStepAbsorb = -log(max(curAlbedo, vec3(0.01))) * (curDensityNorm * 1.15);
+                                            }
                                         }
 
                                         vec3 maskIn = step(sideDistIn.xyz, sideDistIn.yzx) * step(sideDistIn.xyz, sideDistIn.zxy);
                                         float minS = min(min(sideDistIn.x, sideDistIn.y), sideDistIn.z);
                                         float dtStep = max(0.0, minS - tTravel);
 
-                                        vec3 stepAbsorb = -log(max(curAlbedo, vec3(0.01))) * (curDensityNorm * 1.15);
-                                        attenBlend *= exp(-stepAbsorb * dtStep);
+                                        totalBlendOpticalDepth += curStepAbsorb * dtStep;
 
                                         dBlend += dtStep;
                                         tTravel = minS;
@@ -10238,7 +10324,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     vec3 rN = vec3(nG.x, nG.z, nG.y);
                                     vec3 outNorm = (dot(rN, rN) > 0.01) ? normalize(rN) : refr;
 
-                                    throughput *= attenBlend;
+                                    throughput *= exp(-totalBlendOpticalDepth);
+									
+									
                                     totalRayDist += dBlend;
 
                                     vec3 exitPos = pIn + refr * tTravel;
@@ -10266,7 +10354,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                 throughput *= albedo;
                             }
 
-                            // Russian Roulette: Cắt tia sớm sau bounce 2 nếu năng lượng quá nhỏ
                             if (bounce >= 2) {
                                 float p = max(throughput.r, max(throughput.g, throughput.b));
                                 if (p < 0.02) break;
@@ -10290,7 +10377,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                         }
                     }
 
-                    // TÍNH VOLUMETRIC GODRAY (ĐỔI MÀU THEO EMIT / GLASS / BLEND KHI XUYÊN QUA)
                     if (uSunGodray > 0.5 && uSunInt > 0.01 && uGodrayDensity > 0.001) {
                         float tGrNear, tGrFar;
                         float grMaxDist = (primaryHitDist > 0.0) ? primaryHitDist : 10000.0;
@@ -10346,7 +10432,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                         }
                     }
 
-                    // ÁP DỤNG FOG ĐỒNG BỘ CHO P-TRACING
                     if (uFogEnabled > 0.5 && uFogDensity > 0.01) {
                         float d = (primaryHitDist > 0.0) ? primaryHitDist : 250.0;
                         float actualFogDensity = (uFogDensity / 100.0) * 0.001925;
@@ -10354,12 +10439,18 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                         vec3 fogColLinear = pow(uFogCol, vec3(2.2));
                         radiance = mix(radiance, fogColLinear, clamp(fogFactor, 0.0, 1.0));
                     }
+
+                    if (uMixRatio > 0.0) {
+                        vec3 prevAcc = texelFetch(tAccum, ivec2(pixel), 0).rgb;
+                        radiance = mix(radiance, prevAcc, uMixRatio);
+                    }
                     
                     pc_fragColor = vec4(radiance, 1.0);
                 }
             `
         });
     }
+                
 
 	function initPingPongTargets(width, height) {
         const needsRecreate = !AppState.renderTargetA || 
@@ -10513,12 +10604,40 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             AppState.displaySceneQuad = new THREE.Scene();
             AppState.displaySceneQuad.add(dispQuad);
         }
-        updateFilterUniforms();
+		///////////////////////////////////////////////////////
+       updateFilterUniforms();
+
+        // Pre-compile (biên dịch sẵn) Shader P-Tracing ngay khi khởi tạo để bấm P-Tracing lần đầu không bị đơ
+        if (!AppState.ptShaderPrecompiled && AppState.renderer && pathTraceScene && AppState. displaySceneQuad) {
+            AppState.ptShaderPrecompiled = true;
+            if (!materialLUTTexture) updateMaterialLUTTexture();
+            if (!voxel3DTexture) {
+                voxel3DTexture = new THREE.Data3DTexture(new Uint8Array(4 * 4 * 4 * 4), 4, 4, 4);
+                voxel3DTexture.format = THREE.RGBAFormat;
+                voxel3DTexture.type = THREE.UnsignedByteType;
+                voxel3DTexture.minFilter = THREE.NearestFilter;
+                voxel3DTexture.magFilter = THREE.NearestFilter;
+                voxel3DTexture.unpackAlignment = 1;
+                voxel3DTexture.needsUpdate = true;
+                AppState.needsVoxelTextureUpdate = true;
+            }
+            pathTraceMaterial.uniforms.tVoxelGrid.value = voxel3DTexture;
+            pathTraceMaterial.uniforms.tMaterialLUT.value = materialLUTTexture;
+            pathTraceMaterial.uniforms.tAccum.value = AppState.renderTargetA.texture;
+            AppState.displayMaterial.uniforms.tInput.value = AppState.renderTargetB.texture;
+            AppState.renderer.compile(pathTraceScene, AppState.renderOrthoCam);
+            AppState.renderer.compile(AppState.displaySceneQuad, AppState.renderOrthoCam);
+        }
     }
-//////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////
-	function processRenderFrame() {
+
+    let lastPtFrameTimestamp = 0;
+
+    function processRenderFrame() {
         if (AppState.renderMode !== 'pathtrace') return;
+
+        const nowTime = performance.now();
+        const frameDelta = nowTime - lastPtFrameTimestamp;
+        lastPtFrameTimestamp = nowTime;
 
         const width = AppState.resolutionWidth;
         const height = AppState.resolutionHeight;
@@ -10560,12 +10679,12 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             return;
         }
 
-        // Cập nhật các Uniform tĩnh 1 lần duy nhất ở đầu mỗi Frame
         if (pathTraceMaterial) {
             if (!materialLUTTexture) updateMaterialLUTTexture();
             pathTraceMaterial.uniforms.tVoxelGrid.value = voxel3DTexture;
             pathTraceMaterial.uniforms.tMaterialLUT.value = materialLUTTexture;
             pathTraceMaterial.uniforms.uResolution.value.set(width, height);
+            pathTraceMaterial.uniforms.uMaxBounces.value = 4;
 
             if (AppState.ptGridSize) {
                 pathTraceMaterial.uniforms.uGridSize.value.copy(AppState.ptGridSize);
@@ -10615,11 +10734,15 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             pathTraceMaterial.uniforms.uSkyEnabled.value = AppState.sky.enabled ? 1.0 : 0.0;
         }
 
-        // Chạy gom nhiều Sample trong ngân sách 10ms mỗi frame khi Camera đứng yên (Frame 0 luôn chạy 1 sample để xoay mượt tức thì)
-        const startFrameTime = performance.now();
-        const maxSamplesThisTick = (AppState.accumulatedFrames === 0) ? 1 : 4;
-        let samplesDone = 0;
+        // Tự động điều phối số Sample mỗi frame theo tải thực tế của GPU (frameDelta)
+        let maxSamplesThisTick = 1;
+        if (AppState.accumulatedFrames > 0) {
+            if (frameDelta < 14.0) maxSamplesThisTick = 3;
+            else if (frameDelta < 22.0) maxSamplesThisTick = 2;
+            else maxSamplesThisTick = 1;
+        }
 
+        let samplesDone = 0;
         while (samplesDone < maxSamplesThisTick && AppState.accumulatedFrames < AppState.maxRenderFrames) {
             if (AppState.sampleOptions.aa && AppState.camera.setViewOffset) {
                 const jx = (Math.random() - 0.5) * 0.75;
@@ -10644,25 +10767,21 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 }
             }
 
+            const mixRatio = (AppState.accumulatedFrames === 0) ? 0.0 : (AppState.accumulatedFrames / (AppState.accumulatedFrames + 1.0));
             if (pathTraceMaterial) {
                 pathTraceMaterial.uniforms.uFrameSeed.value = Math.random();
                 pathTraceMaterial.uniforms.uProjInverse.value.copy(AppState.camera.projectionMatrixInverse);
+                pathTraceMaterial.uniforms.tAccum.value = AppState.renderTargetA.texture;
+                pathTraceMaterial.uniforms.uMixRatio.value = mixRatio;
             }
 
-            AppState.renderer.setRenderTarget(AppState.renderTargetCurrent);
+            // Vẽ và tích lũy trực tiếp vào renderTargetB chỉ trong 1 Render Pass duy nhất
+            AppState.renderer.setRenderTarget(AppState.renderTargetB);
             AppState.renderer.render(pathTraceScene, AppState.renderOrthoCam);
 
             if (AppState.camera.clearViewOffset) {
                 AppState.camera.clearViewOffset();
             }
-
-            AppState.renderer.setRenderTarget(AppState.renderTargetB);
-            AppState.mixMaterial.uniforms.tCurrent.value = AppState.renderTargetCurrent.texture;
-            AppState.mixMaterial.uniforms.tAccum.value = AppState.renderTargetA.texture;
-
-            const mixRatio = (AppState.accumulatedFrames === 0) ? 0.0 : (AppState.accumulatedFrames / (AppState.accumulatedFrames + 1.0));
-            AppState.mixMaterial.uniforms.mixRatio.value = mixRatio;
-            AppState.renderer.render(AppState.renderSceneQuad, AppState.renderOrthoCam);
 
             AppState.latestAccumTarget = AppState.renderTargetB;
 
@@ -10672,8 +10791,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
             AppState.accumulatedFrames++;
             samplesDone++;
-
-            if (performance.now() - startFrameTime > 10.0) break;
         }
 
         const txt = document.getElementById('render-status-text');
@@ -10691,7 +10808,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             }
         }
 
-        // Chỉ vẽ hậu kỳ ACES + Bloom ra màn hình 1 lần duy nhất ở cuối mỗi Frame
         drawAccumulationToScreen();
     }
 
