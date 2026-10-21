@@ -1328,18 +1328,20 @@
             AppState.scene.environment = null;
             if (AppState.renderer) AppState.renderer.toneMappingExposure = 1.0;
 
-            // Mặt sàn tối màu để hứng bóng đổ tự nhiên, không bị ám màu Sky/Fog
+            // Mặt sàn tối màu vừa phải để hứng bóng đổ nhẹ tự nhiên, khớp với nền #282828
             if (AppState.groundPlane && AppState.groundPlane.material) {
-                AppState.groundPlane.material.color.setHex(0x282828);
+                AppState.groundPlane.material.color.setHex(0x1f1f23);
                 AppState.groundPlane.material.needsUpdate = true;
             }
 
-            // Ánh sáng môi trường trung tính giúp các mặt tối có chiều sâu mà không bị ám màu
+            // Ánh sáng môi trường trung tính độ sáng cao giúp mặt dưới chỉ tối hơn một chút và giữ rõ màu gốc
             if (AppState.hemiLight) {
                 AppState.hemiLight.color.setHex(0xffffff);
-                AppState.hemiLight.groundColor.setHex(0x383842);
-                AppState.hemiLight.intensity = 0.65;
+                AppState.hemiLight.groundColor.setHex(0xc8c8d0);
+                AppState.hemiLight.intensity = 0.45;
             }
+			
+			
         } else {
 		
 		
@@ -1780,7 +1782,9 @@ function setupSkyControls() {
 
     function updateSunPosition() {
         if (!AppState.dirLight) return;
-        const pitchRad = (AppState.sun.pitch * Math.PI) / 180;
+        const truePitchRad = (AppState.sun.pitch * Math.PI) / 180;
+        const previewPitchRad = (Math.max(20, AppState.sun.pitch) * Math.PI) / 180;
+        const activePitchRad = (AppState.renderMode === 'preview') ? previewPitchRad : truePitchRad;
         const yawRad = (AppState.sun.yaw * Math.PI) / 180;
         
         // Tự động mở rộng bán kính chiếu sáng theo kích thước mô hình để bóng không bị cắt cụt
@@ -1788,17 +1792,17 @@ function setupSkyControls() {
         const distance = Math.max(160, maxDim * 2.2);
 
         AppState.dirLight.position.set(
-            distance * Math.cos(pitchRad) * Math.sin(yawRad),
-            distance * Math.sin(pitchRad),
-            distance * Math.cos(pitchRad) * Math.cos(yawRad)
+            distance * Math.cos(activePitchRad) * Math.sin(yawRad),
+            distance * Math.sin(activePitchRad),
+            distance * Math.cos(activePitchRad) * Math.cos(yawRad)
         );
 		
         if (AppState.renderMode === 'preview') {
-            // Ở PREVIEW: Hướng bóng vẫn xoay theo Pitch/Yaw, nhưng màu nắng luôn là trắng tinh và cường độ chuẩn cố định
-            AppState.dirLight.intensity = 1.75;
+            // Ở PREVIEW: Dùng cường độ nắng nhẹ 0.55 để tạo shadow dịu nhẹ, không làm tối các mặt khuất nắng
+            AppState.dirLight.intensity = 0.75;
             AppState.dirLight.color.setHex(0xffffff);
             if (AppState.dirLight.shadow) {
-                AppState.dirLight.shadow.radius = 1.0; // Bóng đổ sắc nét chuẩn MagicaVoxel
+                AppState.dirLight.shadow.radius = 1.5;
             }
         } else {
             // Ở P-TRACING: Dùng màu nắng và cường độ người dùng chỉnh trong Settings
@@ -1810,14 +1814,21 @@ function setupSkyControls() {
         }
 
         if (AppState.dirLight.userData) {
+            const truePos = new THREE.Vector3(
+                distance * Math.cos(truePitchRad) * Math.sin(yawRad),
+                distance * Math.sin(truePitchRad),
+                distance * Math.cos(truePitchRad) * Math.cos(yawRad)
+            );
             if (!AppState.dirLight.userData.basePos) {
-                AppState.dirLight.userData.basePos = AppState.dirLight.position.clone();
+                AppState.dirLight.userData.basePos = truePos;
             } else {
-                AppState.dirLight.userData.basePos.copy(AppState.dirLight.position);
+                AppState.dirLight.userData.basePos.copy(truePos);
             }
         }
         if (AppState.isRendering) AppState.needsAccumulationReset = true;
     }
+	
+	
 
 	function updateControlsConfiguration() {
 		if (!AppState.controls) return;
@@ -2042,11 +2053,12 @@ function setupSkyControls() {
         updateSunPosition();
 
         AppState.previewLightGroup = new THREE.Group();
-        const pAmbient = new THREE.AmbientLight(0xffffff, 0.85);
-        const pKey = new THREE.DirectionalLight(0xffffff, 0.5);
-        pKey.position.set(-30, 60, -40);
-        AppState.previewLightGroup.add(pAmbient, pKey);
+        const pAmbient = new THREE.AmbientLight(0xffffff, 0.9);
+        const pKey = new THREE.DirectionalLight(0xffffff, 0.3);
+        pKey.position.set(20, -120, 20);
+        AppState.previewLightGroup.add(pAmbient, pKey, pKey.target);
         AppState.scene.add(AppState.previewLightGroup);
+		
 
         const groundGeo = new THREE.PlaneGeometry(3000, 3000);
         // Tìm đoạn: const groundMat = new THREE.MeshStandardMaterial(...)
@@ -7525,18 +7537,18 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             density: 79, phase: 0.0, blendAlpha: 0.6
         };
 
-        // Khi ở chế độ PREVIEW: Luôn hiển thị màu cơ bản chuẩn MagicaVoxel, không hiển thị chất liệu
+        // Khi ở chế độ PREVIEW: Luôn hiển thị màu cơ bản rõ nét, ít bị ảnh hưởng bởi ánh sáng gắt
         if (AppState.renderMode === 'preview') {
             return {
                 color: props.color.clone(),
-                roughness: 0.85,
+                roughness: 0.90,
                 metalness: 0.0,
-                reflectivity: 0.1,
+                reflectivity: 0.0,
                 clearcoat: 0.0,
                 transparent: false,
                 opacity: 1.0,
-                emissive: new THREE.Color(0x000000),
-                emissiveIntensity: 0.0
+                emissive: props.color.clone(),
+                emissiveIntensity: 0.15
             };
         }
 
@@ -7818,10 +7830,11 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         }
         
         // Điều chỉnh đèn Preview KeyLight luôn đặt trên cao chiếu xuống tâm phòng
+        // Điều chỉnh đèn phụ Preview chiếu nhẹ từ phía dưới lên để mặt dưới luôn rõ màu, chỉ tối hơn mặt trên một chút
         if (AppState.previewLightGroup) {
             const pKey = AppState.previewLightGroup.children.find(c => c.isDirectionalLight);
             if (pKey) {
-                pKey.position.set(-maxDim * 0.9, maxDim * 1.6, -maxDim * 0.9);
+                pKey.position.set(maxDim * 0.25, -maxDim * 1.6, maxDim * 0.25);
                 pKey.target.position.set(0, size.z * 0.4, 0);
                 pKey.target.updateMatrixWorld();
             }
@@ -8355,9 +8368,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             if (AppState.skyMesh) AppState.skyMesh.visible = false;
             AppState.scene.fog = null;
 
-            AppState.scene.background = new THREE.Color(0x282828);
+           AppState.scene.background = new THREE.Color(0x282828);
             if (AppState.groundPlane && AppState.groundPlane.material) {
-                AppState.groundPlane.material.color.setHex(0x282828);
+                AppState.groundPlane.material.color.setHex(0x1f1f23);
                 AppState.groundPlane.material.needsUpdate = true;
             }
 
@@ -8366,14 +8379,16 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
             if (AppState.dirLight) {
                 AppState.dirLight.visible = true;
-                AppState.dirLight.castShadow = true;
+                AppState.dirLight.castShadow = AppState.sampleOptions.shadow;
                 AppState.dirLight.shadow.bias = -0.0005;
                 AppState.dirLight.shadow.mapSize.width = 2048;
                 AppState.dirLight.shadow.mapSize.height = 2048;
             }
 
-            if (AppState.previewLightGroup) AppState.previewLightGroup.visible = false;
+            if (AppState.previewLightGroup) AppState.previewLightGroup.visible = true;
             if (AppState.dynamicEmitLightsGroup) AppState.dynamicEmitLightsGroup.visible = false;
+			
+			
 
             AppState.scene.environment = null;
             AppState.renderer.toneMappingExposure = 1.0;
