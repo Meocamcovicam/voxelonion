@@ -1018,18 +1018,20 @@
                             <h3 class="text-[10px] uppercase tracking-widest font-bold text-gray-400">Resolution & Samples</h3>
                             <button id="btn-fit-screen" class="text-[10px] font-bold text-blue-400 hover:text-blue-300 underline">Fit Screen</button>
                         </div>
+						
                         <div class="flex justify-between items-center">
-                            <label class="text-xs text-gray-300 font-bold">Samples / Frame:</label>
+                            <label class="text-xs text-gray-300 font-bold">Samples / Pixel:</label>
                             <input type="number" id="render-samples" value="64" min="1" max="4096" class="text-right">
                         </div>
                         <div class="flex justify-between items-center">
                             <label class="text-xs text-gray-300 font-bold">Width (px):</label>
-                            <input type="number" id="render-width" value="1280" min="128" max="4096" class="text-right">
+                            <input type="number" id="render-width" value="1000" min="128" max="4096" class="text-right">
                         </div>
                         <div class="flex justify-between items-center">
                             <label class="text-xs text-gray-300 font-bold">Height (px):</label>
-                            <input type="number" id="render-height" value="720" min="128" max="4096" class="text-right">
+                            <input type="number" id="render-height" value="1000" min="128" max="4096" class="text-right">
                         </div>
+						
                     </div>
                     
                     <button id="btn-export-img" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 rounded-lg text-xs shadow-lg transition-colors flex items-center justify-center gap-2">
@@ -1305,10 +1307,16 @@
         accumulatedFrames: 0,
         maxRenderFrames: 64,
         needsAccumulationReset: false,
+        needsVoxelTextureUpdate: true,
+        needsEmitLightUpdate: true,
         needsCubeMapUpdate: true,
-        isCustomResolution: false,
-        resolutionWidth: window.innerWidth,
-        resolutionHeight: window.innerHeight
+        isCameraMoving: false,
+        lastCameraMoveTime: 0,
+        renderTargetInteractive: null,
+        isCustomResolution: window.innerWidth >= 1024,
+        userModifiedResolution: false,
+        resolutionWidth: window.innerWidth >= 1024 ? 800 : window.innerWidth,
+        resolutionHeight: window.innerWidth >= 1024 ? 800 : window.innerHeight
     };
 
     function showToast(message, type = 'error', force = false) {
@@ -6147,10 +6155,10 @@ function setupSkyControls() {
               initPingPongTargets(w, h);
           }
       } else {
-          // Chế độ P-Tracing với khung kích thước tùy chỉnh (Co bé hoặc phóng to theo đúng số đã Enter)
+          // Chế độ P-Tracing với khung kích thước tùy chỉnh (Mặc định 1000x1000 trên PC hoặc theo số đã nhập)
           AppState.isCustomResolution = true;
-          const rw = Math.max(64, Math.min(4096, AppState.resolutionWidth || 1280));
-          const rh = Math.max(64, Math.min(4096, AppState.resolutionHeight || 720));
+          const rw = Math.max(64, Math.min(4096, AppState.resolutionWidth || 1000));
+          const rh = Math.max(64, Math.min(4096, AppState.resolutionHeight || 1000));
           AppState.resolutionWidth = rw;
           AppState.resolutionHeight = rh;
 
@@ -9043,6 +9051,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         updateLayerTransformGizmoAndBoxes();
         AppState.needsCubeMapUpdate = true;
         AppState.needsVoxelTextureUpdate = true;
+        AppState.needsEmitLightUpdate = true;
         if (AppState.isRendering) AppState.needsAccumulationReset = true;
     }
 
@@ -9330,8 +9339,16 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
         if (settings.renderConfig) {
             if (settings.renderConfig.samples) AppState.maxRenderFrames = parseInt(settings.renderConfig.samples);
-            if (settings.renderConfig.width) AppState.resolutionWidth = parseInt(settings.renderConfig.width);
-            if (settings.renderConfig.height) AppState.resolutionHeight = parseInt(settings.renderConfig.height);
+            if (settings.renderConfig.userModifiedResolution) {
+                AppState.userModifiedResolution = true;
+                AppState.isCustomResolution = !!settings.renderConfig.isCustomResolution;
+                if (settings.renderConfig.width) AppState.resolutionWidth = parseInt(settings.renderConfig.width);
+                if (settings.renderConfig.height) AppState.resolutionHeight = parseInt(settings.renderConfig.height);
+            } else if (window.innerWidth >= 1024) {
+                AppState.isCustomResolution = true;
+                AppState.resolutionWidth = 800;
+                AppState.resolutionHeight = 800;
+            }
             safeSetVal('render-samples', AppState.maxRenderFrames);
             safeSetVal('render-width', AppState.resolutionWidth);
             safeSetVal('render-height', AppState.resolutionHeight);
@@ -9656,7 +9673,8 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
             statusOverlay.classList.add('is-visible');
             const txt = document.getElementById('render-status-text');
-            if (txt) txt.textContent = `P-Tracing: 0 / ${AppState.maxRenderFrames}`;
+			
+            if (txt) txt.textContent = `Samples: 0 / ${AppState.maxRenderFrames} SPP`;
 
             updateSkyboxColors();
             updateFog();
@@ -9835,6 +9853,8 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         if (!isNaN(valH)) AppState.resolutionHeight = Math.max(64, Math.min(4096, valH));
 
         AppState.isCustomResolution = true;
+        AppState.userModifiedResolution = true;
+		
         if (inputW) {
             inputW.dataset.custom = 'true';
             inputW.value = AppState.resolutionWidth;
@@ -10439,7 +10459,11 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 tAccum: { value: null },
                 uMixRatio: { value: 0.0 },
                 uMaxBounces: { value: 4 },
+				
+                uInteractiveMode: { value: 0.0 },
+                uSampleIndex: { value: 0.0 },
                 uNumLayerBoxes: { value: 1 },
+				
                 uLayerBoxMin: { value: uLayerBoxMin },
                 uLayerBoxMax: { value: uLayerBoxMax },
                 uGodrayBoxMin: { value: uGodrayBoxMin },
@@ -10521,6 +10545,8 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 uniform int uMaxBounces;
                 uniform vec3 uGridSize;
 
+                uniform float uInteractiveMode;
+                uniform float uSampleIndex;
                 uniform mat4 uProjInverse;
                 uniform mat4 uCamWorld;
                 uniform float uFrameSeed;
@@ -10592,6 +10618,22 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
                 float rand(inout uint seed) {
                     return float(pcg_hash(seed)) / 4294967295.0;
+                }
+
+                // Chuỗi Quasi-Monte Carlo R2 Low-Discrepancy kết hợp Cranley-Patterson rotation
+                // giúp mỗi Sample/Pixel phủ đều miền tích phân nhanh gấp đôi như MagicaVoxel
+                vec2 sampleR2(float sampleIdx, vec2 hashOffset) {
+                    return fract(hashOffset + sampleIdx * vec2(0.7548776662, 0.5698402910));
+                }
+
+                vec3 cosineWeightedHemisphereStratified(vec3 n, vec2 u) {
+                    float r = sqrt(u.x);
+                    float theta = 6.28318530718 * u.y;
+                    vec3 h = vec3(r * cos(theta), r * sin(theta), sqrt(max(0.0, 1.0 - u.x)));
+                    vec3 up = abs(n.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+                    vec3 tangent = normalize(cross(up, n));
+                    vec3 bitangent = cross(n, tangent);
+                    return normalize(tangent * h.x + bitangent * h.y + n * h.z);
                 }
 
                 vec3 sampleSphere(inout uint seed) {
@@ -10778,8 +10820,11 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
                     ivec3 gridDims = ivec3(uGridSize);
                     ivec3 mapPos = clamp(ivec3(floor(localPos)), ivec3(0), gridDims - ivec3(1));
+					
                     vec3 rdGrid = vec3(rd.x, rd.z, rd.y);
-                    vec3 deltaDist = abs(vec3(1.0) / max(abs(rdGrid), vec3(0.00001)));
+                    vec3 absRdGrid = max(abs(rdGrid), vec3(0.00001));
+					
+                    vec3 deltaDist = vec3(1.0) / absRdGrid;
 
                     vec3 raySign = sign(rdGrid);
                     raySign = vec3(raySign.x == 0.0 ? 1.0 : raySign.x, raySign.y == 0.0 ? 1.0 : raySign.y, raySign.z == 0.0 ? 1.0 : raySign.z);
@@ -10879,7 +10924,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                             mask = step(boxSide.xyz, boxSide.yzx) * step(boxSide.xyz, boxSide.zxy);
                             float minBoxSide = min(min(boxSide.x, boxSide.y), boxSide.z);
                             tStart = tBox + minBoxSide;
-                            vec3 adv = min(vec3(kSkip), floor(max(vec3(0.0), (minBoxSide - sideDist) / deltaDist)) + 1.0);
+							
+                            vec3 adv = min(vec3(kSkip), floor(max(vec3(0.0), (minBoxSide - sideDist) * absRdGrid)) + 1.0);
+							
                             if (minBoxSide < sideDist.x) adv.x = 0.0;
                             else if (sideDist.x + (adv.x - 1.0) * deltaDist.x > minBoxSide) adv.x -= 1.0;
                             if (minBoxSide < sideDist.y) adv.y = 0.0;
@@ -10944,7 +10991,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     ivec3 mapPos = clamp(ivec3(floor(localPos)), ivec3(0), gridDims - ivec3(1));
 
                     vec3 rdGrid = vec3(rd.x, rd.z, rd.y);
-                    vec3 deltaDist = abs(vec3(1.0) / max(abs(rdGrid), vec3(0.00001)));
+                    vec3 absRdGrid = max(abs(rdGrid), vec3(0.00001));
+                    vec3 deltaDist = vec3(1.0) / absRdGrid;
+					
                     vec3 raySign = sign(rdGrid);
                     raySign = vec3(raySign.x == 0.0 ? 1.0 : raySign.x, raySign.y == 0.0 ? 1.0 : raySign.y, raySign.z == 0.0 ? 1.0 : raySign.z);
                     ivec3 rayStep = ivec3(raySign);
@@ -11118,10 +11167,11 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     vec3 pStart = ro + rd * (tBox + 0.0001);
                     vec3 localPos = vec3(pStart.x - boxMin.x, pStart.z - boxMin.z, pStart.y - boxMin.y);
 
-                    ivec3 gridDims = ivec3(uGridSize);
+                   ivec3 gridDims = ivec3(uGridSize);
                     ivec3 mapPos = clamp(ivec3(floor(localPos)), ivec3(0), gridDims - ivec3(1));
                     vec3 rdGrid = vec3(rd.x, rd.z, rd.y);
-                    vec3 deltaDist = abs(vec3(1.0) / max(abs(rdGrid), vec3(0.00001)));
+                    vec3 absRdGrid = max(abs(rdGrid), vec3(0.00001));
+                    vec3 deltaDist = vec3(1.0) / absRdGrid;
 
                     vec3 raySign = sign(rdGrid);
                     raySign = vec3(raySign.x == 0.0 ? 1.0 : raySign.x, raySign.y == 0.0 ? 1.0 : raySign.y, raySign.z == 0.0 ? 1.0 : raySign.z);
@@ -11203,7 +11253,11 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                             mask = step(boxSide.xyz, boxSide.yzx) * step(boxSide.xyz, boxSide.zxy);
                             float minBoxSide = min(min(boxSide.x, boxSide.y), boxSide.z);
                             tStart = tBox + minBoxSide;
-                            vec3 adv = min(vec3(kSkip), floor(max(vec3(0.0), (minBoxSide - sideDist) / deltaDist)) + 1.0);
+							
+							
+                           vec3 adv = min(vec3(kSkip), floor(max(vec3(0.0), (minBoxSide - sideDist) * absRdGrid)) + 1.0);
+							
+							
                             if (minBoxSide < sideDist.x) adv.x = 0.0;
                             else if (sideDist.x + (adv.x - 1.0) * deltaDist.x > minBoxSide) adv.x -= 1.0;
                             if (minBoxSide < sideDist.y) adv.y = 0.0;
@@ -11242,8 +11296,15 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     uvec2 pixel = uvec2(gl_FragCoord.xy);
                     uint seed = pixel.x + pixel.y * 2048u + uint(uFrameSeed * 1000000.0) * 12582917u;
 
-                    vec2 jitter = (uEnableAA > 0.5) 
-                        ? vec2(rand(seed) - 0.5, rand(seed) - 0.5) / uResolution 
+///////////////////////////////////////
+						uint pixelBaseSeed = pixel.x * 1973u + pixel.y * 9277u + 89173u;
+                    vec2 pixelHash1 = vec2(rand(pixelBaseSeed), rand(pixelBaseSeed));
+                    vec2 pixelHash2 = vec2(rand(pixelBaseSeed), rand(pixelBaseSeed));
+                    vec2 pixelHash3 = vec2(rand(pixelBaseSeed), rand(pixelBaseSeed));
+
+                    vec2 aaSample = sampleR2(uSampleIndex, pixelHash1);
+                    vec2 jitter = (uEnableAA > 0.5 && uInteractiveMode < 0.5) 
+                        ? (aaSample - 0.5) / uResolution 
                         : vec2(0.0);
                     vec2 coord = (vUv + jitter) * 2.0 - 1.0;
 
@@ -11275,19 +11336,21 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
                     float firstSurfaceDist = -1.0;
                     vec3 postFirstGlassThroughput = vec3(1.0);
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-   bool isSpecularPath = true;
+                    bool isSpecularPath = true;
                     vec3 sunUp = abs(unitSunDir.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
                     vec3 sunTan = normalize(cross(sunUp, unitSunDir));
                     vec3 sunBitan = cross(unitSunDir, sunTan);
-/////////////////////////////////////////////////////////////////////////////////////////////////////
-					// Tính trước màu bầu trời Linear 1 lần duy nhất ngoài vòng lặp Bounce
+
                     vec3 skyHorizLinPre = (uSkyEnabled > 0.5) ? pow(uSkyHorizon, vec3(2.2)) : vec3(0.35, 0.38, 0.42);
                     vec3 skyZenithLinPre = (uSkyEnabled > 0.5) ? pow(uSkyZenith, vec3(2.2)) : vec3(0.22, 0.25, 0.30);
                     vec3 skyGroundLinPre = (uSkyEnabled > 0.5) ? pow(uSkyGround, vec3(2.2)) : vec3(0.12, 0.12, 0.14);
                     float effSkyIntPre = max(uSkyAmbientInt, uSunInt * 0.38);
 
-                    for (int bounce = 0; bounce < uMaxBounces; bounce++) {
+                    int activeMaxBounces = (uInteractiveMode > 0.5) ? 2 : uMaxBounces;
+
+                    for (int bounce = 0; bounce < activeMaxBounces; bounce++) {
+					
+					
                         vec3 hitNormal, hitPos;
                         vec4 hitColor;
                         bool isVolume = false;
@@ -11451,13 +11514,13 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     }
                                 }
                             }
+///////////////////////////////////////////////////////////////////////////////////////////////////////
 
-                            if (uSunInt > 0.01) {
+                           if (uSunInt > 0.01) {
                                 float shadowRadius = 0.022 + max(0.0, uSunArea) * 0.018;
-                                float uDisk1 = rand(seed);
-                                float uDisk2 = rand(seed);
-                                float rDisk = pow(uDisk1, 0.65) * shadowRadius;
-                                float phiDisk = 6.28318530718 * uDisk2;
+                                vec2 sunSample = (bounce == 0) ? sampleR2(uSampleIndex, pixelHash2) : vec2(rand(seed), rand(seed));
+                                float rDisk = pow(sunSample.x, 0.65) * shadowRadius;
+                                float phiDisk = 6.28318530718 * sunSample.y;
                                 vec3 jitterSun = normalize(unitSunDir + sunTan * (rDisk * cos(phiDisk)) + sunBitan * (rDisk * sin(phiDisk)));
 
                                 float NdotL = max(0.0, dot(hitNormal, jitterSun));
@@ -11504,22 +11567,31 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
                             // Lấy mẫu Vòm Trời Bán Cầu + Contact Ambient Occlusion (Sky NEE) chuẩn MagicaVoxel Path Tracing
                             if (diffuseWeight > 0.001 && !isVolume && bounce <= 1) {
-                                vec3 hemiDir = cosineWeightedHemisphere(hitNormal, seed);
-                                vec3 aoDir = normalize(hemiDir + vec3(0.0, 0.25, 0.0));
-                                float aoCos = max(0.0, dot(hitNormal, aoDir));
-                                if (aoCos > 0.01) {
-                                    float aoMaxDist = 14.0 + rand(seed) * 28.0;
-                                    vec3 aoVis = (uEnableShadow > 0.5)
-                                        ? shadowTraversal(hitPos + hitNormal * 0.04, aoDir, aoMaxDist, seed)
-                                        : vec3(1.0);
+                                if (uInteractiveMode > 0.5) {
+                                    // Khi đang xoay camera: tính nhanh ánh sáng vòm trời bán cầu không cần bắn tia AO phụ để xoay 60 FPS
+                                    vec3 skyDomeQuick = mix(skyGroundLinPre, skyZenithLinPre, clamp(hitNormal.y * 0.5 + 0.5, 0.0, 1.0));
+                                    radiance += throughput * albedo * skyDomeQuick * (effSkyIntPre * 0.34 * diffuseWeight);
+                                } else {
+                                    vec2 aoSample = (bounce == 0) ? sampleR2(uSampleIndex, pixelHash3) : vec2(rand(seed), rand(seed));
+                                    vec3 hemiDir = cosineWeightedHemisphereStratified(hitNormal, aoSample);
+                                    vec3 aoDir = normalize(hemiDir + vec3(0.0, 0.25, 0.0));
+                                    float aoCos = max(0.0, dot(hitNormal, aoDir));
+                                    if (aoCos > 0.01) {
+                                        float aoMaxDist = 14.0 + rand(seed) * 28.0;
+                                        bool nearModel = (hitPos.x >= uModelMin.x - aoMaxDist && hitPos.x <= uModelMax.x + aoMaxDist &&
+                                                          hitPos.z >= uModelMin.z - aoMaxDist && hitPos.z <= uModelMax.z + aoMaxDist);
+                                        vec3 aoVis = (uEnableShadow > 0.5 && nearModel)
+                                            ? shadowTraversal(hitPos + hitNormal * 0.04, aoDir, aoMaxDist, seed)
+                                            : vec3(1.0);
 
-                                    vec3 skyDomeCol = (aoDir.y >= 0.0)
-                                        ? mix(skyHorizLinPre, skyZenithLinPre, pow(clamp(aoDir.y, 0.0, 1.0), 0.65))
-                                        : mix(skyHorizLinPre, skyGroundLinPre, pow(clamp(-aoDir.y, 0.0, 1.0), 0.65));
+                                        vec3 skyDomeCol = (aoDir.y >= 0.0)
+                                            ? mix(skyHorizLinPre, skyZenithLinPre, pow(clamp(aoDir.y, 0.0, 1.0), 0.65))
+                                            : mix(skyHorizLinPre, skyGroundLinPre, pow(clamp(-aoDir.y, 0.0, 1.0), 0.65));
 
-                                    float aoWeight = isSpecularPath ? 0.46 : 0.28;
-                                    vec3 contactGradient = mix(vec3(0.16), vec3(1.0), aoVis);
-                                    radiance += throughput * albedo * skyDomeCol * (effSkyIntPre * aoWeight * aoCos * diffuseWeight) * contactGradient;
+                                        float aoWeight = isSpecularPath ? 0.46 : 0.28;
+                                        vec3 contactGradient = mix(vec3(0.16), vec3(1.0), aoVis);
+                                        radiance += throughput * albedo * skyDomeCol * (effSkyIntPre * aoWeight * aoCos * diffuseWeight) * contactGradient;
+                                    }
                                 }
                             }
                          
@@ -11964,6 +12036,35 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                 rd = cosineWeightedHemisphere(hitNormal, seed);
                                 throughput *= albedo;
                             }
+////////////////////////////////////////////////////////////////////////////////////////////////
+
+                          // Khi đang xoay camera (uInteractiveMode > 0.5) hoặc tia Diffuse đã lấy đủ GI 2-bounce (bounce >= 1):
+                            // kết thúc sớm tia Diffuse để tăng tốc gấp đôi mà vẫn giữ đủ 4 bounces cho Glass/Metal/Blend
+                            if (!isSpecularPath && (uInteractiveMode > 0.5 || bounce >= 1)) {
+                                if (uSkyEnabled > 0.5 && rd.y > 0.0) {
+                                    vec3 skyCol = mix(skyHorizLinPre, skyZenithLinPre, pow(clamp(rd.y, 0.0, 1.0), 0.7));
+                                    radiance += skyCol * (uSkyAmbientInt * 0.18) * throughput;
+                                }
+                                break;
+                            }
+
+                            // Nếu tia nảy thứ cấp hướng lên trên mặt sàn và không cắt hộp bao mô hình -> cộng luôn màu bầu trời và thoát sớm
+                            if (rd.y >= 0.0) {
+                                vec3 rdS = sign(rd);
+                                vec3 invD = rdS / max(abs(rd), vec3(0.00001));
+                                float tn, tf;
+                                vec3 nn;
+                                if (!intersectBoxFast(ro, rdS, invD, uModelMin, uModelMax, tn, tf, nn)) {
+                                    if (uSkyEnabled > 0.5) {
+                                        vec3 skyCol = mix(skyHorizLinPre, skyZenithLinPre, pow(clamp(rd.y, 0.0, 1.0), 0.7));
+                                        float skyBounceScale = isSpecularPath ? 0.85 : 0.42;
+                                        radiance += skyCol * (uSkyAmbientInt * skyBounceScale) * throughput;
+                                    } else {
+                                        radiance += vec3(0.015, 0.015, 0.018) * throughput;
+                                    }
+                                    break;
+                                }
+                            }
 
                             if (bounce >= 2) {
                                 float p = max(throughput.r, max(throughput.g, throughput.b));
@@ -11974,10 +12075,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                             }
                         } else {
                             if (uSkyEnabled > 0.5) {
-                                vec3 skyHorizLin = pow(uSkyHorizon, vec3(2.2));
                                 vec3 skyCol = (rd.y >= 0.0) 
-                                    ? mix(skyHorizLin, pow(uSkyZenith, vec3(2.2)), pow(clamp(rd.y, 0.0, 1.0), 0.7))
-                                    : mix(skyHorizLin, pow(uSkyGround, vec3(2.2)), pow(clamp(-rd.y, 0.0, 1.0), 0.7));
+                                    ? mix(skyHorizLinPre, skyZenithLinPre, pow(clamp(rd.y, 0.0, 1.0), 0.7))
+                                    : mix(skyHorizLinPre, skyGroundLinPre, pow(clamp(-rd.y, 0.0, 1.0), 0.7));
                                 float skyBounceScale = isSpecularPath ? 0.85 : 0.42;
                                 radiance += (bounce == 0) ? skyCol : (skyCol * (uSkyAmbientInt * skyBounceScale) * throughput);
                             } else {
@@ -11987,6 +12087,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                             }
                             break;
                         }
+						
+						
+						
                     }
 					
 					
@@ -12086,6 +12189,16 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             AppState.renderTargetA = new THREE.WebGLRenderTarget(width, height, options);
             AppState.renderTargetB = new THREE.WebGLRenderTarget(width, height, options);
             AppState.renderTargetCurrent = new THREE.WebGLRenderTarget(width, height, options);
+        if (AppState.renderTargetInteractive) AppState.renderTargetInteractive.dispose();
+            const interW = Math.max(128, Math.round(width * 0.5));
+            const interH = Math.max(128, Math.round(height * 0.5));
+            AppState.renderTargetInteractive = new THREE.WebGLRenderTarget(interW, interH, {
+                type: THREE.HalfFloatType,
+                minFilter: THREE.NearestFilter,
+                magFilter: THREE.NearestFilter,
+                format: THREE.RGBAFormat,
+                generateMipmaps: false
+            });
         }
 
         if (!AppState.renderSceneQuad) {
@@ -12258,7 +12371,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
     let lastPtFrameTimestamp = 0;
 
-    function processRenderFrame() {
+  function processRenderFrame() {
         if (AppState.renderMode !== 'pathtrace') return;
 
         const nowTime = performance.now();
@@ -12268,20 +12381,31 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         const width = AppState.resolutionWidth;
         const height = AppState.resolutionHeight;
 
+        // Nếu người dùng vừa dừng xoay camera sau 85ms -> tự động thoát chế độ Interactive và bắt đầu tích lũy SPP độ phân giải chuẩn
+        if (AppState.isCameraMoving && (nowTime - AppState.lastCameraMoveTime > 85)) {
+            AppState.isCameraMoving = false;
+            AppState.needsAccumulationReset = true;
+        }
+
         if (AppState.needsAccumulationReset) {
             initPingPongTargets(width, height);
+            let sceneChanged = false;
             if (!voxel3DTexture || AppState.needsVoxelTextureUpdate) {
                 updateVoxel3DTexture();
                 AppState.needsVoxelTextureUpdate = false;
+                sceneChanged = true;
             }
-            updateDynamicEmitLights();
-            syncPathTraceCameraOffset(true);
-            if (AppState.voxelMesh && AppState.ptGridOffset) {
-                AppState.voxelMesh.position.copy(AppState.ptGridOffset).negate();
+            if (sceneChanged || AppState.needsEmitLightUpdate) {
+                updateDynamicEmitLights();
+                AppState.needsEmitLightUpdate = false;
+            }
+            if (sceneChanged || !AppState.ptAppliedCamOffset || AppState.ptAppliedCamOffset.lengthSq() === 0) {
+                syncPathTraceCameraOffset(true);
+                if (AppState.voxelMesh && AppState.ptGridOffset) {
+                    AppState.voxelMesh.position.copy(AppState.ptGridOffset).negate();
+                }
             }
             AppState.accumulatedFrames = 0;
-			
-			
             AppState.latestAccumTarget = null;
             AppState.needsAccumulationReset = false;
             const pulse = document.getElementById('render-pulse');
@@ -12292,10 +12416,10 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             }
         }
 
-        if (AppState.accumulatedFrames >= AppState.maxRenderFrames) {
+        if (!AppState.isCameraMoving && AppState.accumulatedFrames >= AppState.maxRenderFrames) {
             const txt = document.getElementById('render-status-text');
-            if (txt && txt.textContent !== "P-Trace Complete") {
-                txt.textContent = "P-Trace Complete";
+            if (txt && txt.textContent !== `Complete: ${AppState.maxRenderFrames} SPP`) {
+                txt.textContent = `Complete: ${AppState.maxRenderFrames} SPP`;
                 const pulse = document.getElementById('render-pulse');
                 if (pulse) {
                     pulse.style.backgroundColor = '#10b981';
@@ -12313,6 +12437,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             pathTraceMaterial.uniforms.tMaterialLUT.value = materialLUTTexture;
             pathTraceMaterial.uniforms.uResolution.value.set(width, height);
             pathTraceMaterial.uniforms.uMaxBounces.value = 4;
+            pathTraceMaterial.uniforms.uInteractiveMode.value = AppState.isCameraMoving ? 1.0 : 0.0;
 
             if (AppState.ptGridSize) {
                 pathTraceMaterial.uniforms.uGridSize.value.copy(AppState.ptGridSize);
@@ -12326,11 +12451,16 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
             AppState.camera.updateMatrixWorld();
             pathTraceMaterial.uniforms.uCamWorld.value.copy(AppState.camera.matrixWorld);
+            pathTraceMaterial.uniforms.uProjInverse.value.copy(AppState.camera.projectionMatrixInverse);
 
             if (AppState.dirLight) {
                 pathTraceMaterial.uniforms.uSunCol.value.set(AppState.sun.color.r, AppState.sun.color.g, AppState.sun.color.b);
                 pathTraceMaterial.uniforms.uSunInt.value = AppState.sun.intensity;
                 pathTraceMaterial.uniforms.uSunArea.value = AppState.sun.area;
+                if (AppState.dirLight.userData && AppState.dirLight.userData.basePos) {
+                    AppState.dirLight.position.copy(AppState.dirLight.userData.basePos);
+                    pathTraceMaterial.uniforms.uSunDir.value.copy(AppState.dirLight.userData.basePos).normalize();
+                }
             }
 
             pathTraceMaterial.uniforms.uSunGodray.value = AppState.sun.godray ? 1.0 : 0.0;
@@ -12362,53 +12492,47 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             pathTraceMaterial.uniforms.uSkyEnabled.value = AppState.sky.enabled ? 1.0 : 0.0;
         }
 
-        // Tự động điều phối số Sample mỗi frame theo tải thực tế của GPU (frameDelta)
-        // Tự động điều phối số Sample mỗi frame thích ứng với màn hình 60Hz (16.67ms) và 120Hz:
-        // Khi camera đứng yên, tăng dần số Sample/frame (tối đa 5) nếu GPU hoàn thành kịp trong khung 19.5ms
+        // KHI ĐANG XOAY CAMERA: Render 1 SPP tức thì vào renderTargetInteractive (nửa độ phân giải, NearestFilter sắc nét như MagicaVoxel)
+        if (AppState.isCameraMoving && AppState.renderTargetInteractive) {
+            pathTraceMaterial.uniforms.uFrameSeed.value = Math.random();
+            pathTraceMaterial.uniforms.uSampleIndex.value = 0.0;
+            pathTraceMaterial.uniforms.uMixRatio.value = 0.0;
+
+            AppState.renderer.setRenderTarget(AppState.renderTargetInteractive);
+            AppState.renderer.render(pathTraceScene, AppState.renderOrthoCam);
+            AppState.latestAccumTarget = AppState.renderTargetInteractive;
+
+            const txt = document.getElementById('render-status-text');
+            if (txt) txt.textContent = `Samples: 1 / ${AppState.maxRenderFrames} SPP`;
+            drawAccumulationToScreen();
+            return;
+        }
+
+        // KHI CAMERA ĐỨNG YÊN: Tăng tốc tích lũy Samples / Pixel (SPP) lên tối đa 8 SPP mỗi frame
         if (AppState.accumulatedFrames === 0) {
-            AppState.ptSamplesPerTick = 1;
+            AppState.ptSamplesPerTick = 2;
         } else {
             const curBatch = AppState.ptSamplesPerTick || 2;
-            if (frameDelta <= 19.5) {
-                AppState.ptSamplesPerTick = Math.min(5, curBatch + 1);
-            } else if (frameDelta > 25.0) {
+            if (frameDelta <= 18.5) {
+                AppState.ptSamplesPerTick = Math.min(8, curBatch + 1);
+            } else if (frameDelta > 24.0) {
                 AppState.ptSamplesPerTick = Math.max(1, curBatch - 1);
             }
         }
-        const maxSamplesThisTick = AppState.ptSamplesPerTick || 1;
-		
-		
+        const maxSamplesThisTick = AppState.ptSamplesPerTick || 2;
 
         let samplesDone = 0;
         while (samplesDone < maxSamplesThisTick && AppState.accumulatedFrames < AppState.maxRenderFrames) {
-            if (AppState.sampleOptions.aa && AppState.camera.setViewOffset) {
-                const jx = (Math.random() - 0.5) * 0.75;
-                const jy = (Math.random() - 0.5) * 0.75;
-                AppState.camera.setViewOffset(width, height, jx, jy, width, height);
-            }
-
-            if (AppState.dirLight && AppState.dirLight.userData && AppState.dirLight.userData.basePos) {
-                AppState.dirLight.position.copy(AppState.dirLight.userData.basePos);
-                if (pathTraceMaterial) {
-                    pathTraceMaterial.uniforms.uSunDir.value.copy(AppState.dirLight.userData.basePos).normalize();
-                }
-            }
-
             const mixRatio = (AppState.accumulatedFrames === 0) ? 0.0 : (AppState.accumulatedFrames / (AppState.accumulatedFrames + 1.0));
             if (pathTraceMaterial) {
                 pathTraceMaterial.uniforms.uFrameSeed.value = Math.random();
-                pathTraceMaterial.uniforms.uProjInverse.value.copy(AppState.camera.projectionMatrixInverse);
+                pathTraceMaterial.uniforms.uSampleIndex.value = AppState.accumulatedFrames;
                 pathTraceMaterial.uniforms.tAccum.value = AppState.renderTargetA.texture;
                 pathTraceMaterial.uniforms.uMixRatio.value = mixRatio;
             }
 
-            // Vẽ và tích lũy trực tiếp vào renderTargetB chỉ trong 1 Render Pass duy nhất
             AppState.renderer.setRenderTarget(AppState.renderTargetB);
             AppState.renderer.render(pathTraceScene, AppState.renderOrthoCam);
-
-            if (AppState.camera.clearViewOffset) {
-                AppState.camera.clearViewOffset();
-            }
 
             AppState.latestAccumTarget = AppState.renderTargetB;
 
@@ -12423,7 +12547,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         const txt = document.getElementById('render-status-text');
         if (txt) {
             if (AppState.accumulatedFrames >= AppState.maxRenderFrames) {
-                txt.textContent = "P-Trace Complete";
+                txt.textContent = `Complete: ${AppState.maxRenderFrames} SPP`;
                 const pulse = document.getElementById('render-pulse');
                 if (pulse) {
                     pulse.style.backgroundColor = '#10b981';
@@ -12431,7 +12555,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     pulse.style.animation = 'none';
                 }
             } else {
-                txt.textContent = `P-Tracing: ${AppState.accumulatedFrames} / ${AppState.maxRenderFrames}`;
+                txt.textContent = `Samples: ${AppState.accumulatedFrames} / ${AppState.maxRenderFrames} SPP`;
             }
         }
 
@@ -12659,6 +12783,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             AppState.needsAccumulationReset = true;
         } else {
             AppState.needsVoxelTextureUpdate = true;
+            AppState.needsEmitLightUpdate = true;
             AppState.needsCubeMapUpdate = true;
         }
     }
@@ -13833,8 +13958,10 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             updateLocalCubemap();
         }
 
-        if (hasCameraMoved()) {
+       if (hasCameraMoved()) {
             if (AppState.renderMode === 'pathtrace') {
+                AppState.isCameraMoving = true;
+                AppState.lastCameraMoveTime = performance.now();
                 AppState.needsAccumulationReset = true;
             }
         }
