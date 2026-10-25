@@ -10785,12 +10785,12 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 }
 
                 vec3 evalGlassSegmentTransmittance(vec3 srgbCol, float dt, float densN) {
-                    vec3 alb = pow(srgbCol, vec3(2.2));
-                    float maxC = max(alb.r, max(alb.g, max(alb.b, 0.001)));
-                    vec3 vividAlb = mix(alb, alb / maxC, 0.35);
-                    float tintMix = 1.0 - exp(-dt * densN * 0.65);
-                    float volAtten = exp(-dt * densN * densN * 0.14);
-                    return mix(vec3(1.0), vividAlb, tintMix) * volAtten;
+                    if (densN <= 0.0005) return vec3(1.0);
+                    vec3 linCol = pow(clamp(srgbCol, vec3(0.001), vec3(1.0)), vec3(2.2));
+                    vec3 glassTint = mix(srgbCol, linCol, 0.42);
+                    vec3 absorb = -log(max(glassTint, vec3(0.04))) * (densN * 0.26);
+                    float volAtten = densN * densN * 0.10;
+                    return exp(-(absorb + vec3(volAtten)) * dt);
                 }
 
                 vec3 shadowTraversal(vec3 ro, vec3 rd, float maxDist, inout uint seed) {
@@ -11346,17 +11346,33 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     vec3 skyGroundLinPre = (uSkyEnabled > 0.5) ? pow(uSkyGround, vec3(2.2)) : vec3(0.12, 0.12, 0.14);
                     float effSkyIntPre = max(uSkyAmbientInt, uSunInt * 0.38);
 
-                    int activeMaxBounces = (uInteractiveMode > 0.5) ? 2 : uMaxBounces;
+                    int activeMaxBounces = (uInteractiveMode > 0.5) ? 3 : uMaxBounces;
+                    bool hasPendingHit = false;
+                    vec3 pendingHitPos = vec3(0.0);
+                    vec3 pendingHitNormal = vec3(0.0, 1.0, 0.0);
+                    vec4 pendingHitColor = vec4(0.0);
+					
+					
 
                     for (int bounce = 0; bounce < activeMaxBounces; bounce++) {
-					
-					
                         vec3 hitNormal, hitPos;
                         vec4 hitColor;
                         bool isVolume = false;
                         float distInGlass = 0.0;
+                        bool hit = false;
 
-                        bool hit = voxelTraversal(ro, rd, hitNormal, hitColor, hitPos, isVolume, seed);
+                        if (hasPendingHit) {
+                            hit = true;
+                            hitPos = pendingHitPos;
+                            hitNormal = pendingHitNormal;
+                            hitColor = pendingHitColor;
+                            isVolume = false;
+                            hasPendingHit = false;
+                        } else {
+                            hit = voxelTraversal(ro, rd, hitNormal, hitColor, hitPos, isVolume, seed);
+                        }
+						
+						
 
                         if (hit) {
                             totalRayDist += length(hitPos - ro);
@@ -11595,14 +11611,19 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                 }
                             }
                          
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
                    if (isVolume) {
                                 isSpecularPath = false;
                                 vec3 randDir = sampleSphere(seed);
                                 rd = (abs(matPhase) > 0.02) ? normalize(randDir + rd * matPhase * 1.2) : randDir;
                                 ro = hitPos + rd * 0.005;
                                 throughput *= albedo * 0.95;
-                            } else if (isGlass) {
+			/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			
+                           } else if (isGlass) {
                                 float transparency = matTrans;
                                 float roughness = matRough;
                                 float ior = max(1.0, matIOR);
@@ -11635,7 +11656,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     if (roughness > 0.25) isSpecularPath = false;
                                     ro = hitPos + N * 0.002;
                                     rd = refl;
-                                } else if (rand(seed) < transparency) {
+                                } else if (transparency > 0.005 && (transparency >= 0.5 || rand(seed) < transparency)) {
                                     vec3 refr = (ior <= 1.0005) ? rd : refract(rd, N, 1.0 / ior);
                                     if (dot(refr, refr) < 0.0001) refr = reflect(rd, N);
                                     if (roughness > 0.001) {
@@ -11648,9 +11669,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     float curDensityNorm = clamp(matDensity / 100.0, 0.0, 1.0);
                                     vec3 curSrgb = hitColor.rgb;
                                     vec3 curAlbedo = albedo;
-                                    vec3 glassTransAcc = vec3(1.0);
+                                    vec3 glassTransAcc = vec3((transparency >= 0.5) ? transparency : 1.0);
 
-                                    vec3 curPosIn = hitPos + refr * 0.002;
+                                    vec3 curPosIn = hitPos - N * 0.002;
                                     vec3 boxMinIn = vec3(-uGridSize.x * 0.5, 0.0, -uGridSize.y * 0.5);
                                     vec3 localPosIn = vec3(curPosIn.x - boxMinIn.x, curPosIn.z - boxMinIn.z, curPosIn.y - boxMinIn.y);
                                     ivec3 mapPosIn = clamp(ivec3(floor(localPosIn)), ivec3(0), gridDims - ivec3(1));
@@ -11668,6 +11689,10 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     vec3 outNorm = -N;
                                     vec3 refrOut = rd;
                                     bool hitFloorInside = false;
+                                    bool hitSolidInside = false;
+                                    vec4 solidHitVoxel = vec4(0.0);
+                                    vec3 solidHitNormal = vec3(0.0, 1.0, 0.0);
+                                    vec3 solidHitPos = vec3(0.0);
 
                                     int maxGlassSteps = min(160, max(gridDims.x, max(gridDims.y, gridDims.z)) + 32);
                                     for (int s = 0; s < maxGlassSteps; s++) {
@@ -11675,9 +11700,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                         float minS = min(min(sideDistIn.x, sideDistIn.y), sideDistIn.z);
                                         float dtStep = max(0.0, minS);
 
-                                        if (refr.y < -0.0001 && curPosIn.y > 0.0) {
+                                        if (uShowFloorPlane > 0.5 && refr.y < -0.0001 && curPosIn.y > 0.0) {
                                             float tFl = -curPosIn.y / refr.y;
-                                            if (tFl > 0.0 && tFl <= dtStep) {
+                                            if (tFl >= 0.0 && tFl <= dtStep + 0.0005) {
                                                 glassTransAcc *= evalGlassSegmentTransmittance(curSrgb, tFl, curDensityNorm);
                                                 dGlass += tFl;
                                                 curPosIn += refr * tFl;
@@ -11692,6 +11717,15 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                         sideDistIn -= vec3(dtStep);
 
                                         ivec3 nextMapPos = mapPosIn + ivec3(maskIn) * rayStepIn;
+                                        vec3 stepG = vec3(float(rayStepIn.x), float(rayStepIn.y), float(rayStepIn.z));
+                                        vec3 nG = maskIn * stepG;
+                                        vec3 stepNorm = normalize(vec3(nG.x, nG.z, nG.y));
+
+                                        if (nextMapPos.z < 0 && uShowFloorPlane > 0.5 && refr.y < 0.0) {
+                                            hitFloorInside = true;
+                                            break;
+                                        }
+
                                         bool nextIsGlass = false;
                                         if (nextMapPos.x >= 0 && nextMapPos.x < gridDims.x &&
                                             nextMapPos.y >= 0 && nextMapPos.y < gridDims.y &&
@@ -11709,14 +11743,16 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                                         curSrgb = vNext.rgb;
                                                         curAlbedo = pow(vNext.rgb, vec3(2.2));
                                                         curDensityNorm = clamp(texelFetch(tMaterialLUT, ivec2(nextIdx, 1), 0).r / 100.0, 0.0, 1.0);
+                                                    } else if (m0Next.r < 1.5 || m0Next.r > 4.5) {
+                                                        hitSolidInside = true;
+                                                        solidHitVoxel = vNext;
+                                                        solidHitNormal = -stepNorm;
+                                                        solidHitPos = curPosIn - stepNorm * 0.002;
+                                                        break;
                                                     }
                                                 }
                                             }
                                         }
-
-                                        vec3 stepG = vec3(float(rayStepIn.x), float(rayStepIn.y), float(rayStepIn.z));
-                                        vec3 nG = maskIn * stepG;
-                                        vec3 stepNorm = normalize(vec3(nG.x, nG.z, nG.y));
 
                                         if (nextIsGlass) {
                                             mapPosIn = nextMapPos;
@@ -11748,6 +11784,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                                     vec3 rRefl = normalize(refr + sampleSphere(seed) * (roughness * roughness * 0.25));
                                                     if (dot(rRefl, -outNorm) > 0.001) refr = rRefl;
                                                 }
+                                                curPosIn -= outNorm * 0.001;
                                                 rdGridIn = vec3(refr.x, refr.z, refr.y);
                                                 deltaDistIn = abs(vec3(1.0) / max(abs(rdGridIn), vec3(0.00001)));
                                                 raySignIn = sign(rdGridIn);
@@ -11775,11 +11812,24 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     totalRayDist += dGlass;
 
                                     if (hitFloorInside) {
-                                        ro = vec3(curPosIn.x, 0.002, curPosIn.z);
+                                        hasPendingHit = true;
+                                        pendingHitPos = vec3(curPosIn.x, 0.002, curPosIn.z);
+                                        pendingHitNormal = vec3(0.0, 1.0, 0.0);
+                                        vec3 floorBaseCol = (uSkyEnabled > 0.5) ? uSkyGround : vec3(0.08, 0.08, 0.09);
+                                        pendingHitColor = vec4(floorBaseCol, 0.0);
+                                        ro = pendingHitPos;
+                                        rd = refr;
+                                    } else if (hitSolidInside) {
+                                        hasPendingHit = true;
+                                        pendingHitPos = solidHitPos;
+                                        pendingHitNormal = solidHitNormal;
+                                        pendingHitColor = solidHitVoxel;
+                                        ro = pendingHitPos;
+                                        rd = refr;
                                     } else {
                                         ro = curPosIn + outNorm * 0.003 + refrOut * 0.002;
+                                        rd = refrOut;
                                     }
-                                    rd = refrOut;
                                 } else {
                                     if (!foundSolidPrimary) {
                                         primaryHitDist = totalRayDist;
@@ -11869,7 +11919,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                         vec3 F0_b = mix(vec3(F0_diel), albedo, metal);
                                         throughput *= F0_b + (vec3(1.0) - F0_b) * bOmc5;
                                     }
-                                } else if (rand(seed) < transparency) {
+                                } else if (transparency > 0.005 && (transparency >= 0.5 || rand(seed) < transparency)) {
                                     vec3 refr = (ior <= 1.0005) ? rd : refract(rd, N, 1.0 / ior);
                                     if (dot(refr, refr) < 0.0001) refr = reflect(rd, N);
                                     if (roughness > 0.001) {
@@ -11882,9 +11932,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     vec3 curSrgb = hitColor.rgb;
                                     vec3 curAlbedo = albedo;
                                     float curDensityNorm = clamp(matDensity / 100.0, 0.0, 1.0);
-                                    vec3 blendTransAcc = vec3(1.0);
+                                    vec3 blendTransAcc = vec3((transparency >= 0.5) ? transparency : 1.0);
 
-                                    vec3 curPosIn = hitPos + refr * 0.002;
+                                    vec3 curPosIn = hitPos - N * 0.002;
                                     vec3 boxMinIn = vec3(-uGridSize.x * 0.5, 0.0, -uGridSize.y * 0.5);
                                     vec3 localPosIn = vec3(curPosIn.x - boxMinIn.x, curPosIn.z - boxMinIn.z, curPosIn.y - boxMinIn.y);
                                     ivec3 mapPosIn = clamp(ivec3(floor(localPosIn)), ivec3(0), gridDims - ivec3(1));
@@ -11902,6 +11952,10 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     vec3 outNorm = -N;
                                     vec3 refrOut = rd;
                                     bool hitFloorInside = false;
+                                    bool hitSolidInside = false;
+                                    vec4 solidHitVoxel = vec4(0.0);
+                                    vec3 solidHitNormal = vec3(0.0, 1.0, 0.0);
+                                    vec3 solidHitPos = vec3(0.0);
 
                                     int maxBlendSteps = min(160, max(gridDims.x, max(gridDims.y, gridDims.z)) + 32);
                                     for (int s = 0; s < maxBlendSteps; s++) {
@@ -11909,9 +11963,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                         float minS = min(min(sideDistIn.x, sideDistIn.y), sideDistIn.z);
                                         float dtStep = max(0.0, minS);
 
-                                        if (refr.y < -0.0001 && curPosIn.y > 0.0) {
+                                        if (uShowFloorPlane > 0.5 && refr.y < -0.0001 && curPosIn.y > 0.0) {
                                             float tFl = -curPosIn.y / refr.y;
-                                            if (tFl > 0.0 && tFl <= dtStep) {
+                                            if (tFl >= 0.0 && tFl <= dtStep + 0.0005) {
                                                 blendTransAcc *= evalGlassSegmentTransmittance(curSrgb, tFl, curDensityNorm);
                                                 dBlend += tFl;
                                                 curPosIn += refr * tFl;
@@ -11926,6 +11980,15 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                         sideDistIn -= vec3(dtStep);
 
                                         ivec3 nextMapPos = mapPosIn + ivec3(maskIn) * rayStepIn;
+                                        vec3 stepG = vec3(float(rayStepIn.x), float(rayStepIn.y), float(rayStepIn.z));
+                                        vec3 nG = maskIn * stepG;
+                                        vec3 stepNorm = normalize(vec3(nG.x, nG.z, nG.y));
+
+                                        if (nextMapPos.z < 0 && uShowFloorPlane > 0.5 && refr.y < 0.0) {
+                                            hitFloorInside = true;
+                                            break;
+                                        }
+
                                         bool nextIsBlend = false;
                                         if (nextMapPos.x >= 0 && nextMapPos.x < gridDims.x &&
                                             nextMapPos.y >= 0 && nextMapPos.y < gridDims.y &&
@@ -11943,14 +12006,16 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                                         curSrgb = vNext.rgb;
                                                         curAlbedo = pow(vNext.rgb, vec3(2.2));
                                                         curDensityNorm = clamp(texelFetch(tMaterialLUT, ivec2(nextIdx, 1), 0).r / 100.0, 0.0, 1.0);
+                                                    } else if (m0Next.r < 1.5 || m0Next.r > 4.5) {
+                                                        hitSolidInside = true;
+                                                        solidHitVoxel = vNext;
+                                                        solidHitNormal = -stepNorm;
+                                                        solidHitPos = curPosIn - stepNorm * 0.002;
+                                                        break;
                                                     }
                                                 }
                                             }
                                         }
-
-                                        vec3 stepG = vec3(float(rayStepIn.x), float(rayStepIn.y), float(rayStepIn.z));
-                                        vec3 nG = maskIn * stepG;
-                                        vec3 stepNorm = normalize(vec3(nG.x, nG.z, nG.y));
 
                                         if (nextIsBlend) {
                                             mapPosIn = nextMapPos;
@@ -11982,6 +12047,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                                     vec3 rRefl = normalize(refr + sampleSphere(seed) * (roughness * roughness * 0.25));
                                                     if (dot(rRefl, -outNorm) > 0.001) refr = rRefl;
                                                 }
+                                                curPosIn -= outNorm * 0.001;
                                                 rdGridIn = vec3(refr.x, refr.z, refr.y);
                                                 deltaDistIn = abs(vec3(1.0) / max(abs(rdGridIn), vec3(0.00001)));
                                                 raySignIn = sign(rdGridIn);
@@ -12009,11 +12075,24 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     totalRayDist += dBlend;
 
                                     if (hitFloorInside) {
-                                        ro = vec3(curPosIn.x, 0.002, curPosIn.z);
+                                        hasPendingHit = true;
+                                        pendingHitPos = vec3(curPosIn.x, 0.002, curPosIn.z);
+                                        pendingHitNormal = vec3(0.0, 1.0, 0.0);
+                                        vec3 floorBaseCol = (uSkyEnabled > 0.5) ? uSkyGround : vec3(0.08, 0.08, 0.09);
+                                        pendingHitColor = vec4(floorBaseCol, 0.0);
+                                        ro = pendingHitPos;
+                                        rd = refr;
+                                    } else if (hitSolidInside) {
+                                        hasPendingHit = true;
+                                        pendingHitPos = solidHitPos;
+                                        pendingHitNormal = solidHitNormal;
+                                        pendingHitColor = solidHitVoxel;
+                                        ro = pendingHitPos;
+                                        rd = refr;
                                     } else {
                                         ro = curPosIn + outNorm * 0.003 + refrOut * 0.002;
+                                        rd = refrOut;
                                     }
-                                    rd = refrOut;
                                 } else {
                                     if (!foundSolidPrimary) {
                                         primaryHitDist = totalRayDist;
@@ -12025,8 +12104,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     throughput *= albedo;
                                 }
                             } else {
-							
-							
                                 if (!foundSolidPrimary) {
                                     primaryHitDist = totalRayDist;
                                     foundSolidPrimary = true;
@@ -12036,35 +12113,35 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                 rd = cosineWeightedHemisphere(hitNormal, seed);
                                 throughput *= albedo;
                             }
-////////////////////////////////////////////////////////////////////////////////////////////////
 
-                          // Khi đang xoay camera (uInteractiveMode > 0.5) hoặc tia Diffuse đã lấy đủ GI 2-bounce (bounce >= 1):
-                            // kết thúc sớm tia Diffuse để tăng tốc gấp đôi mà vẫn giữ đủ 4 bounces cho Glass/Metal/Blend
-                            if (!isSpecularPath && (uInteractiveMode > 0.5 || bounce >= 1)) {
-                                if (uSkyEnabled > 0.5 && rd.y > 0.0) {
-                                    vec3 skyCol = mix(skyHorizLinPre, skyZenithLinPre, pow(clamp(rd.y, 0.0, 1.0), 0.7));
-                                    radiance += skyCol * (uSkyAmbientInt * 0.18) * throughput;
-                                }
-                                break;
-                            }
-
-                            // Nếu tia nảy thứ cấp hướng lên trên mặt sàn và không cắt hộp bao mô hình -> cộng luôn màu bầu trời và thoát sớm
-                            if (rd.y >= 0.0) {
-                                vec3 rdS = sign(rd);
-                                vec3 invD = rdS / max(abs(rd), vec3(0.00001));
-                                float tn, tf;
-                                vec3 nn;
-                                if (!intersectBoxFast(ro, rdS, invD, uModelMin, uModelMax, tn, tf, nn)) {
-                                    if (uSkyEnabled > 0.5) {
+                            if (!hasPendingHit) {
+                                if (!isSpecularPath && (uInteractiveMode > 0.5 || bounce >= 1)) {
+                                    if (uSkyEnabled > 0.5 && rd.y > 0.0) {
                                         vec3 skyCol = mix(skyHorizLinPre, skyZenithLinPre, pow(clamp(rd.y, 0.0, 1.0), 0.7));
-                                        float skyBounceScale = isSpecularPath ? 0.85 : 0.42;
-                                        radiance += skyCol * (uSkyAmbientInt * skyBounceScale) * throughput;
-                                    } else {
-                                        radiance += vec3(0.015, 0.015, 0.018) * throughput;
+                                        radiance += skyCol * (uSkyAmbientInt * 0.18) * throughput;
                                     }
                                     break;
                                 }
+
+                                if (rd.y >= 0.0) {
+                                    vec3 rdS = sign(rd);
+                                    vec3 invD = rdS / max(abs(rd), vec3(0.00001));
+                                    float tn, tf;
+                                    vec3 nn;
+                                    if (!intersectBoxFast(ro, rdS, invD, uModelMin, uModelMax, tn, tf, nn)) {
+                                        if (uSkyEnabled > 0.5) {
+                                            vec3 skyCol = mix(skyHorizLinPre, skyZenithLinPre, pow(clamp(rd.y, 0.0, 1.0), 0.7));
+                                            float skyBounceScale = isSpecularPath ? 0.85 : 0.42;
+                                            radiance += skyCol * (uSkyAmbientInt * skyBounceScale) * throughput;
+                                        } else {
+                                            radiance += vec3(0.015, 0.015, 0.018) * throughput;
+                                        }
+                                        break;
+                                    }
+                                }
                             }
+							
+							
 
                             if (bounce >= 2) {
                                 float p = max(throughput.r, max(throughput.g, throughput.b));
