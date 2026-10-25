@@ -10861,9 +10861,11 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                         float gIor = max(1.0, m0.b);
                                         float r0 = ((gIor - 1.0) / (gIor + 1.0)) * ((gIor - 1.0) / (gIor + 1.0));
                                         cachedIorTrans = 1.0 - r0 * 0.55;
-                                    } else if (mt > 2.5 && mt < 3.5) {
-                                        cachedCloudRate = clamp(m1.r / 100.0, 0.01, 1.0) * 0.45;
-                                        cachedVividTint = extractFilterTint(voxel.rgb);
+										
+										
+										
+								} else if (mt > 2.5 && mt < 3.5) {
+                                        cachedCloudRate = clamp(m1.r / 100.0, 0.0, 1.0) * 0.68;
                                     } else if (mt > 5.5) {
                                         cachedVividTint = extractFilterTint(voxel.rgb);
                                     }
@@ -10893,17 +10895,13 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     if (max(transmittance.r, max(transmittance.g, transmittance.b)) < 0.004) return vec3(0.0);
                                 }
                                 else if (mType > 2.5 && mType < 3.5) {
-                                    totalCloudDepth += cachedCloudRate * dt;
-                                    if (!hasSurfaceTint) {
-                                        filterColor = cachedVividTint;
-                                        hasSurfaceTint = true;
-                                        lastLayerRgb = voxel.rgb;
-                                    } else if (distance(voxel.rgb, lastLayerRgb) > 0.03) {
-                                        filterColor *= cachedVividTint;
-                                        lastLayerRgb = voxel.rgb;
+                                    if (cachedCloudRate > 0.0005) {
+                                        totalCloudDepth += cachedCloudRate * dt;
+                                        if (totalCloudDepth > 4.6) return vec3(0.0);
                                     }
-                                    if (totalCloudDepth > 4.6) return vec3(0.0);
                                 }
+								
+								
                                 else if (mType > 5.5) {
                                     if (!isSunShadow) break;
                                     if (!hasSurfaceTint) {
@@ -11196,28 +11194,34 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
                         vec4 voxel = texelFetch(tVoxelGrid, mapPos, 0);
 
-                        if (voxel.a > 0.002) {
+
+                      if (voxel.a > 0.002) {
                             int matIdx = int(floor(voxel.a * 255.0 + 0.5));
                             if (matIdx != lastMatIdx) {
                                 vec4 m0 = texelFetch(tMaterialLUT, ivec2(matIdx, 0), 0);
                                 mType = m0.r;
                                 if (mType > 2.5 && mType < 3.5) {
-                                    cloudDens = clamp(texelFetch(tMaterialLUT, ivec2(matIdx, 1), 0).r / 100.0, 0.01, 1.0);
+                                    cloudDens = clamp(texelFetch(tMaterialLUT, ivec2(matIdx, 1), 0).r / 100.0, 0.0, 1.0);
                                 }
                                 lastMatIdx = matIdx;
                             }
 
                             if (mType > 2.5 && mType < 3.5) {
-                                float dt = max(0.001, tNext - tStart);
-                                float probScatter = 1.0 - exp(-cloudDens * 0.55 * dt);
+                                if (cloudDens > 0.0005) {
+                                    float segEnd = min(tLimit, tNext);
+                                    float dt = max(0.001, segEnd - tStart);
+                                    float sigmaT = cloudDens * 0.85;
+                                    float probScatter = 1.0 - exp(-sigmaT * dt);
 
-                                if (rand(seed) < probScatter) {
-                                    float tScatter = tStart + rand(seed) * dt;
-                                    hitPos = ro + rd * tScatter;
-                                    hitColor = voxel;
-                                    hitNormal = -rd;
-                                    isVolume = true;
-                                    return true;
+                                    if (rand(seed) < probScatter) {
+                                        float tScatter = tStart - log(max(0.0001, 1.0 - rand(seed) * probScatter)) / sigmaT;
+                                        tScatter = clamp(tScatter, tStart, segEnd);
+                                        hitPos = ro + rd * tScatter;
+                                        hitColor = voxel;
+                                        hitNormal = -rd;
+                                        isVolume = true;
+                                        return true;
+                                    }
                                 }
                             } else {
                                 hitColor = voxel;
@@ -11247,8 +11251,12 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                             }
                         }
 
-                        float kSkip = floor(voxel.b * 255.0 + 0.5);
+                        float kSkip = (voxel.a <= 0.002) ? floor(voxel.b * 255.0 + 0.5) : 0.0;
                         if (kSkip > 0.5) {
+						
+						
+						
+						
                             vec3 boxSide = sideDist + kSkip * deltaDist;
                             mask = step(boxSide.xyz, boxSide.yzx) * step(boxSide.xyz, boxSide.zxy);
                             float minBoxSide = min(min(boxSide.x, boxSide.y), boxSide.z);
@@ -11565,6 +11573,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                                 radiance += sunDiffContrib;
                                             }
 
+
                                             if (!isVolume && cosSun > 0.0) {
                                                 float rough = isMetal ? max(0.008, metalRough) : 0.05;
                                                 vec3 F0 = isMetal ? mix(vec3(F0_diel), albedo, metalMetallic) : vec3(0.04);
@@ -11580,7 +11589,10 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     }
                                 }
                             }
+							
+							
 
+                            // Lấy mẫu Vòm Trời Bán Cầu + Contact Ambient Occlusion (Sky NEE) chuẩn MagicaVoxel Path Tracing
                             // Lấy mẫu Vòm Trời Bán Cầu + Contact Ambient Occlusion (Sky NEE) chuẩn MagicaVoxel Path Tracing
                             if (diffuseWeight > 0.001 && !isVolume && bounce <= 1) {
                                 if (uInteractiveMode > 0.5) {
@@ -11609,15 +11621,35 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                         radiance += throughput * albedo * skyDomeCol * (effSkyIntPre * aoWeight * aoCos * diffuseWeight) * contactGradient;
                                     }
                                 }
+                            } else if (isVolume && bounce <= 2) {
+                                vec3 volAlbedo = mix(albedo, hitColor.rgb, 0.22);
+                                vec3 volSkyCol = mix(skyHorizLinPre, skyZenithLinPre, 0.45);
+                                if (uInteractiveMode > 0.5) {
+                                    radiance += throughput * volAlbedo * volSkyCol * (effSkyIntPre * 0.44);
+                                } else {
+                                    vec3 volAoDir = normalize(sampleSphere(seed) + vec3(0.0, 0.70, 0.0));
+                                    float aoMaxDist = 14.0 + rand(seed) * 24.0;
+                                    vec3 aoVis = (uEnableShadow > 0.5)
+                                        ? shadowTraversal(hitPos + volAoDir * 0.04, volAoDir, aoMaxDist, seed)
+                                        : vec3(1.0);
+                                    vec3 volEnvCol = (volAoDir.y >= 0.0)
+                                        ? mix(skyHorizLinPre, skyZenithLinPre, pow(clamp(volAoDir.y, 0.0, 1.0), 0.65))
+                                        : mix(skyHorizLinPre, skyGroundLinPre, pow(clamp(-volAoDir.y, 0.0, 1.0), 0.65));
+                                    vec3 contactGrad = mix(vec3(0.28), vec3(1.0), aoVis);
+                                    radiance += throughput * volAlbedo * volEnvCol * (effSkyIntPre * 0.52) * contactGrad;
+                                }
                             }
-                         
 
-                   if (isVolume) {
+                            if (isVolume) {
+                                if (!foundSolidPrimary) {
+                                    primaryHitDist = totalRayDist;
+                                    foundSolidPrimary = true;
+                                }
                                 isSpecularPath = false;
                                 vec3 randDir = sampleSphere(seed);
                                 rd = (abs(matPhase) > 0.02) ? normalize(randDir + rd * matPhase * 1.2) : randDir;
                                 ro = hitPos + rd * 0.005;
-                                throughput *= albedo * 0.95;
+                                throughput *= mix(albedo, hitColor.rgb, 0.22) * 0.96;
 			/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -12114,7 +12146,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                 throughput *= albedo;
                             }
 
-                            if (!hasPendingHit) {
+                            if (!hasPendingHit && !isVolume) {
                                 if (!isSpecularPath && (uInteractiveMode > 0.5 || bounce >= 1)) {
                                     if (uSkyEnabled > 0.5 && rd.y > 0.0) {
                                         vec3 skyCol = mix(skyHorizLinPre, skyZenithLinPre, pow(clamp(rd.y, 0.0, 1.0), 0.7));
