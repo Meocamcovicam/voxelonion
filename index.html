@@ -826,12 +826,22 @@
                                 <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>Phase (g)</label><span id="val-cloud-phase">0.00</span></div>
                                 <input type="range" id="prop-cloud-phase" min="-0.9" max="0.9" step="0.02" value="0.0">
                             </div>
-                            <div id="group-mat-godray" class="pt-1.5 border-t border-gray-700/60">
-                                <label class="flex items-center justify-between text-xs text-amber-300 font-bold cursor-pointer py-0.5" title="Cho phép ánh sáng khi tiếp xúc với vật liệu này (Cloud / Glass) tạo thành tia Godray">
+							
+                            <div id="group-mat-godray" class="pt-1.5 border-t border-gray-700/60 space-y-1.5">
+                                <label class="flex items-center justify-between text-xs text-amber-300 font-bold cursor-pointer py-0.5" title="Cho phép ánh sáng khi đi qua vật liệu này (Cloud / Glass / Blend) tạo thành tia Godray">
                                     <span>✨ Godray (Light Shafts)</span>
-                                    <input type="checkbox" id="prop-mat-godray" checked class="rounded bg-gray-800 border-gray-700 text-amber-500 focus:ring-0">
+                                    <input type="checkbox" id="prop-mat-godray" class="rounded bg-gray-800 border-gray-700 text-amber-500 focus:ring-0">
                                 </label>
+                                <div id="group-mat-godray-density" class="hidden pl-1">
+                                    <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5">
+                                        <label>Godray Density</label>
+                                        <span id="val-mat-godray-density" class="font-mono text-gray-400">0.15</span>
+                                    </div>
+                                    <input type="range" id="prop-mat-godray-density" min="0.0" max="1.0" step="0.01" value="0.15" class="!mb-1">
+                                </div>
                             </div>
+							
+							
                         </div>
 						
 						
@@ -900,12 +910,21 @@
                                     <input type="range" id="prop-godray-density" min="0.0" max="1.0" step="0.01" value="0.35" class="!mb-1">
                                 </div>
                                 <div class="flex items-center justify-between pt-1 border-t border-gray-800/80">
-                                    <label class="flex items-center text-xs text-sky-300 font-bold gap-1.5 cursor-pointer" title="Khi bật: Toàn bộ không gian Grid đều bị ảnh hưởng bởi Godray (thay vì chỉ chiếu qua cửa sổ)">
+                                    <label class="flex items-center text-xs text-sky-300 font-bold gap-1.5 cursor-pointer" title="Khi bật: Toàn bộ không gian phòng đều tạo hiệu ứng Godray theo hướng nắng">
                                         <input type="checkbox" id="prop-godray-full-room" class="rounded bg-gray-800 border-gray-700 text-sky-500 focus:ring-0">
                                         <span>🏠 Full Room (Entire Grid)</span>
                                     </label>
                                     <span id="val-godray-full-room" class="font-mono text-[10px] text-gray-400">Off</span>
                                 </div>
+								
+                                <div id="godray-full-room-controls" class="hidden pt-1 pl-1">
+                                    <div class="flex justify-between text-xs text-sky-200 font-bold mb-0.5">
+                                        <label>Full Room Intensity</label>
+                                        <span id="val-godray-full-room-int" class="font-mono text-gray-400">0.15</span>
+                                    </div>
+                                    <input type="range" id="prop-godray-full-room-int" min="0.0" max="1.0" step="0.01" value="0.15" class="!mb-1">
+                                </div>
+								
                             </div>
 							
                         </div>
@@ -1260,7 +1279,8 @@
 			color: new THREE.Color(0xfff5e6),
 			godray: false,
 			godrayDensity: 0.35,
-			godrayFullRoom: false
+			godrayFullRoom: false,
+			godrayFullRoomInt: 0.15
 		},
 		
 		modelCenter: new THREE.Vector3(0, 15, 0),
@@ -1371,12 +1391,12 @@
         if (el && text !== undefined) el.textContent = text;
     }
 
-    for (let i = 1; i <= 256; i++) {
+   for (let i = 1; i <= 256; i++) {
 		  AppState.materialProps[i] = {
 			  type: 'diffuse', color: new THREE.Color(0xffffff),
 			  roughness: 0.0, metalness: 0.0, specular: 0.5,
 			  transparent: 0.0, ior: 1.30, emission: 0.0, power: 1.0, ldr: 0.0,
-			  lightSource: false, godray: true,
+			  lightSource: false, godray: false, godrayDensity: 0.15,
 			  density: 79, phase: 0.0, blendAlpha: 0.6
 		  };
 	  }
@@ -1643,6 +1663,8 @@ function updateLocalCubemap() {
     bindMatRange('prop-cloud-phase', 'phase', false);
     bindMatRange('prop-blend-alpha', 'blendAlpha', false);
 
+    bindMatRange('prop-mat-godray-density', 'godrayDensity', false);
+
     const elMatGodray = document.getElementById('prop-mat-godray');
     if (elMatGodray) {
         elMatGodray.addEventListener('change', (e) => {
@@ -1650,6 +1672,14 @@ function updateLocalCubemap() {
             if (p) {
                 const snap = captureStateSnapshot();
                 p.godray = e.target.checked;
+                if (p.godray && p.godrayDensity === undefined) {
+                    p.godrayDensity = 0.15;
+                }
+                const matGrDens = p.godrayDensity ?? 0.15;
+                safeSetVal('prop-mat-godray-density', matGrDens);
+                safeSetText('val-mat-godray-density', matGrDens.toFixed(2));
+                const elMatGodrayDensWrap = document.getElementById('group-mat-godray-density');
+                if (elMatGodrayDensWrap) elMatGodrayDensWrap.classList.toggle('hidden', !p.godray);
                 recordUndoStep(snap);
                 updateMaterialLUTTexture();
                 if (AppState.renderMode === 'pathtrace') {
@@ -1837,21 +1867,38 @@ function updateLocalCubemap() {
         if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
     });
 
+
     const elGodrayFullRoom = document.getElementById('prop-godray-full-room');
     const elGodrayFullRoomTxt = document.getElementById('val-godray-full-room');
+    const elGodrayFullRoomWrap = document.getElementById('godray-full-room-controls');
+    const elGodrayFullRoomInt = document.getElementById('prop-godray-full-room-int');
     if (elGodrayFullRoom) {
         elGodrayFullRoom.checked = !!AppState.sun.godrayFullRoom;
         if (elGodrayFullRoomTxt) elGodrayFullRoomTxt.textContent = elGodrayFullRoom.checked ? 'On' : 'Off';
+        if (elGodrayFullRoomWrap) elGodrayFullRoomWrap.classList.toggle('hidden', !elGodrayFullRoom.checked);
         elGodrayFullRoom.addEventListener('change', (e) => {
             const snap = captureStateSnapshot();
             AppState.sun.godrayFullRoom = e.target.checked;
+            if (AppState.sun.godrayFullRoom && AppState.sun.godrayFullRoomInt === undefined) {
+                AppState.sun.godrayFullRoomInt = 0.15;
+            }
+            const curFullInt = AppState.sun.godrayFullRoomInt ?? 0.15;
+            safeSetVal('prop-godray-full-room-int', curFullInt);
+            safeSetText('val-godray-full-room-int', curFullInt.toFixed(2));
             if (elGodrayFullRoomTxt) elGodrayFullRoomTxt.textContent = AppState.sun.godrayFullRoom ? 'On' : 'Off';
+            if (elGodrayFullRoomWrap) elGodrayFullRoomWrap.classList.toggle('hidden', !AppState.sun.godrayFullRoom);
             recordUndoStep(snap);
             if (AppState.renderMode === 'pathtrace') {
                 AppState.needsAccumulationReset = true;
             }
         });
     }
+
+    bindUndoableInput(elGodrayFullRoomInt, (e) => {
+        AppState.sun.godrayFullRoomInt = parseFloat(e.target.value);
+        safeSetText('val-godray-full-room-int', AppState.sun.godrayFullRoomInt.toFixed(2));
+        if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
+    });
 }
 	
 	function setupFogControls() {
@@ -6305,9 +6352,12 @@ function captureStateSnapshot() {
             emission: p.emission,
             power: p.power,
             ldr: p.ldr,
-			
-            lightSource: !!p.lightSource,
-            godray: p.godray !== false,
+			/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+           lightSource: !!p.lightSource,
+            godray: !!p.godray,
+            godrayDensity: p.godrayDensity ?? 0.15,
             density: p.density,
             phase: p.phase,
             blendAlpha: p.blendAlpha
@@ -6345,7 +6395,8 @@ function captureStateSnapshot() {
 			 colorHex: AppState.sun.color.getHex(),
 			 godray: AppState.sun.godray,
 			 godrayDensity: AppState.sun.godrayDensity,
-			 godrayFullRoom: !!AppState.sun.godrayFullRoom
+			 godrayFullRoom: !!AppState.sun.godrayFullRoom,
+			 godrayFullRoomInt: AppState.sun.godrayFullRoomInt ?? 0.15
         },
 		
 		
@@ -6474,9 +6525,10 @@ function restoreStateFromSnapshot(snapshot) {
                 p.emission = src.emission;
                 p.power = src.power;
                 p.ldr = src.ldr;
-				
+				//////////////////////////////////////////////////////
 				p.lightSource = !!src.lightSource;
-                p.godray = (src.godray !== undefined) ? !!src.godray : true;
+                p.godray = !!src.godray;
+                p.godrayDensity = src.godrayDensity ?? 0.15;
                 p.density = src.density;
                 p.phase = src.phase;
                 p.blendAlpha = src.blendAlpha;
@@ -6496,6 +6548,7 @@ function restoreStateFromSnapshot(snapshot) {
 		 AppState.sun.godray = !!snapshot.sun.godray;
 		 AppState.sun.godrayDensity = snapshot.sun.godrayDensity ?? 0.35;
 		 AppState.sun.godrayFullRoom = !!snapshot.sun.godrayFullRoom;
+		 AppState.sun.godrayFullRoomInt = snapshot.sun.godrayFullRoomInt ?? 0.15;
     }
 	
 	
@@ -9221,9 +9274,10 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 emission: 0.0,
                 power: 1.0,
                 ldr: 0.0,
-				
+				///////////////////////////////////////////////
                 lightSource: false,
-                godray: true,
+                godray: false,
+                godrayDensity: 0.15,
                 density: 50,
                 phase: 0.0,
                 blendAlpha: 0.6
@@ -9259,6 +9313,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 if (dict['_phase'] !== undefined) p.phase = parseSafeFloat(dict['_phase'], p.phase);
                 if (dict['_alpha'] !== undefined) p.blendAlpha = parseSafeFloat(dict['_alpha'], p.blendAlpha);
                 if (dict['_godray'] !== undefined) p.godray = (dict['_godray'] !== '0' && dict['_godray'] !== 'false');
+                if (dict['_godray_d'] !== undefined) p.godrayDensity = parseSafeFloat(dict['_godray_d'], p.godrayDensity);
             }
         }
 
@@ -9381,6 +9436,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 					
 					if (src.lightSource !== undefined) p.lightSource = !!src.lightSource;
                     if (src.godray !== undefined) p.godray = !!src.godray;
+                    if (src.godrayDensity !== undefined) p.godrayDensity = parseSafeFloat(src.godrayDensity, p.godrayDensity);
                     if (src.density !== undefined) p.density = parseSafeFloat(src.density, p.density);
                     if (src.phase !== undefined) p.phase = parseSafeFloat(src.phase, p.phase);
                     if (src.blendAlpha !== undefined) p.blendAlpha = parseSafeFloat(src.blendAlpha, p.blendAlpha);
@@ -9396,6 +9452,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 			 AppState.sun.godray = !!settings.sun.godray;
 			 AppState.sun.godrayDensity = parseSafeFloat(settings.sun.godrayDensity, 0.35);
 			 AppState.sun.godrayFullRoom = !!settings.sun.godrayFullRoom;
+			 AppState.sun.godrayFullRoomInt = parseSafeFloat(settings.sun.godrayFullRoomInt, 0.15);
 			 if (settings.sun.color) AppState.sun.color = new THREE.Color(settings.sun.color);
         }
 		
@@ -9496,10 +9553,15 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
      safeSetText('val-godray-density', (AppState.sun.godrayDensity ?? 0.35).toFixed(2));
 	 
      const elGodrayFullRoom = document.getElementById('prop-godray-full-room');
+     const elGodrayFullRoomWrap = document.getElementById('godray-full-room-controls');
      if (elGodrayFullRoom) {
          elGodrayFullRoom.checked = !!AppState.sun.godrayFullRoom;
          safeSetText('val-godray-full-room', elGodrayFullRoom.checked ? 'On' : 'Off');
+         if (elGodrayFullRoomWrap) elGodrayFullRoomWrap.classList.toggle('hidden', !elGodrayFullRoom.checked);
      }
+	 
+     safeSetVal('prop-godray-full-room-int', AppState.sun.godrayFullRoomInt ?? 0.15);
+     safeSetText('val-godray-full-room-int', (AppState.sun.godrayFullRoomInt ?? 0.15).toFixed(2));
 
 
         const skyToggle = document.getElementById('sky-enabled');
@@ -10056,7 +10118,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
     // Tạo bảng tra cứu thông số vật liệu độc lập cho từng ô màu (1..255) trong Palette
     function updateMaterialLUTTexture() {
-        const data = new Float32Array(256 * 2 * 4);
+        const data = new Float32Array(256 * 3 * 4);
         // Slot 0: Mặc định dành cho mặt sàn (Floor Plane)
         data[0] = 0.0; // 0 = diffuse
         data[1] = 0.9; // roughness
@@ -10067,13 +10129,12 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             const p = AppState.materialProps[i];
             if (!p) continue;
 
-			let typeCode = 0.0; // 0: diffuse, 1: metal, 2: glass, 3: cloud, 4: blend, 5: emit, 6: emit lightSource
+            let typeCode = 0.0; // 0: diffuse, 1: metal, 2: glass, 3: cloud, 4: blend, 5: emit, 6: emit lightSource
             if (p.type === 'metal') typeCode = 1.0;
             else if (p.type === 'glass') typeCode = 2.0;
             else if (p.type === 'cloud') typeCode = 3.0;
             else if (p.type === 'blend') typeCode = 4.0;
             else if (p.type === 'emit') {
-			
                 const em = p.emission !== undefined ? p.emission : 0.0;
                 if (em <= 0.01) typeCode = 0.0;
                 else if (p.lightSource) typeCode = 6.0;
@@ -10096,17 +10157,27 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             data[idx0 + 2] = safeIor;
             data[idx0 + 3] = trans;
 
-            // Hàng 1 (y = 1): [density, phase, metalness (hoặc matGodray cho Glass/Cloud), specular]
-            const matGodray = (p.godray !== false) ? 1.0 : 0.0;
+            // Hàng 1 (y = 1): [density, phase, metalness, specular]
             const idx1 = (256 + i) * 4;
             data[idx1]     = dens;
             data[idx1 + 1] = phase;
-            data[idx1 + 2] = (p.type === 'glass' || p.type === 'cloud') ? matGodray : metal;
+            data[idx1 + 2] = metal;
             data[idx1 + 3] = spec;
+
+            // Hàng 2 (y = 2): [matGodray, matGodrayDensity, 0.0, 0.0]
+            const matGodray = p.godray ? 1.0 : 0.0;
+            const matGodrayDens = THREE.MathUtils.clamp(p.godrayDensity ?? 0.15, 0.0, 1.0);
+            const idx2 = (512 + i) * 4;
+			
+            data[idx2]     = matGodray;
+            data[idx2 + 1] = matGodrayDens;
+            data[idx2 + 2] = 0.0;
+            data[idx2 + 3] = 0.0;
         }
 
-        if (!materialLUTTexture) {
-            materialLUTTexture = new THREE.DataTexture(data, 256, 2, THREE.RGBAFormat, THREE.FloatType);
+        if (!materialLUTTexture || materialLUTTexture.image.height !== 3) {
+            if (materialLUTTexture) materialLUTTexture.dispose();
+            materialLUTTexture = new THREE.DataTexture(data, 256, 3, THREE.RGBAFormat, THREE.FloatType);
             materialLUTTexture.minFilter = THREE.NearestFilter;
             materialLUTTexture.magFilter = THREE.NearestFilter;
             materialLUTTexture.generateMipmaps = false;
@@ -10327,8 +10398,10 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             }
         }
 
-        // Chỉ đánh dấu lỗ cửa sổ thực sự khoét trên tường đặc (Diffuse / Metal),
-        // tuyệt đối không đánh dấu không gian dưới các tấm lơ lửng (Glass, Blend, Cloud, Emit hoặc kệ/trần ngang)
+       
+
+         // Đánh dấu lỗ cửa sổ kín, ô khoét hở đỉnh và mọi phần hổng bất kỳ trên tường (kênh R = 255)
+        // đồng thời đánh dấu vùng không gian bên trong phòng (kênh G = 255)
         if (AppState.sun && AppState.sun.godray) {
             const isOpaqueWallVoxel = (tx, ty, tz) => {
                 if (tx < 0 || tx >= sx || ty < 0 || ty >= sy || tz < 0 || tz >= sz) return false;
@@ -10338,34 +10411,146 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 return !mp || mp.type === 'diffuse' || mp.type === 'metal';
             };
 
-            const getWallSpanX = (tx, ty, tz, maxCheck = 10) => {
+            const getWallSpanX = (tx, ty, tz, maxCheck = 64) => {
                 let span = 1;
                 for (let d = 1; d <= maxCheck; d++) { if (isOpaqueWallVoxel(tx - d, ty, tz)) span++; else break; }
                 for (let d = 1; d <= maxCheck; d++) { if (isOpaqueWallVoxel(tx + d, ty, tz)) span++; else break; }
                 return span;
             };
 
-            const getWallSpanY = (tx, ty, tz, maxCheck = 10) => {
+            const getWallSpanY = (tx, ty, tz, maxCheck = 64) => {
                 let span = 1;
                 for (let d = 1; d <= maxCheck; d++) { if (isOpaqueWallVoxel(tx, ty - d, tz)) span++; else break; }
                 for (let d = 1; d <= maxCheck; d++) { if (isOpaqueWallVoxel(tx, ty + d, tz)) span++; else break; }
                 return span;
             };
 
-            const hasWindowFrameBothSides = (tx, ty, tz, alongX, maxSpan = 48) => {
-                let hitNeg = false, hitPos = false;
-                if (alongX) {
-                    for (let d = 1; d <= maxSpan; d++) { if (isOpaqueWallVoxel(tx - d, ty, tz)) { hitNeg = true; break; } }
-                    for (let d = 1; d <= maxSpan; d++) { if (isOpaqueWallVoxel(tx + d, ty, tz)) { hitPos = true; break; } }
-                } else {
-                    for (let d = 1; d <= maxSpan; d++) { if (isOpaqueWallVoxel(tx, ty - d, tz)) { hitNeg = true; break; } }
-                    for (let d = 1; d <= maxSpan; d++) { if (isOpaqueWallVoxel(tx, ty + d, tz)) { hitPos = true; break; } }
-                }
-                return hitNeg && hitPos;
-            };
+            const colMinOpaqueZ = new Int16Array(sxy).fill(-1);
+            const colMaxOpaqueZ = new Int16Array(sxy).fill(-1);
+            const colOpaqueCount = new Uint16Array(sxy);
+            const colWallFlags = new Uint8Array(sxy); // Bit 1: Tường dọc trục X, Bit 2: Tường dọc trục Y
 
+            const maxSpanGrid = Math.max(sx, sy);
             const scannedCols = new Uint8Array(sxy);
+
             for (const lb of perLayerBounds.values()) {
+                const boxSpanX = Math.max(1, lb.maxVx - lb.minVx + 1);
+                const boxSpanY = Math.max(1, lb.maxVy - lb.minVy + 1);
+                const boxSpanZ = Math.max(1, lb.maxVz - lb.minVz + 1);
+
+                // Độ dày tối đa của một bức tường
+                const maxWallThick = Math.min(28, Math.max(8, Math.floor(Math.min(boxSpanX, boxSpanY) * 0.32)));
+                const spanCheckLimit = Math.min(maxSpanGrid, maxWallThick + 8);
+                const maxWallBotZ = lb.minVz + Math.max(5, Math.floor(boxSpanZ * 0.22));
+                const minFullWallTopZ = lb.minVz + Math.floor(boxSpanZ * 0.65);
+
+                // Bước 1: Thống kê độ cao min/max và số voxel đặc trên từng cột (gx, gy)
+                for (let gy = lb.minVy; gy <= lb.maxVy; gy++) {
+                    const rowOff = gy * sx;
+                    for (let gx = lb.minVx; gx <= lb.maxVx; gx++) {
+                        const colIdx = gx + rowOff;
+                        let minZ = -1, maxZ = -1, cnt = 0;
+                        for (let gz = lb.minVz; gz <= lb.maxVz; gz++) {
+                            if (isOpaqueWallVoxel(gx, gy, gz)) {
+                                if (minZ === -1) minZ = gz;
+                                maxZ = gz;
+                                cnt++;
+                            }
+                        }
+                        colMinOpaqueZ[colIdx] = minZ;
+                        colMaxOpaqueZ[colIdx] = maxZ;
+                        colOpaqueCount[colIdx] = cnt;
+                        colWallFlags[colIdx] = 0;
+                    }
+                }
+
+                // Bước 2: Nhận diện các cột thuộc mặt phẳng tường X hoặc tường Y
+                // (bao gồm cả những cột bị khoét thủng nhiều tầng hoặc khuyết đỉnh)
+                for (let gy = lb.minVy; gy <= lb.maxVy; gy++) {
+                    const rowOff = gy * sx;
+                    for (let gx = lb.minVx; gx <= lb.maxVx; gx++) {
+                        const colIdx = gx + rowOff;
+                        const cMinZ = colMinOpaqueZ[colIdx];
+                        const cMaxZ = colMaxOpaqueZ[colIdx];
+                        if (cMinZ === -1 || cMinZ > maxWallBotZ) continue;
+
+                        let votesX = 0, votesY = 0;
+                        const stepZ = Math.max(1, Math.floor((cMaxZ - cMinZ) / 6));
+                        for (let gz = cMinZ; gz <= cMaxZ; gz += stepZ) {
+                            if (!isOpaqueWallVoxel(gx, gy, gz)) continue;
+                            const spX = getWallSpanX(gx, gy, gz, spanCheckLimit);
+                            const spY = getWallSpanY(gx, gy, gz, spanCheckLimit);
+                            if (spY <= maxWallThick && spX > spY) votesX++;
+                            if (spX <= maxWallThick && spY > spX) votesY++;
+                        }
+                        // Kiểm tra thêm tại đỉnh cao nhất của cột
+                        if (isOpaqueWallVoxel(gx, gy, cMaxZ)) {
+                            const spX = getWallSpanX(gx, gy, cMaxZ, spanCheckLimit);
+                            const spY = getWallSpanY(gx, gy, cMaxZ, spanCheckLimit);
+                            if (spY <= maxWallThick && spX >= spY) votesX++;
+                            if (spX <= maxWallThick && spY >= spX) votesY++;
+                        }
+
+                        let flag = 0;
+                        if (votesX > 0) flag |= 1;
+                        if (votesY > 0) flag |= 2;
+                        colWallFlags[colIdx] = flag;
+                    }
+                }
+
+                // Kiểm tra tại độ cao wz của một cột tường có bị kẹp 2 bên bởi phần tường đặc cùng mặt phẳng hay không
+                const isBoundedInWallPlane = (tx, ty, wz, flag) => {
+                    // Kiểm tra dọc theo mặt tường trục X
+                    if (flag & 1) {
+                        let hasLeft = false, hasRight = false;
+                        for (let x = tx - 1; x >= lb.minVx; x--) {
+                            const cI = x + ty * sx;
+                            if (colMinOpaqueZ[cI] === -1 || !(colWallFlags[cI] & 1)) break;
+                            if (isOpaqueWallVoxel(x, ty, wz) || colMaxOpaqueZ[cI] >= wz) {
+                                hasLeft = true;
+                                break;
+                            }
+                        }
+                        if (hasLeft) {
+                            for (let x = tx + 1; x <= lb.maxVx; x++) {
+                                const cI = x + ty * sx;
+                                if (colMinOpaqueZ[cI] === -1 || !(colWallFlags[cI] & 1)) break;
+                                if (isOpaqueWallVoxel(x, ty, wz) || colMaxOpaqueZ[cI] >= wz) {
+                                    hasRight = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (hasLeft && hasRight) return true;
+                    }
+
+                    // Kiểm tra dọc theo mặt tường trục Y
+                    if (flag & 2) {
+                        let hasFront = false, hasBack = false;
+                        for (let y = ty - 1; y >= lb.minVy; y--) {
+                            const cI = tx + y * sx;
+                            if (colMinOpaqueZ[cI] === -1 || !(colWallFlags[cI] & 2)) break;
+                            if (isOpaqueWallVoxel(tx, y, wz) || colMaxOpaqueZ[cI] >= wz) {
+                                hasFront = true;
+                                break;
+                            }
+                        }
+                        if (hasFront) {
+                            for (let y = ty + 1; y <= lb.maxVy; y++) {
+                                const cI = tx + y * sx;
+                                if (colMinOpaqueZ[cI] === -1 || !(colWallFlags[cI] & 2)) break;
+                                if (isOpaqueWallVoxel(tx, y, wz) || colMaxOpaqueZ[cI] >= wz) {
+                                    hasBack = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (hasFront && hasBack) return true;
+                    }
+                    return false;
+                };
+
+                // Bước 3: Quét từng cột tường để đánh dấu đều 100% mọi khoảng trống / lỗ thủng (kênh R = 255)
                 for (let gy = lb.minVy; gy <= lb.maxVy; gy++) {
                     const rowOff = gy * sx;
                     for (let gx = lb.minVx; gx <= lb.maxVx; gx++) {
@@ -10373,33 +10558,62 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                         if (scannedCols[colIdx]) continue;
                         scannedCols[colIdx] = 1;
 
-                        let prevOpaqueZ = -1;
-                        for (let gz = lb.minVz; gz <= lb.maxVz; gz++) {
-                            if (isOpaqueWallVoxel(gx, gy, gz)) {
-                                if (prevOpaqueZ !== -1 && gz > prevOpaqueZ + 1) {
-                                    // Kiểm tra tại lanh-tô bờ trên (gz) phải là tường đứng mỏng (bề dày <= 6 voxel theo X hoặc Y)
-                                    const spanTopX = getWallSpanX(gx, gy, gz, 8);
-                                    const spanTopY = getWallSpanY(gx, gy, gz, 8);
-                                    const isWallAlongX = (spanTopY <= 6 && spanTopX > spanTopY);
-                                    const isWallAlongY = (spanTopX <= 6 && spanTopY > spanTopX);
-                                    const isThinPillarWall = (spanTopX <= 6 && spanTopY <= 6);
+                        const cMaxZ = colMaxOpaqueZ[colIdx];
+                        const cMinZ = colMinOpaqueZ[colIdx];
+                        const wFlag = colWallFlags[colIdx];
 
-                                    if (isWallAlongX || isWallAlongY || isThinPillarWall) {
-                                        const midZ = Math.floor((prevOpaqueZ + gz) * 0.5);
-                                        const framedX = (isWallAlongX || isThinPillarWall) && hasWindowFrameBothSides(gx, gy, midZ, true, 64);
-                                        const framedY = (isWallAlongY || isThinPillarWall) && hasWindowFrameBothSides(gx, gy, midZ, false, 64);
+                        if (wFlag !== 0 && cMinZ !== -1 && cMinZ <= maxWallBotZ) {
+                            // Kiểm tra xem trên mặt tường chứa cột này có phần tường nào cao tới đỉnh tường (>= minFullWallTopZ) không
+                            let planeReachesTop = (cMaxZ >= minFullWallTopZ);
+                            if (!planeReachesTop && (wFlag & 1)) {
+                                for (let x = lb.minVx; x <= lb.maxVx; x++) {
+                                    const nIdx = x + gy * sx;
+                                    if ((colWallFlags[nIdx] & 1) && colMaxOpaqueZ[nIdx] >= minFullWallTopZ) {
+                                        planeReachesTop = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!planeReachesTop && (wFlag & 2)) {
+                                for (let y = lb.minVy; y <= lb.maxVy; y++) {
+                                    const nIdx = gx + y * sx;
+                                    if ((colWallFlags[nIdx] & 2) && colMaxOpaqueZ[nIdx] >= minFullWallTopZ) {
+                                        planeReachesTop = true;
+                                        break;
+                                    }
+                                }
+                            }
 
-                                        if (framedX || framedY) {
-                                            for (let wz = prevOpaqueZ + 1; wz < gz; wz++) {
-                                                const idx = (colIdx + wz * sxy) * 4;
-                                                if (data[idx + 3] === 0) {
-                                                    data[idx] = 255;
-                                                }
-                                            }
+                            if (planeReachesTop) {
+                                // 1. Mọi phần hổng nằm giữa chân tường (cMinZ) và đỉnh cột tường hiện tại (cMaxZ):
+                                // Đánh dấu trực tiếp toàn bộ các ô trống nằm kẹp giữa các khối tường trên cùng cột (hỗ trợ đa tầng lỗ hổng, chữ T, chữ L, bậc thang)
+                                for (let wz = cMinZ + 1; wz < cMaxZ; wz++) {
+                                    const idx = (colIdx + wz * sxy) * 4;
+                                    if (data[idx + 3] === 0) {
+                                        if (isBoundedInWallPlane(gx, gy, wz, wFlag) || cMaxZ >= minFullWallTopZ) {
+                                            data[idx] = 255;
                                         }
                                     }
                                 }
-                                prevOpaqueZ = gz;
+
+                                // 2. Mọi phần khoét hở đỉnh trên cạnh tường (từ cMaxZ + 1 lên tới lb.maxVz):
+                                // Chỉ cần tại độ cao wz có tường cùng mặt phẳng kẹp ở 2 bên trái-phải (hoặc trước-sau) là được đánh dấu đều 100%
+                                if (cMaxZ < lb.maxVz && cMaxZ > lb.minVz) {
+                                    for (let wz = cMaxZ + 1; wz <= lb.maxVz; wz++) {
+                                        const idx = (colIdx + wz * sxy) * 4;
+                                        if (data[idx + 3] === 0 && isBoundedInWallPlane(gx, gy, wz, wFlag)) {
+                                            data[idx] = 255;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 3. Đánh dấu vùng không gian bên trong phòng (kênh G = 255) nằm trong khung bao phòng
+                        for (let wz = lb.minVz; wz <= lb.maxVz; wz++) {
+                            const idx = (colIdx + wz * sxy) * 4;
+                            if (data[idx + 3] === 0) {
+                                data[idx + 1] = 255;
                             }
                         }
                     }
@@ -10553,16 +10767,20 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 AppState.layerBoxMin[i].set(lMinX, lMinY, lMinZ);
                 AppState.layerBoxMax[i].set(lMaxX, lMaxY, lMaxZ);
 
-                // Hộp giới hạn Godray phủ trọn toàn bộ Grid Size [-cx..cx, 0..sz, -cy..cy] để tia nắng chiếu xuống hết phạm vi Grid Size
-                AppState.godrayBoxMin[i].set(-cx, 0.0, -cy);
-                AppState.godrayBoxMax[i].set(cx, Math.max(lMaxY, sz), cy);
+                // Mở rộng biên ngang hộp Godray vừa đủ ra ngoài Grid để tia Godray chiếu xiên xuống sàn mà vẫn giữ mật độ lấy mẫu cao trong phòng
+                const grPad = Math.min(Math.max(sz * 0.55, 24.0), 48.0);
+                AppState.godrayBoxMin[i].set(-cx - grPad, 0.0, -cy - grPad);
+                AppState.godrayBoxMax[i].set(cx + grPad, Math.max(lMaxY, sz), cy + grPad);
             }
         } else {
+            const grPad = Math.min(Math.max(sz * 0.55, 24.0), 48.0);
             AppState.layerBoxMin[0].set(-cx, 0, -cy);
             AppState.layerBoxMax[0].set(cx, sz, cy);
-            AppState.godrayBoxMin[0].set(-cx, 0, -cy);
-            AppState.godrayBoxMax[0].set(cx, sz, cy);
+            AppState.godrayBoxMin[0].set(-cx - grPad, 0.0, -cy - grPad);
+            AppState.godrayBoxMax[0].set(cx + grPad, sz, cy + grPad);
         }
+		
+		
 
         if (pathTraceMaterial && pathTraceMaterial.uniforms) {
             if (pathTraceMaterial.uniforms.tVoxelGrid) {
@@ -10661,6 +10879,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 uSunGodray: { value: 0.0 },
                 uGodrayDensity: { value: 0.35 },
                 uGodrayFullRoom: { value: 0.0 },
+                uGodrayFullRoomInt: { value: 0.15 },
 				
                 uModelCenter: { value: new THREE.Vector3(0, 15, 0) },
                 uModelRadius: { value: 25.0 },
@@ -10752,6 +10971,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 uniform float uSunGodray;
                 uniform float uGodrayDensity;
                 uniform float uGodrayFullRoom;
+                uniform float uGodrayFullRoomInt;
 				
                 uniform vec3 uModelCenter;
                 uniform float uModelRadius;
@@ -11136,25 +11356,42 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     return transmittance * exp(-totalCloudDepth) * filterColor;
                 }
 
-
-                vec3 gGodrayColor = vec3(1.0);
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+				vec3 gGodrayColor = vec3(1.0);
                 float gGodrayTinted = 0.0;
+                float gIsFullRoomRay = 0.0;
+                float gRayGodrayDensity = 0.0;
+
+                // Hàm chuẩn hóa đường cong biên độ Godray (bù trừ Gamma sRGB 2.2 giúp kéo slider mượt và đều từ 0.0 -> 1.0)
+                float mapGodrayDensityCurve(float d) {
+                    float x = clamp(d, 0.0, 1.0);
+                    return pow(x, 2.2);
+                }
 
                 float fastGodrayShadow(vec3 ro, vec3 rd, vec3 sunColLin, out float distToWindow) {
                     distToWindow = 0.0;
                     gGodrayColor = vec3(1.0);
                     gGodrayTinted = 0.0;
+                    gIsFullRoomRay = 0.0;
+                    gRayGodrayDensity = 0.0;
 
                     if (uShowFloorPlane > 0.5 && rd.y < -0.0001 && (-ro.y / rd.y) > 0.001) return 0.0;
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-                  float tNear, tFar;
-                    if (!intersectGodrayBoxes(ro, rd, 1000.0, tNear, tFar)) {
-                        return (uGodrayFullRoom > 0.5) ? 1.0 : 0.0;
-                    }
 
                     vec3 boxMin = vec3(-uGridSize.x * 0.5, 0.0, -uGridSize.y * 0.5);
+                    vec3 boxMax = vec3(uGridSize.x * 0.5, uGridSize.z, uGridSize.y * 0.5);
+                    vec3 rdSign = sign(rd);
+                    vec3 invD = rdSign / max(abs(rd), vec3(0.00001));
+                    float tNear, tFar;
+                    vec3 normNear;
+                    if (!intersectBoxFast(ro, rdSign, invD, boxMin, boxMax, tNear, tFar, normNear)) {
+                        return 0.0;
+                    }
+
                     ivec3 gridDims = ivec3(uGridSize);
+                    bool startInRoomInterior = false;
 
                     if (tNear <= 0.0) {
                         ivec3 startVoxPos = ivec3(floor(vec3(ro.x - boxMin.x, ro.z - boxMin.z, ro.y - boxMin.y)));
@@ -11166,6 +11403,8 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                 int startMatIdx = int(floor(startVox.a * 255.0 + 0.5));
                                 float startMType = texelFetch(tMaterialLUT, ivec2(startMatIdx, 0), 0).r;
                                 if (startMType < 1.5 || (startMType > 4.5 && startMType < 5.5)) return 0.0;
+                            } else if (startVox.g > 0.5) {
+                                startInRoomInterior = true;
                             }
                         }
                     }
@@ -11192,7 +11431,12 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     bool passedWindow = false;
                     bool passedCloud = false;
                     bool inWindowAperture = false;
+                    bool inRoomInterior = startInRoomInterior;
+                    float lastRoomInteriorDist = 0.0;
+					
                     bool hasGlassTint = false;
+                    bool hasMatGodrayPortal = false;
+                    float portalGodrayDens = 0.15;
                     vec3 glassFilterAcc = vec3(1.0);
                     float maxGlassDens = 0.0;
                     int lastMatIdx = -1;
@@ -11202,10 +11446,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     vec3 cachedMatTint = vec3(1.0);
                     vec3 cachedSrgb = vec3(1.0);
                     float cachedDensN = 0.0;
-                    float cachedMatGodray = 1.0;
-///////////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////////////////////////////
+                    float cachedMatGodray = 0.0;
+                    float cachedMatGodrayDens = 0.15;
+
                     bool passedObjectPortal = false;
                     float cloudPathLength = 0.0;
                     vec3 glassTintTarget = vec3(1.0);
@@ -11226,19 +11469,21 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                 float mt = m0.r;
                                 if (mt >= 1.5 && (mt < 4.5 || mt > 5.5)) {
                                     m1 = texelFetch(tMaterialLUT, ivec2(matIdx, 1), 0);
+                                    vec4 m2 = texelFetch(tMaterialLUT, ivec2(matIdx, 2), 0);
                                     cachedDensN = clamp(m1.r / 100.0, 0.0, 1.0);
-                                    cachedMatGodray = (mt > 3.5 && mt < 4.5) ? 1.0 : m1.b;
+                                    cachedMatGodray = m2.r;
+                                    cachedMatGodrayDens = m2.g;
                                     cachedSrgb = vox.rgb;
                                     cachedMatTint = extractFilterTint(vox.rgb);
                                 }
                                 lastMatIdx = matIdx;
                             }
                             float mType = m0.r;
-
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////
+							// Nếu tia hướng về Mặt Trời đâm vào tường đặc hoặc khối đặc (Diffuse / Metal / Emit thường)
+                            // thì điểm đang xét nằm trong vùng bóng tối (bị che khuất ánh nắng thật), bắt buộc trả về 0.0
                             if (mType < 1.5 || (mType > 4.5 && mType < 5.5)) {
-                                if (passedObjectPortal) {
-                                    break;
-                                }
                                 return 0.0;
                             }
 
@@ -11260,7 +11505,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                 }
                                 passedWindow = true;
                             } else if ((mType > 1.5 && mType < 2.5) || (mType > 3.5 && mType < 4.5)) {
-                                if (cachedMatGodray <= 0.5) return 0.0;
                                 float transparency = clamp(m0.a, 0.0, 1.0);
                                 if (transparency <= 0.005) return 0.0;
 
@@ -11277,13 +11521,24 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                 maxGlassDens = max(maxGlassDens, max(cachedDensN, 1.0 - transparency * 0.85));
                                 if (max(glassFilterAcc.r, max(glassFilterAcc.g, glassFilterAcc.b)) < 0.01) return 0.0;
                                 hasGlassTint = true;
-                                if (!passedObjectPortal) {
-                                    distToWindow = tCurrent;
-                                    passedObjectPortal = true;
+
+                                // Nếu vật liệu Glass / Blend bật Godray riêng:
+                                // - Khi kéo Godray Density của vật liệu về 0.00 thì triệt tiêu Godray qua vật liệu đó.
+                                // - Khi > 0.00 thì kích hoạt cổng Godray của vật liệu (nhưng vẫn phải tiếp tục dò hết tia về phía Mặt Trời để kiểm tra tường chắn phía sau).
+                                // Nếu vật liệu tắt Godray riêng: không tự sinh ra Godray, nhưng vẫn cho phép tia Sun Godray từ cửa sổ (nếu có) xuyên qua kính trong suốt.
+                                if (cachedMatGodray > 0.5) {
+                                    if (cachedMatGodrayDens <= 0.001) return 0.0;
+                                    hasMatGodrayPortal = true;
+                                    portalGodrayDens = cachedMatGodrayDens;
+                                    if (!passedObjectPortal) {
+                                        distToWindow = tCurrent;
+                                        passedObjectPortal = true;
+                                    }
+                                    passedWindow = true;
                                 }
-                                passedWindow = true;
                             } else if (mType > 2.5 && mType < 3.5) {
                                 if (cachedMatGodray > 0.5) {
+                                    if (cachedMatGodrayDens <= 0.001) return 0.0;
                                     if (cachedDensN > 0.005) {
                                         cloudPathLength += dt;
                                         float effCloudStep = dt / (1.0 + cloudPathLength * 0.18);
@@ -11302,13 +11557,12 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                             if (!passedObjectPortal) distToWindow = tCurrent;
                                             passedObjectPortal = true;
                                         }
+                                        hasMatGodrayPortal = true;
+                                        portalGodrayDens = cachedMatGodrayDens;
                                         passedWindow = true;
                                     }
                                 } else {
                                     trans *= exp(-max(0.25, cachedDensN) * 0.85 * dt);
-                                    if (uGodrayFullRoom < 0.5 && !inWindowAperture && !passedObjectPortal) {
-                                        return 0.0;
-                                    }
                                 }
                             }
                             if (trans < 0.02) return 0.0;
@@ -11318,6 +11572,10 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                 if (!passedObjectPortal) distToWindow = tCurrent;
                             } else if (inWindowAperture) {
                                 passedWindow = true;
+                            }
+                            if (vox.g > 0.5) {
+                                inRoomInterior = true;
+                                lastRoomInteriorDist = tCurrent + dt;
                             }
                         }
 
@@ -11332,18 +11590,32 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     }
 
                     if (inWindowAperture) passedWindow = true;
-                    bool isFullRoomOnly = (!passedWindow && !passedObjectPortal && uGodrayFullRoom > 0.5);
+                    // Khi ở trong Grid thì kiểm tra điểm lấy mẫu nằm trong phòng (startInRoomInterior); khi tia vươn ra ngoài Grid xuống sàn thì kiểm tra tia nắng đã đi qua phòng (inRoomInterior)
+                    bool validFullRoomSample = (tNear <= 0.0) ? startInRoomInterior : inRoomInterior;
+                    bool isFullRoomOnly = (!passedWindow && !passedObjectPortal && uGodrayFullRoom > 0.5 && validFullRoomSample);
                     if (isFullRoomOnly) {
                         passedWindow = true;
-                        // Tính đúng độ sâu tia nắng đi từ biên hộp Grid vào trong phòng và làm dịu cường độ để tương đương với tia cửa sổ
-                        distToWindow = max(0.0, tFar);
-                        trans *= 0.16 * exp(-distToWindow * 0.010);
+                        gIsFullRoomRay = 1.0;
+                        distToWindow = max(0.0, lastRoomInteriorDist);
+                        trans *= 0.82 * exp(-distToWindow * 0.0045);
                     }
                     if (!passedWindow) return 0.0;
 
+                    if (hasMatGodrayPortal) {
+                        gRayGodrayDensity = mapGodrayDensityCurve(portalGodrayDens);
+                    } else if (isFullRoomOnly) {
+                        gRayGodrayDensity = mapGodrayDensityCurve(uGodrayFullRoomInt) * 1.35;
+                    } else {
+                        float winDens = mapGodrayDensityCurve(uGodrayDensity);
+                        if (uGodrayFullRoom > 0.5) {
+                            winDens = max(winDens, mapGodrayDensityCurve(uGodrayFullRoomInt) * 0.85);
+                        }
+                        gRayGodrayDensity = winDens;
+                    }
+                    if (gRayGodrayDensity <= 0.0001) return 0.0;
+
                     if (passedCloud && !inWindowAperture) {
-                        // Làm dịu nhẹ tia Godray xuất phát từ khối Cloud lơ lửng để hài hòa với chùm tia cửa sổ
-                        trans *= 0.72;
+                        trans *= 0.80;
                     }
 
                     if (hasGlassTint) {
@@ -11359,7 +11631,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     }
                     return trans;
                 }
-				
 				
 				
 
@@ -12449,7 +12720,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 					
 					
 
-                    if (uSunGodray > 0.5 && uSunInt > 0.01 && uGodrayDensity > 0.001) {
+                    if (uSunGodray > 0.5 && uSunInt > 0.01) {
                         float tGrNear, tGrFar;
                         float grMaxDist = (primaryHitDist > 0.0) ? primaryHitDist : 10000.0;
                         if (intersectGodrayBoxes(primaryRo, primaryRd, grMaxDist, tGrNear, tGrFar)) {
@@ -12457,10 +12728,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                             float tEnd = (primaryHitDist > 0.0) ? min(tGrFar, primaryHitDist) : tGrFar;
 
                             if (tEnd > tStart) {
-							
-							
-							
-                                const int MARCH_STEPS = 32;
+                                const int MARCH_STEPS = 40;
                                 float stepSize = (tEnd - tStart) / float(MARCH_STEPS);
 
                                 vec3 accumGodrayCol = vec3(0.0);
@@ -12473,13 +12741,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     float distToWindow = 0.0;
                                     float vis = fastGodrayShadow(samplePos, unitSunDir, sunColLin, distToWindow);
 
-                                    if (vis > 0.001) {
-                                        float windowFade = exp(-distToWindow * 0.0065);
-										
-										
-										
-										
-                                        float w = vis * windowFade * stepSize;
+                                    if (vis > 0.001 && gRayGodrayDensity > 0.0001) {
+                                        float windowFade = exp(-distToWindow * 0.0055);
+                                        float w = vis * windowFade * stepSize * gRayGodrayDensity;
 
                                         vec3 stepCol = (gGodrayTinted > 0.01) ? gGodrayColor : sunColLin;
                                         if (firstSurfaceDist > 0.0 && tCurr > firstSurfaceDist) {
@@ -12491,19 +12755,18 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     }
                                 }
 
-                                if (totalWeight > 0.0001) {
-                                    float grStrength = uSunInt * (uGodrayDensity * 0.045);
+                                if (totalWeight > 0.00001) {
+                                    float grStrength = uSunInt * 0.052;
                                     vec3 godrayContrib = accumGodrayCol * grStrength;
-                                    // Nén mềm (Soft-Knee) cho mọi tia Godray để khi bật Full Room hoặc kéo Density lên 1.00 ánh sáng vẫn êm dịu như tia cửa sổ
-                                    godrayContrib = godrayContrib / (vec3(1.0) + godrayContrib * 0.58);
+                                    godrayContrib = godrayContrib / (vec3(1.0) + godrayContrib * 0.45);
                                     float tintedRatio = clamp(accumTintedWeight / totalWeight, 0.0, 1.0);
 
                                     vec3 combined = radiance + godrayContrib;
                                     float maxComb = max(combined.r, max(combined.g, max(combined.b, 0.0001)));
-                                    if (maxComb > 1.10) {
+                                    if (maxComb > 1.12) {
                                         vec3 colRatio = combined / maxComb;
-                                        float safePeak = 1.10 + log2(maxComb - 0.10) * 0.52;
-                                        float compressMix = max(tintedRatio, clamp((maxComb - 1.10) * 0.65, 0.0, 0.88));
+                                        float safePeak = 1.12 + log2(maxComb - 0.12) * 0.54;
+                                        float compressMix = max(tintedRatio, clamp((maxComb - 1.12) * 0.62, 0.0, 0.86));
                                         radiance = mix(combined, colRatio * safePeak, compressMix);
                                     } else {
                                         radiance = combined;
@@ -12834,6 +13097,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             if (pathTraceMaterial.uniforms.uGodrayFullRoom) {
                 pathTraceMaterial.uniforms.uGodrayFullRoom.value = AppState.sun.godrayFullRoom ? 1.0 : 0.0;
             }
+            if (pathTraceMaterial.uniforms.uGodrayFullRoomInt) {
+                pathTraceMaterial.uniforms.uGodrayFullRoomInt.value = AppState.sun.godrayFullRoomInt ?? 0.15;
+            }
 			
             pathTraceMaterial.uniforms.uModelCenter.value.copy(AppState.modelCenter);
             pathTraceMaterial.uniforms.uModelRadius.value = AppState.modelRadius;
@@ -12956,6 +13222,8 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 type: 'diffuse', color: new THREE.Color(0xffffff),
                 roughness: 0.85, metalness: 0.0, specular: 0.5,
                 transparent: 0.0, ior: 1.3, emission: 0.0, power: 1.0, ldr: 0.0,
+				
+                lightSource: false, godray: false, godrayDensity: 0.15,
                 density: 79, phase: 0.0, blendAlpha: 0.6
             };
         }
@@ -13013,7 +13281,8 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 ldr: 0.0,
 				
                 lightSource: false,
-                godray: true,
+                godray: false,
+                godrayDensity: 0.15,
                 density: 50,
                 phase: 0.0,
                 blendAlpha: 0.6
@@ -13104,8 +13373,14 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         safeSetVal('prop-cloud-density', p.density); safeSetText('val-cloud-density', Math.round(p.density));
         safeSetVal('prop-cloud-phase', p.phase); safeSetText('val-cloud-phase', p.phase.toFixed(2));
 
-        const elMatGodray = document.getElementById('prop-mat-godray');
-        if (elMatGodray) elMatGodray.checked = (p.godray !== false);
+       const elMatGodray = document.getElementById('prop-mat-godray');
+        if (elMatGodray) elMatGodray.checked = !!p.godray;
+        const elMatGodrayDensWrap = document.getElementById('group-mat-godray-density');
+        if (elMatGodrayDensWrap) elMatGodrayDensWrap.classList.toggle('hidden', !p.godray);
+        const matGrDens = p.godrayDensity ?? 0.15;
+        safeSetVal('prop-mat-godray-density', matGrDens);
+        safeSetText('val-mat-godray-density', matGrDens.toFixed(2));
+		
 
         updateMaterialUIState(p.type);
     }
@@ -13131,9 +13406,10 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 if (el) el.classList.remove('hidden');
             });
         }
+		
         const elMatGodrayWrap = document.getElementById('group-mat-godray');
         if (elMatGodrayWrap) {
-            elMatGodrayWrap.classList.toggle('hidden', type !== 'cloud' && type !== 'glass');
+            elMatGodrayWrap.classList.toggle('hidden', type !== 'cloud' && type !== 'glass' && type !== 'blend');
         }
     }
 
@@ -13189,10 +13465,10 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             let dict = {};
             if (p.type === 'diffuse') { dict['_type'] = '_diffuse'; dict['_rough'] = p.roughness; }
             else if (p.type === 'metal') { dict['_type'] = '_metal'; dict['_metal'] = p.metalness; dict['_rough'] = p.roughness; dict['_spec'] = p.specular; dict['_ior'] = p.ior; }
-            
-			else if (p.type === 'glass') { dict['_type'] = '_glass'; dict['_trans'] = p.transparent; dict['_rough'] = p.roughness; dict['_ior'] = p.ior; dict['_d'] = ((p.density ?? 20) / 100).toFixed(2); dict['_density'] = String(p.density ?? 20); dict['_g'] = String(p.phase ?? 0.0); dict['_phase'] = String(p.phase ?? 0.0); dict['_godray'] = (p.godray !== false) ? '1' : '0'; }
+            /////////////////////////////////////////////////////////////////
+			else if (p.type === 'glass') { dict['_type'] = '_glass'; dict['_trans'] = p.transparent; dict['_rough'] = p.roughness; dict['_ior'] = p.ior; dict['_d'] = ((p.density ?? 20) / 100).toFixed(2); dict['_density'] = String(p.density ?? 20); dict['_g'] = String(p.phase ?? 0.0); dict['_phase'] = String(p.phase ?? 0.0); dict['_godray'] = p.godray ? '1' : '0'; dict['_godray_d'] = (p.godrayDensity ?? 0.15).toFixed(2); }
             else if (p.type === 'emit') { dict['_type'] = '_emit'; dict['_emit'] = p.emission; dict['_flux'] = p.power; dict['_ldr'] = p.ldr; }
-            else if (p.type === 'cloud') { dict['_type'] = '_cloud'; dict['_d'] = ((p.density ?? 79) / 100).toFixed(2); dict['_density'] = String(p.density ?? 79); dict['_g'] = (p.phase ?? 0).toFixed(2); dict['_phase'] = String(p.phase ?? 0); dict['_rough'] = p.roughness; dict['_godray'] = (p.godray !== false) ? '1' : '0'; }
+            else if (p.type === 'cloud') { dict['_type'] = '_cloud'; dict['_d'] = ((p.density ?? 79) / 100).toFixed(2); dict['_density'] = String(p.density ?? 79); dict['_g'] = (p.phase ?? 0).toFixed(2); dict['_phase'] = String(p.phase ?? 0); dict['_rough'] = p.roughness; dict['_godray'] = p.godray ? '1' : '0'; dict['_godray_d'] = (p.godrayDensity ?? 0.15).toFixed(2); }
             
 			else if (p.type === 'blend') { 
                 dict['_type'] = '_blend'; 
@@ -13205,6 +13481,8 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 dict['_density'] = String(p.density ?? 50);
                 dict['_g'] = String(p.phase ?? 0.0);
                 dict['_phase'] = String(p.phase ?? 0.0);
+                dict['_godray'] = p.godray ? '1' : '0';
+                dict['_godray_d'] = (p.godrayDensity ?? 0.15).toFixed(2);
             }
 
             const dictBytes = encodeDict(dict);
@@ -13231,14 +13509,14 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 emission: p.emission,
                 power: p.power,
                 ldr: p.ldr,
-				
-					lightSource: !!p.lightSource,
-                    godray: p.godray !== false,
-                    density: p.density,
-                    phase: p.phase,
-                    blendAlpha: p.blendAlpha
-                };
-            }
+                lightSource: !!p.lightSource,
+                godray: !!p.godray,
+                godrayDensity: p.godrayDensity ?? 0.15,
+                density: p.density,
+                phase: p.phase,
+                blendAlpha: p.blendAlpha
+            };
+        }
 
         // Bù lại độ lệch Camera nếu người dùng bấm Download/Save khi đang ở trong chế độ P-Tracing
         const camOffset = AppState.ptAppliedCamOffset || { x: 0, y: 0, z: 0 };
@@ -13376,7 +13654,10 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     emission: p.emission,
                     power: p.power,
                     ldr: p.ldr,
+					
                     lightSource: !!p.lightSource,
+                    godray: !!p.godray,
+                    godrayDensity: p.godrayDensity ?? 0.15,
                     density: p.density,
                     phase: p.phase,
                     blendAlpha: p.blendAlpha
