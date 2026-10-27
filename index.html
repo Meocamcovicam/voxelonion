@@ -1351,9 +1351,16 @@
         needsVoxelTextureUpdate: true,
         needsEmitLightUpdate: true,
         needsCubeMapUpdate: true,
+		
         isCameraMoving: false,
         lastCameraMoveTime: 0,
+        isParameterEditing: false,
+        lastParameterEditTime: 0,
+        needsPreviewMaterialSync: false,
+        emitClustersCache: null,
+        needsEmitClusterRebuild: true,
         renderTargetInteractive: null,
+		
         isCustomResolution: window.innerWidth >= 1024,
         userModifiedResolution: false,
         resolutionWidth: window.innerWidth >= 1024 ? 800 : window.innerWidth,
@@ -1614,7 +1621,7 @@ function updateLocalCubemap() {
         }
         return '#ffffff';
     }
-	
+	///////////////////////////////////////////////////////////////////////////////////////////////////////////
 	function setupMaterialControls() {
 	
     const bindMatRange = (id, propKey, isInt = false) => {
@@ -1629,7 +1636,11 @@ function updateLocalCubemap() {
                     p[propKey] = val;
                     const valEl = document.getElementById(id.replace('prop-', 'val-'));
                     if (valEl) valEl.textContent = isInt ? Math.round(val) : val.toFixed(isInt ? 0 : 2);
-                    updateInstancedMaterial(AppState.selectedColorIndex);
+                    if (AppState.renderMode === 'pathtrace') {
+                        AppState.isParameterEditing = true;
+                        AppState.lastParameterEditTime = performance.now();
+                    }
+                    updateInstancedMaterial(AppState.selectedColorIndex, false);
                 }
             }
         );
@@ -1689,10 +1700,7 @@ function updateLocalCubemap() {
         });
     }
 
-    // Chỉnh màu qua Color Picker (Hỗ trợ Undo)
-	
-    // Chỉnh màu qua Color Picker (Hỗ trợ Undo & Kiểm tra trùng màu)
-    // Chỉnh màu qua Color Picker (Chặn trùng màu & tự hoàn trả về mã màu trước khi sửa)
+    // Chỉnh màu qua Color Picker (Chặn trùng màu & cập nhật nhanh không tính lại 3D Distance Field)
     const picker = document.getElementById('color-picker');
     if (picker) {
         let colorSnapBeforeEdit = null;
@@ -1711,32 +1719,32 @@ function updateLocalCubemap() {
         picker.addEventListener('pointerdown', startColorEdit);
         picker.addEventListener('focus', startColorEdit);
 
-        // Khi người dùng đang di chuyển/chọn màu trên bảng màu
         picker.addEventListener('input', (e) => {
             const newHex = e.target.value;
             const idx = AppState.selectedColorIndex;
             const p = AppState.materialProps[idx];
             if (!p) return;
 
+            if (AppState.renderMode === 'pathtrace') {
+                AppState.isParameterEditing = true;
+                AppState.lastParameterEditTime = performance.now();
+            }
+
             if (isColorInPalette(newHex, idx)) {
-                // Nếu trùng màu đã có: Hiện thông báo "Color already in palette"
                 updatePaletteDuplicateNoti(newHex, idx);
-                // Giữ nguyên màu gốc trước khi sửa trên ô Palette và mô hình 3D (không cho phép trùng)
                 p.color.set(originalHexBeforeEdit);
                 const swatch = document.getElementById(`swatch-${idx}`);
                 if (swatch) swatch.style.backgroundColor = originalHexBeforeEdit;
-                updateInstancedMaterial(idx);
+                updateInstancedMaterial(idx, true);
             } else {
-                // Nếu không trùng: Ẩn thông báo và cập nhật màu mới bình thường
                 updatePaletteDuplicateNoti(newHex, idx);
                 p.color.set(newHex);
                 const swatch = document.getElementById(`swatch-${idx}`);
                 if (swatch) swatch.style.backgroundColor = newHex;
-                updateInstancedMaterial(idx);
+                updateInstancedMaterial(idx, true);
             }
         });
 
-        // Khi người dùng nhấn Enter, chọn xong hoặc chạm ra ngoài (commit giá trị)
         const commitColorEdit = () => {
             const candidateHex = picker.value;
             const idx = AppState.selectedColorIndex;
@@ -1744,24 +1752,18 @@ function updateLocalCubemap() {
             if (!p) return;
 
             if (isColorInPalette(candidateHex, idx)) {
-                // Hiện thông báo trùng màu trong 1.5s rồi tự tắt
                 updatePaletteDuplicateNoti(candidateHex, idx, 1500);
-
-                // Quay trở lại mã màu trước khi chỉnh sửa
                 p.color.set(originalHexBeforeEdit);
                 picker.value = originalHexBeforeEdit;
                 const swatch = document.getElementById(`swatch-${idx}`);
                 if (swatch) swatch.style.backgroundColor = originalHexBeforeEdit;
 
-                updateInstancedMaterial(idx);
-                updateVoxel3DTexture();
+                updateInstancedMaterial(idx, true);
                 buildPaletteUI();
             } else {
-                // Màu hợp lệ (không trùng): Lưu chính thức và ghi vào lịch sử Undo
                 updatePaletteDuplicateNoti(candidateHex, idx);
                 p.color.set(candidateHex);
-                updateInstancedMaterial(idx);
-                updateVoxel3DTexture();
+                updateInstancedMaterial(idx, true);
                 buildPaletteUI();
 
                 if (colorSnapBeforeEdit && candidateHex.toLowerCase() !== originalHexBeforeEdit.toLowerCase()) {
@@ -1776,8 +1778,6 @@ function updateLocalCubemap() {
         picker.addEventListener('blur', commitColorEdit);
     }
 
-    // Đổi loại vật liệu (Diffuse, Metal, Glass, Emit, Cloud, Blend)
-    // Đổi loại vật liệu (Diffuse, Metal, Glass, Emit, Cloud, Blend)
     // Đổi loại vật liệu (Diffuse, Metal, Glass, Emit, Cloud, Blend)
     document.querySelectorAll('.mat-type-btn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -1808,16 +1808,21 @@ function updateLocalCubemap() {
                 recordUndoStep(snap);
 
                 selectColor(AppState.selectedColorIndex);
-                updateInstancedMaterial(AppState.selectedColorIndex);
+                // Nếu đang bật Sun Godray và chuyển giữa vật liệu đặc (Diffuse/Metal) <-> trong suốt (Glass/Cloud/Blend) thì mới cần quét lại lỗ hổng tường
+                const wasOpaqueWall = (oldType === 'diffuse' || oldType === 'metal');
+                const isNowOpaqueWall = (newType === 'diffuse' || newType === 'metal');
+                if (AppState.sun && AppState.sun.godray && wasOpaqueWall !== isNowOpaqueWall) {
+                    AppState.needsVoxelTextureUpdate = true;
+                }
                 if (oldType === 'emit' || newType === 'emit') {
+                    AppState.needsEmitClusterRebuild = true;
                     updateDynamicEmitLights();
                 }
+                updateInstancedMaterial(AppState.selectedColorIndex, false);
                 if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
             }
         });
     });
-	
-	
 }
 	
 	function setupSunControls() {
@@ -3797,85 +3802,94 @@ function setupSkyControls() {
     function bMaxZOrBoundsZ(b) {
         return b ? b.maxZ : 0;
     }
-	
+	/////////////////////////////////////////////////////////////////////////////////////////////////////////
 	function updateEmitLightsForShader() {
         if (!AppState.model || !pathTraceMaterial) return;
         if (AppState.renderMode !== 'pathtrace') {
-            AppState.needsVoxelTextureUpdate = true;
+            AppState.needsEmitLightUpdate = true;
             return;
         }
 
-        const visibleLayerIds = new Set();
-        const defaultLayerId = AppState.layers[0]?.id;
-        for (const l of AppState.layers) {
-            if (l.visible !== false) visibleLayerIds.add(l.id);
-        }
-
-        const emitVoxels = [];
-        for (const v of AppState.model.voxels) {
-            const lid = (v.l !== undefined) ? v.l : defaultLayerId;
-            if (!visibleLayerIds.has(lid)) continue;
-            const p = AppState.materialProps[v.i];
-            if (p && p.type === 'emit' && ((p.emission || 0) > 0.05)) {
-                emitVoxels.push(v);
+        // Chỉ chạy lại BFS gom cụm hình học khi mô hình Voxel hoặc loại vật liệu Emit thay đổi
+        if (!AppState.emitClustersCache || AppState.needsEmitClusterRebuild) {
+            const visibleLayerIds = new Set();
+            const defaultLayerId = AppState.layers[0]?.id;
+            for (const l of AppState.layers) {
+                if (l.visible !== false) visibleLayerIds.add(l.id);
             }
-        }
 
-        if (emitVoxels.length === 0) {
-            if (pathTraceMaterial.uniforms.uNumEmitLights) {
-                pathTraceMaterial.uniforms.uNumEmitLights.value = 0;
+            const emitVoxels = [];
+            for (const v of AppState.model.voxels) {
+                const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+                if (!visibleLayerIds.has(lid)) continue;
+                const p = AppState.materialProps[v.i];
+                if (p && p.type === 'emit') {
+                    emitVoxels.push(v);
+                }
             }
-            return;
-        }
 
-        // Gom nhóm các voxel emit liền kề nhau theo từng Layer độc lập bằng thuật toán BFS O(N)
-        const vKeyMap = new Map();
-        for (let i = 0; i < emitVoxels.length; i++) {
-            const v = emitVoxels[i];
-            const lid = (v.l !== undefined) ? v.l : defaultLayerId;
-            vKeyMap.set(`${lid}:${v.x},${v.y},${v.z}`, v);
-        }
+            const vKeyMap = new Map();
+            for (let i = 0; i < emitVoxels.length; i++) {
+                const v = emitVoxels[i];
+                const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+                vKeyMap.set(`${lid}:${v.x},${v.y},${v.z}`, v);
+            }
 
-        const visited = new Set();
-        const clusters = [];
+            const visited = new Set();
+            const builtClusters = [];
 
-        for (let i = 0; i < emitVoxels.length; i++) {
-            const v = emitVoxels[i];
-            const lid = (v.l !== undefined) ? v.l : defaultLayerId;
-            const key = `${lid}:${v.x},${v.y},${v.z}`;
-            if (visited.has(key)) continue;
+            for (let i = 0; i < emitVoxels.length; i++) {
+                const v = emitVoxels[i];
+                const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+                const key = `${lid}:${v.x},${v.y},${v.z}`;
+                if (visited.has(key)) continue;
 
-            const cluster = [];
-            const queue = [v];
-            visited.add(key);
-            let qHead = 0;
+                const cluster = [];
+                const queue = [v];
+                visited.add(key);
+                let qHead = 0;
 
-            while (qHead < queue.length) {
-                const curr = queue[qHead++];
-                const currLid = (curr.l !== undefined) ? curr.l : defaultLayerId;
-                cluster.push(curr);
+                while (qHead < queue.length) {
+                    const curr = queue[qHead++];
+                    const currLid = (curr.l !== undefined) ? curr.l : defaultLayerId;
+                    cluster.push(curr);
 
-                for (let dx = -1; dx <= 1; dx++) {
-                    for (let dy = -1; dy <= 1; dy++) {
-                        for (let dz = -1; dz <= 1; dz++) {
-                            if (dx === 0 && dy === 0 && dz === 0) continue;
-                            const nKey = `${currLid}:${curr.x + dx},${curr.y + dy},${curr.z + dz}`;
-                            if (vKeyMap.has(nKey) && !visited.has(nKey)) {
-                                const neighborVox = vKeyMap.get(nKey);
-                                if (neighborVox.i === curr.i) {
-                                    visited.add(nKey);
-                                    queue.push(neighborVox);
+                    for (let dx = -1; dx <= 1; dx++) {
+                        for (let dy = -1; dy <= 1; dy++) {
+                            for (let dz = -1; dz <= 1; dz++) {
+                                if (dx === 0 && dy === 0 && dz === 0) continue;
+                                const nKey = `${currLid}:${curr.x + dx},${curr.y + dy},${curr.z + dz}`;
+                                if (vKeyMap.has(nKey) && !visited.has(nKey)) {
+                                    const neighborVox = vKeyMap.get(nKey);
+                                    if (neighborVox.i === curr.i) {
+                                        visited.add(nKey);
+                                        queue.push(neighborVox);
+                                    }
                                 }
                             }
                         }
                     }
                 }
+                builtClusters.push(cluster);
             }
-            clusters.push(cluster);
+
+            AppState.emitClustersCache = builtClusters;
+            AppState.needsEmitClusterRebuild = false;
         }
-		
-		
-		
+
+        // Lọc nhanh các cụm Emit đang có cường độ emission > 0.05 (O(1) khi kéo thanh trượt)
+        const clusters = AppState.emitClustersCache.filter(c => {
+            if (!c || c.length === 0) return false;
+            const p = AppState.materialProps[c[0].i];
+            return p && p.type === 'emit' && ((p.emission || 0) > 0.05);
+        });
+
+        if (clusters.length === 0) {
+            if (pathTraceMaterial.uniforms.uNumEmitLights) {
+                pathTraceMaterial.uniforms.uNumEmitLights.value = 0;
+            }
+            return;
+        }
 
         const MAX_LIGHTS = 16;
         const count = Math.min(clusters.length, MAX_LIGHTS);
@@ -9192,6 +9206,8 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         AppState.needsCubeMapUpdate = true;
         AppState.needsVoxelTextureUpdate = true;
         AppState.needsEmitLightUpdate = true;
+        AppState.needsEmitClusterRebuild = true;
+        AppState.needsPreviewMaterialSync = false;
         if (AppState.isRendering) AppState.needsAccumulationReset = true;
     }
 
@@ -9810,8 +9826,12 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             AppState.renderer.setRenderTarget(null);
 			
             const wasVoxTexDirty = AppState.needsVoxelTextureUpdate;
+            const wasEmitLightDirty = AppState.needsEmitLightUpdate;
+            const wasEmitClusterDirty = AppState.needsEmitClusterRebuild;
             rebuildMesh();
             AppState.needsVoxelTextureUpdate = wasVoxTexDirty;
+            AppState.needsEmitLightUpdate = wasEmitLightDirty;
+            AppState.needsEmitClusterRebuild = wasEmitClusterDirty;
             updateRenderViewportSize();
         } else if (mode === 'pathtrace') {
 		///////////////////////////////////////////////////
@@ -10193,6 +10213,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
     }
 
    // Cập nhật tức thì màu sRGB của 1 ô Palette (colorIdx) trực tiếp trong voxel3DTexture để P-Tracing đổi màu realtime
+    // Cập nhật tức thì màu sRGB của 1 ô Palette (colorIdx) trực tiếp trong voxel3DTexture (chỉ ghi & upload khi RGB thực sự khác biệt)
     function updateSinglePaletteColorIn3DTexture(colorIdx) {
         if (!colorIdx || colorIdx < 1 || colorIdx > 255) return;
         if (AppState.renderMode !== 'pathtrace' || !voxel3DTexture || !voxel3DTexture.image || !voxel3DTexture.image.data || AppState.needsVoxelTextureUpdate) {
@@ -10208,6 +10229,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         let changed = false;
         for (let i = 0; i < len; i += 4) {
             if (data[i + 3] === colorIdx) {
+                if (data[i] === r && data[i + 1] === g && data[i + 2] === b) {
+                    return; // Màu trong 3D Texture đã trùng khớp, thoát ngay lập tức O(1)
+                }
                 data[i]     = r;
                 data[i + 1] = g;
                 data[i + 2] = b;
@@ -12728,15 +12752,18 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                             float tEnd = (primaryHitDist > 0.0) ? min(tGrFar, primaryHitDist) : tGrFar;
 
                             if (tEnd > tStart) {
-                                const int MARCH_STEPS = 40;
-                                float stepSize = (tEnd - tStart) / float(MARCH_STEPS);
+                                int activeMarchSteps = (uInteractiveMode > 0.5) ? 16 : 36;
+                                float stepSize = (tEnd - tStart) / float(activeMarchSteps);
 
                                 vec3 accumGodrayCol = vec3(0.0);
                                 float accumTintedWeight = 0.0;
                                 float totalWeight = 0.0;
 
-                                for (int s = 0; s < MARCH_STEPS; s++) {
+                                for (int s = 0; s < 36; s++) {
+                                    if (s >= activeMarchSteps) break;
                                     float tCurr = tStart + (float(s) + rand(seed)) * stepSize;
+									
+									
                                     vec3 samplePos = primaryRo + primaryRd * tCurr;
                                     float distToWindow = 0.0;
                                     float vis = fastGodrayShadow(samplePos, unitSunDir, sunColLin, distToWindow);
@@ -13009,11 +13036,17 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         const width = AppState.resolutionWidth;
         const height = AppState.resolutionHeight;
 
-        // Nếu người dùng vừa dừng xoay camera sau 85ms -> tự động thoát chế độ Interactive và bắt đầu tích lũy SPP độ phân giải chuẩn
+        // Nếu người dùng vừa dừng xoay camera hoặc dừng kéo slider Material sau 85ms -> tự động thoát chế độ Interactive và tích lũy SPP độ phân giải chuẩn
         if (AppState.isCameraMoving && (nowTime - AppState.lastCameraMoveTime > 85)) {
             AppState.isCameraMoving = false;
             AppState.needsAccumulationReset = true;
         }
+        if (AppState.isParameterEditing && (nowTime - AppState.lastParameterEditTime > 85)) {
+            AppState.isParameterEditing = false;
+            AppState.needsAccumulationReset = true;
+        }
+
+        const isInteractiveNow = AppState.isCameraMoving || AppState.isParameterEditing;
 
         if (AppState.needsAccumulationReset) {
             initPingPongTargets(width, height);
@@ -13044,7 +13077,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             }
         }
 
-        if (!AppState.isCameraMoving && AppState.accumulatedFrames >= AppState.maxRenderFrames) {
+        if (!isInteractiveNow && AppState.accumulatedFrames >= AppState.maxRenderFrames) {
             const txt = document.getElementById('render-status-text');
             if (txt && txt.textContent !== `Complete: ${AppState.maxRenderFrames} SPP`) {
                 txt.textContent = `Complete: ${AppState.maxRenderFrames} SPP`;
@@ -13065,7 +13098,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             pathTraceMaterial.uniforms.tMaterialLUT.value = materialLUTTexture;
             pathTraceMaterial.uniforms.uResolution.value.set(width, height);
             pathTraceMaterial.uniforms.uMaxBounces.value = 4;
-            pathTraceMaterial.uniforms.uInteractiveMode.value = AppState.isCameraMoving ? 1.0 : 0.0;
+            pathTraceMaterial.uniforms.uInteractiveMode.value = isInteractiveNow ? 1.0 : 0.0;
 
             if (AppState.ptGridSize) {
                 pathTraceMaterial.uniforms.uGridSize.value.copy(AppState.ptGridSize);
@@ -13128,8 +13161,8 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             pathTraceMaterial.uniforms.uSkyEnabled.value = AppState.sky.enabled ? 1.0 : 0.0;
         }
 
-        // KHI ĐANG XOAY CAMERA: Render 1 SPP tức thì vào renderTargetInteractive (nửa độ phân giải, NearestFilter sắc nét như MagicaVoxel)
-        if (AppState.isCameraMoving && AppState.renderTargetInteractive) {
+        // KHI ĐANG XOAY CAMERA HOẶC KÉO SLIDER MATERIAL: Render 1 SPP tức thì vào renderTargetInteractive (nửa độ phân giải, 60 FPS mượt mà)
+        if (isInteractiveNow && AppState.renderTargetInteractive) {
             pathTraceMaterial.uniforms.uFrameSeed.value = Math.random();
             pathTraceMaterial.uniforms.uSampleIndex.value = 0.0;
             pathTraceMaterial.uniforms.uMixRatio.value = 0.0;
@@ -13413,10 +13446,25 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         }
     }
 
-	function updateInstancedMaterial(index) {
+	function updateInstancedMaterial(index, colorChanged = true) {
+        const p = AppState.materialProps[index];
+
+        // Khi đang ở P-Tracing: Tuyệt đối KHÔNG hủy & biên dịch lại MeshPhysicalMaterial của Three.js trên mỗi bước kéo slider
+        if (AppState.renderMode === 'pathtrace') {
+            AppState.needsPreviewMaterialSync = true;
+            if (colorChanged) {
+                updateSinglePaletteColorIn3DTexture(index);
+            }
+            updateMaterialLUTTexture();
+            if (p && p.type === 'emit') {
+                updateDynamicEmitLights();
+            }
+            AppState.needsAccumulationReset = true;
+            return;
+        }
+
         if (!AppState.voxelMesh) return;
         const config = createMaterialConfig(index);
-        const p = AppState.materialProps[index];
         const isCloud = (AppState.renderMode !== 'preview') && (p && p.type === 'cloud');
 
         AppState.voxelMesh.traverse((child) => {
@@ -13429,18 +13477,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             }
         });
 
-		if (AppState.renderMode === 'pathtrace') {
-            updateSinglePaletteColorIn3DTexture(index);
-            updateMaterialLUTTexture();
-            if (p && p.type === 'emit') {
-                updateDynamicEmitLights();
-            }
-            AppState.needsAccumulationReset = true;
-        } else {
-            AppState.needsVoxelTextureUpdate = true;
-            AppState.needsEmitLightUpdate = true;
-            AppState.needsCubeMapUpdate = true;
-        }
+        AppState.needsVoxelTextureUpdate = true;
+        AppState.needsEmitLightUpdate = true;
+        AppState.needsCubeMapUpdate = true;
     }
 
     function generateVoxBinaryBuffer() {
