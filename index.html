@@ -1496,17 +1496,15 @@
         AppState.skyMesh.material.uniforms.bottomColor.value.copy(AppState.sky.ground);
 
         if (AppState.renderMode === 'preview') {
-            // TRONG PREVIEW: Luôn khóa cứng phông xám tối trung tính `#282828`, tắt Fog & Sky
+            // TRONG PREVIEW: Đồng bộ một màu xám chuẩn MagicaVoxel (#2b2b2b), ẩn tấm sàn đen để không tạo mảng đen hình thoi
             AppState.skyMesh.visible = false;
-            AppState.scene.background = new THREE.Color(0x282828);
+            AppState.scene.background = new THREE.Color(0x2b2b2b);
             AppState.scene.fog = null;
             AppState.scene.environment = null;
             if (AppState.renderer) AppState.renderer.toneMappingExposure = 1.0;
 
-            // Mặt sàn tối màu vừa phải để hứng bóng đổ nhẹ tự nhiên, khớp với nền #282828
-            if (AppState.groundPlane && AppState.groundPlane.material) {
-                AppState.groundPlane.material.color.setHex(0x1f1f23);
-                AppState.groundPlane.material.needsUpdate = true;
+            if (AppState.groundPlane) {
+                AppState.groundPlane.visible = false;
             }
 
             // Ánh sáng môi trường trung tính độ sáng cao giúp mặt dưới chỉ tối hơn một chút và giữ rõ màu gốc
@@ -10010,74 +10008,76 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         }
     }
 
-    function setupFilterControls() {
-    const elFilterToggle = document.getElementById('filter-enabled');
-    if (elFilterToggle) {
-        elFilterToggle.addEventListener('change', e => {
-            const snap = captureStateSnapshot();
-            AppState.filterEnabled = e.target.checked;
-            recordUndoStep(snap);
+   function setupFilterControls() {
+        const refreshPostProcessRealtime = () => {
             updateFilterUniforms();
-            if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
+            if (AppState.renderMode === 'pathtrace') {
+                markPtInteractiveEdit(1000);
+                drawAccumulationToScreen();
+            }
+        };
+
+        const elFilterToggle = document.getElementById('filter-enabled');
+        if (elFilterToggle) {
+            elFilterToggle.addEventListener('change', e => {
+                const snap = captureStateSnapshot();
+                AppState.filterEnabled = e.target.checked;
+                recordUndoStep(snap);
+                refreshPostProcessRealtime();
+            });
+        }
+
+        const elSat = document.getElementById('prop-render-saturation');
+        bindUndoableInput(elSat, e => {
+            AppState.saturation = parseFloat(e.target.value);
+            safeSetText('val-render-saturation', AppState.saturation.toFixed(2));
+            refreshPostProcessRealtime();
+        });
+
+        const elVib = document.getElementById('prop-render-vibrance');
+        bindUndoableInput(elVib, e => {
+            AppState.vibrance = parseFloat(e.target.value);
+            safeSetText('val-render-vibrance', AppState.vibrance.toFixed(2));
+            refreshPostProcessRealtime();
+        });
+
+        const elExposure = document.getElementById('prop-render-exposure');
+        bindUndoableInput(elExposure, e => {
+            AppState.exposure = parseFloat(e.target.value);
+            safeSetText('val-render-exposure', AppState.exposure.toFixed(2));
+            AppState.renderer.toneMappingExposure = AppState.exposure;
+            refreshPostProcessRealtime();
+        });
+
+        const elBloom = document.getElementById('prop-bloom-strength');
+        bindUndoableInput(elBloom, e => {
+            AppState.bloomStrength = parseFloat(e.target.value);
+            safeSetText('val-bloom-strength', Math.round(AppState.bloomStrength));
+            if (AppState.bloomPass) AppState.bloomPass.strength = (AppState.bloomStrength / 100.0) * 1.5;
+            refreshPostProcessRealtime();
+        });
+
+        const elBloomSize = document.getElementById('prop-bloom-size');
+        bindUndoableInput(elBloomSize, e => {
+            AppState.bloomSize = parseFloat(e.target.value);
+            safeSetText('val-bloom-size', Math.round(AppState.bloomSize));
+            refreshPostProcessRealtime();
+        });
+
+        const elBloomAspect = document.getElementById('prop-bloom-aspect');
+        bindUndoableInput(elBloomAspect, e => {
+            AppState.bloomAspect = parseFloat(e.target.value);
+            safeSetText('val-bloom-aspect', AppState.bloomAspect.toFixed(2));
+            refreshPostProcessRealtime();
+        });
+
+        const elBloomThresh = document.getElementById('prop-bloom-thresh');
+        bindUndoableInput(elBloomThresh, e => {
+            AppState.bloomThresh = parseFloat(e.target.value);
+            safeSetText('val-bloom-thresh', AppState.bloomThresh.toFixed(2));
+            refreshPostProcessRealtime();
         });
     }
-
-    const elSat = document.getElementById('prop-render-saturation');
-    bindUndoableInput(elSat, e => {
-        AppState.saturation = parseFloat(e.target.value);
-        safeSetText('val-render-saturation', AppState.saturation.toFixed(2));
-        updateFilterUniforms();
-        if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
-    });
-
-    const elVib = document.getElementById('prop-render-vibrance');
-    bindUndoableInput(elVib, e => {
-        AppState.vibrance = parseFloat(e.target.value);
-        safeSetText('val-render-vibrance', AppState.vibrance.toFixed(2));
-        updateFilterUniforms();
-        if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
-    });
-
-
-
-const elExposure = document.getElementById('prop-render-exposure');
-    bindUndoableInput(elExposure, e => {
-        AppState.exposure = parseFloat(e.target.value);
-        safeSetText('val-render-exposure', AppState.exposure.toFixed(2));
-        updateFilterUniforms();
-        AppState.renderer.toneMappingExposure = AppState.exposure;
-        if (AppState.renderMode === 'pathtrace') AppState.needsAccumulationReset = true;
-    });
-
-    const elBloom = document.getElementById('prop-bloom-strength');
-    bindUndoableInput(elBloom, e => {
-        AppState.bloomStrength = parseFloat(e.target.value);
-        safeSetText('val-bloom-strength', Math.round(AppState.bloomStrength));
-        if (AppState.bloomPass) AppState.bloomPass.strength = (AppState.bloomStrength / 100.0) * 1.5;
-        updateFilterUniforms();
-    });
-
-    const elBloomSize = document.getElementById('prop-bloom-size');
-    bindUndoableInput(elBloomSize, e => {
-        AppState.bloomSize = parseFloat(e.target.value);
-        safeSetText('val-bloom-size', Math.round(AppState.bloomSize));
-        updateFilterUniforms();
-    });
-
-    const elBloomAspect = document.getElementById('prop-bloom-aspect');
-    bindUndoableInput(elBloomAspect, e => {
-        AppState.bloomAspect = parseFloat(e.target.value);
-        safeSetText('val-bloom-aspect', AppState.bloomAspect.toFixed(2));
-        updateFilterUniforms();
-    });
-
-    const elBloomThresh = document.getElementById('prop-bloom-thresh');
-    bindUndoableInput(elBloomThresh, e => {
-        AppState.bloomThresh = parseFloat(e.target.value);
-        safeSetText('val-bloom-thresh', AppState.bloomThresh.toFixed(2));
-        updateFilterUniforms();
-    });
-}
 	
 	
 	function getActiveLayer() {
@@ -10284,15 +10284,20 @@ const elExposure = document.getElementById('prop-render-exposure');
             data[idx1 + 2] = metal;
             data[idx1 + 3] = spec;
 
-            // Hàng 2 (y = 2): [matGodray, matGodrayDensity, 0.0, 0.0]
+            // Hàng 2 (y = 2): [matGodray, matGodrayDensity, emitLdrNorm, emitRadiance]
             const matGodray = p.godray ? 1.0 : 0.0;
             const matGodrayDens = THREE.MathUtils.clamp(p.godrayDensity ?? 0.15, 0.0, 1.0);
+            const rawLdr = (p.ldr !== undefined && !Number.isNaN(p.ldr)) ? p.ldr : 0.0;
+            const emitLdrNorm = THREE.MathUtils.clamp(rawLdr > 1.0 ? rawLdr / 100.0 : rawLdr, 0.0, 1.0);
+            const emVal = Math.max(0.0, p.emission !== undefined ? p.emission : 0.0);
+            const flVal = Math.max(0.0, p.power !== undefined ? p.power : 1.0);
+            const emitRad = (emVal / 100.0) * Math.pow(2.35, flVal) * 24.0;
             const idx2 = (512 + i) * 4;
 			
             data[idx2]     = matGodray;
             data[idx2 + 1] = matGodrayDens;
-            data[idx2 + 2] = 0.0;
-            data[idx2 + 3] = 0.0;
+            data[idx2 + 2] = emitLdrNorm;
+            data[idx2 + 3] = emitRad;
         }
 
         if (!materialLUTTexture || materialLUTTexture.image.height !== 3) {
@@ -12109,41 +12114,46 @@ const elExposure = document.getElementById('prop-render-exposure');
 /////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////
-                            if (isEmit) {
-                                vec3 emitBaseColor = albedo;
-
-                                int bestLi = 0;
-                                float bestScore = 1e9;
-                                for (int li = 0; li < MAX_EMIT_LIGHTS; li++) {
-                                    if (li >= uNumEmitLights) break;
-                                    vec3 clampedPos = clamp(hitPos, uEmitMin[li], uEmitMax[li]);
-                                    float boxDist = length(hitPos - clampedPos);
-                                    float colDiff = length(hitColor.rgb - uEmitCol[li]);
-                                    float score = boxDist + colDiff * 2.0;
-
-                                    if (score < bestScore) {
-                                        bestScore = score;
-                                        bestLi = li;
-                                    }
-                                }
-
-                                float emitPwr = (uNumEmitLights > 0) ? uEmitPwr[bestLi] : 16.0;
-                                float ldrVal = clamp((uNumEmitLights > 0) ? uEmitLdr[bestLi] : 0.0, 0.0, 1.0);
+							if (isEmit) {
+                                // Đọc trực tiếp Ldr (m2.b) và năng lượng phát xạ (m2.a) của chính ô màu đó từ tMaterialLUT
+                                vec4 m2Emit = texelFetch(tMaterialLUT, ivec2(matIdx, 2), 0);
+                                float ldrVal = clamp(m2Emit.b, 0.0, 1.0);
+                                float emitPwr = max(0.1, m2Emit.a);
                                 vec3 srgbCol = hitColor.rgb;
+                                vec3 emitBaseColor = albedo;
                                 vec3 trueEmitColor = mix(emitBaseColor, srgbCol, 0.25);
 
                                 if (bounce == 0 || isSpecularPath) {
-                                    // Khi Emit cường độ cao (như màu cam Emission 79, Power 2 trong MagicaVoxel),
-                                    // nhân trực tiếp năng lượng HDR trước ACES để kênh Red bão hòa và kênh Green dâng cao tạo lõi Vàng tươi (Hot Core),
-                                    // còn khi kéo Ldr lên cao thì giữ nguyên sắc độ gốc LDR
-                                    float hdrMultiplier = max(1.25, emitPwr * 0.22);
-                                    vec3 warmHotShift = vec3(trueEmitColor.r, mix(trueEmitColor.g, pow(trueEmitColor.g, 0.62), clamp(emitPwr * 0.012, 0.0, 0.68)), trueEmitColor.b * 0.65);
-                                    vec3 colHDR = warmHotShift * hdrMultiplier;
-                                    vec3 colLDR = mix(emitBaseColor, srgbCol, 0.45) * 1.28;
-                                    radiance += throughput * mix(colHDR, colLDR, ldrVal);
+                                    // 1. Chế độ HDR (khi Ldr = 0):
+                                    // Bức xạ năng lượng cao đẩy các kênh màu thứ cấp tràn ngưỡng bão hòa giống hệt MagicaVoxel:
+                                    // - Màu Đỏ / Cam -> Lõi rực Vàng tươi
+                                    // - Màu Xanh lá (Lime Green) -> Кênh Red dâng cao tạo lõi Vàng chanh rực rỡ (như ảnh image_d454be.jpg)
+                                    // - Màu Vàng / Xanh dương -> Lõi rực Trắng kem ấm
+                                    float hdrIntensity = max(1.0, emitPwr * 0.25);
+                                    float burnout = clamp((emitPwr - 2.5) / 28.0, 0.0, 1.0);
+
+                                    // Dịch chuyển nhiệt màu HDR (Thermal / Channel Spill) trước khi qua ACES Tone Mapping
+                                    float maxCh = max(srgbCol.r, max(srgbCol.g, srgbCol.b));
+                                    vec3 normCol = srgbCol / max(maxCh, 0.001);
+                                    vec3 hotTarget = vec3(
+                                        max(normCol.r, normCol.g * 0.96 + normCol.b * 0.55),
+                                        max(normCol.g, normCol.r * 0.92 + normCol.b * 0.65),
+                                        max(normCol.b * 0.85, (normCol.r * normCol.g) * 0.65 + burnout * 0.38)
+                                    );
+                                    vec3 hdrCoreCol = mix(trueEmitColor, pow(clamp(hotTarget, vec3(0.0), vec3(1.0)), vec3(1.35)), burnout * 0.88);
+                                    vec3 colHDR = hdrCoreCol * (1.15 + hdrIntensity * 1.45);
+
+                                    // 2. Chế độ LDR (khi Ldr = 100):
+                                    // Giữ nguyên sắc độ gốc của ô màu trong Palette (ví dụ: Xanh lá giữ nguyên Xanh lá, Vàng giữ nguyên Vàng, Cam giữ nguyên Cam)
+                                    // không bị cháy sáng thành màu khác khi đi qua ACES Tone Mapping (như ảnh image_d45483.jpg)
+                                    vec3 colLDR = mix(emitBaseColor, srgbCol, 0.28) * 1.08;
+
+                                    // Nội suy mượt giữa HDR (Ldr = 0) và LDR (Ldr = 100)
+                                    float ldrCurve = smoothstep(0.0, 1.0, ldrVal);
+                                    radiance += throughput * mix(colHDR, colLDR, ldrCurve);
                                 } else {
-                                    // Đóng góp GI mạnh mẽ khi tia thứ cấp (Indirect Bounce) đập trúng khối Emit
-                                    radiance += throughput * trueEmitColor * min(emitPwr * 0.28, 4.5);
+                                    // Ánh sáng gián tiếp (Indirect Bounce) không bị giảm khi kéo Ldr
+                                    radiance += throughput * trueEmitColor * min(emitPwr * 0.26, 4.2);
                                 }
                                 break;
                             }
@@ -12152,27 +12162,30 @@ const elExposure = document.getElementById('prop-render-exposure');
                                 vec3 reflRayPre = reflect(rd, hitNormal);
                                 for (int li = 0; li < MAX_EMIT_LIGHTS; li++) {
                                     if (li >= uNumEmitLights) break;
+                                    float effectivePower = uEmitPwr[li];
+                                    if (effectivePower <= 0.01) continue;
+
                                     vec3 lMin = uEmitMin[li];
                                     vec3 lMax = uEmitMax[li];
                                     vec3 lSize = max(vec3(1.0), lMax - lMin);
 
-                                    // Kết hợp điểm gần nhất trên khối Emit (để tạo quầng Halo mượt ngay sát mép khối Emit) và điểm ngẫu nhiên trên khối Emit
+                                    // Lấy mẫu ngẫu nhiên toàn bộ thể tích cụm đèn Emit (loại bỏ hoàn toàn ranh giới cắt khúc 1.15 voxel)
                                     vec3 r3 = vec3(rand(seed), rand(seed), rand(seed));
-                                    vec3 randomLightPos = mix(lMin + vec3(0.04), lMax - vec3(0.04), r3);
+                                    vec3 sampleLightPos = mix(lMin + vec3(0.05), lMax - vec3(0.05), r3);
                                     vec3 closestBoxPt = clamp(hitPos, lMin, lMax);
                                     float boxProximity = length(hitPos - closestBoxPt);
-
-                                    vec3 sampleLightPos = (boxProximity < 4.5)
-                                        ? mix(closestBoxPt, randomLightPos, clamp(boxProximity / 4.5, 0.18, 1.0))
-                                        : randomLightPos;
 
                                     vec3 toL = sampleLightPos - hitPos;
                                     float dist = length(toL);
                                     vec3 L = toL / max(dist, 0.0001);
 
                                     float rawNdotL = dot(hitNormal, L);
-                                    // Quầng sáng cận bề mặt (Near-field Halo Wrap) giúp bức tường cùng mặt phẳng bao quanh khối Emit rực sáng mượt như MagicaVoxel
-                                    float nearWrap = exp(-boxProximity * 0.55) * 0.78 + exp(-dist * 0.12) * 0.28;
+
+                                    // Lưu ý quan trọng chuẩn MagicaVoxel: Thanh trượt Ldr chỉ kẹp độ chói bề mặt trực tiếp của khối Emit,
+                                    // KHÔNG làm yếu ánh sáng hay quầng Halo hắt lên tường và sàn xung quanh (giống hệt image_d454be.jpg & image_d45483.jpg)
+                                    float highPowerStrength = smoothstep(3.0, 22.0, effectivePower);
+
+                                    float nearWrap = highPowerStrength * (exp(-boxProximity * 0.42) * 0.62 + exp(-dist * 0.12) * 0.22);
                                     float cosSurface = isVolume 
                                         ? (phaseHG(clamp(dot(L, rd), -1.0, 1.0), matPhase) * 2.0) 
                                         : clamp((rawNdotL + nearWrap) / (1.0 + nearWrap), 0.0, 1.0);
@@ -12182,31 +12195,30 @@ const elExposure = document.getElementById('prop-render-exposure');
 
                                     vec3 absLPre = abs(L);
                                     float faceAreaPre = max(1.0, lSize.y * lSize.z * absLPre.x + lSize.x * lSize.z * absLPre.y + lSize.x * lSize.y * absLPre.z);
-                                    float maxPotentialContrib = (uEmitPwr[li] * faceAreaPre) / (dist * dist + faceAreaPre * 0.45 + 0.8);
+                                    float maxPotentialContrib = (effectivePower * faceAreaPre) / (dist * dist + faceAreaPre * 0.55 + 1.0);
 
-                                    if ((hasDiffEmit || hasSpecEmit) && maxPotentialContrib > 0.001) {
-                                        vec3 shadowOrigin = isVolume ? (hitPos + L * 0.02) : (hitPos + hitNormal * 0.05 + L * 0.02);
-                                        // Nếu điểm nằm ngay sát viền khối Emit (boxProximity < 1.35) thì nhận quầng sáng trực tiếp không bị tự cắt bóng viền
-                                        vec3 shadowTrans = (uEnableShadow > 0.5 && dist > 0.15 && boxProximity >= 1.15) 
-                                            ? shadowTraversal(shadowOrigin, L, max(0.05, dist - 0.10), seed) 
+                                    if ((hasDiffEmit || hasSpecEmit) && maxPotentialContrib > 0.0015) {
+                                        vec3 shadowOrigin = isVolume ? (hitPos + L * 0.02) : (hitPos + hitNormal * 0.045 + L * 0.02);
+                                        // Luôn kiểm tra shadowTraversal nhất quán ở mọi khoảng cách (không cắt khúc tại boxProximity >= 1.15)
+                                        vec3 shadowTrans = (uEnableShadow > 0.5 && dist > 0.14) 
+                                            ? shadowTraversal(shadowOrigin, L, max(0.05, dist - 0.09), seed) 
                                             : vec3(1.0);
 
                                         if (max(shadowTrans.r, max(shadowTrans.g, shadowTrans.b)) > 0.001) {
                                             vec3 emitLin = pow(uEmitCol[li], vec3(2.2));
-                                            vec3 emitCol = mix(emitLin, uEmitCol[li], 0.20);
-                                            float effectivePower = uEmitPwr[li];
-                                            float bounceDamp = isSpecularPath ? 1.0 : 0.85;
+                                            vec3 emitCol = mix(emitLin, uEmitCol[li], 0.22);
+                                            float bounceDamp = isSpecularPath ? 1.0 : 0.82;
 
                                             if (hasDiffEmit) {
-                                                // Thành phần chiếu sáng diện rộng lên tường và sàn phòng (Inverse-Square + Area Light Falloff)
-                                                float geomTerm = (cosSurface * faceAreaPre) / (dist * dist * 0.72 + faceAreaPre * 0.48 + 0.75);
-                                                geomTerm = min(geomTerm, 3.2);
+                                                // Ánh sáng diện tích khuếch tán tự nhiên theo định luật nghịch đảo bình phương khoảng cách
+                                                float geomTerm = (cosSurface * faceAreaPre) / (dist * dist * 0.78 + faceAreaPre * 0.55 + 1.0);
+                                                geomTerm = min(geomTerm, 2.8);
 
-                                                // Thành phần Halo rực sáng ngay xung quanh viền khối Emit (giống ảnh MagicaVoxel mẫu)
-                                                float borderHalo = exp(-boxProximity * 0.75) * clamp(effectivePower * 0.032, 0.0, 2.5);
-                                                vec3 haloCol = mix(emitCol, vec3(1.0, 0.92, 0.45) * emitCol, clamp(effectivePower * 0.01, 0.0, 0.45));
+                                                // Quầng sáng Halo mượt quanh viền chỉ xuất hiện khi Emit có cường độ mạnh (highPowerStrength > 0)
+                                                float borderHalo = highPowerStrength * exp(-boxProximity * 0.52) * clamp(effectivePower * 0.022, 0.0, 1.8) * clamp(rawNdotL + 0.65, 0.0, 1.0);
+                                                vec3 haloCol = mix(emitCol, vec3(1.0, 0.92, 0.45) * emitCol, highPowerStrength * 0.40);
 
-                                                vec3 emitContrib = throughput * albedo * (emitCol * (effectivePower * geomTerm * 1.18 * bounceDamp) + haloCol * borderHalo) * diffuseWeight * shadowTrans;
+                                                vec3 emitContrib = throughput * albedo * (emitCol * (effectivePower * geomTerm * 1.12 * bounceDamp) + haloCol * borderHalo) * diffuseWeight * shadowTrans;
                                                 radiance += emitContrib;
                                             }
 
@@ -12218,7 +12230,7 @@ const elExposure = document.getElementById('prop-render-exposure');
                                                 float emitGlint = smoothstep(1.0 - specSpread * 2.5, 1.0, cosEmitSpec);
                                                 if (emitGlint > 0.001) {
                                                     float specGeom = faceAreaPre / (dist * dist + faceAreaPre + 1.5);
-                                                    radiance += throughput * F0 * emitCol * (effectivePower * emitGlint * specGeom * 0.45) * shadowTrans;
+                                                    radiance += throughput * F0 * emitCol * (effectivePower * emitGlint * specGeom * 0.42) * shadowTrans;
                                                 }
                                             }
                                         }
@@ -13099,40 +13111,63 @@ const elExposure = document.getElementById('prop-render-exposure');
                     void main() {
                         vec4 base = texture2D(tInput, vUv);
                         vec3 col = max(vec3(0.0), base.rgb);
+												/////////////////////////////////////////////////////////////////////////////////////////////////////
 
+						/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+						/////////////////////////////////////////////////////////////////////////////////////////////////////
+                        // Hiệu ứng Bloom chuẩn MagicaVoxel với 4 tham số: Mix (0..100), Size (0..100), Aspect (-1..1), Thresh (0..5)
                         // Hiệu ứng Bloom chuẩn MagicaVoxel với 4 tham số: Mix (0..100), Size (0..100), Aspect (-1..1), Thresh (0..5)
                         float mixNorm = clamp(bloomStrength / 100.0, 0.0, 1.0);
                         if (mixNorm > 0.001 && bloomSize > 0.1) {
-                            float radiusPx = (bloomSize / 100.0) * 28.0 + 1.5;
+                            // Bán kính lan tỏa rộng như MagicaVoxel (khi Size = 40 sẽ tỏa đều ra vùng tường xung quanh)
+                            float radiusPx = pow(bloomSize / 100.0, 0.85) * 68.0 + 2.0;
                             vec2 aspectScale = vec2(
-                                1.0 + max(0.0, bloomAspect) * 2.5,
-                                1.0 + max(0.0, -bloomAspect) * 2.5
+                                1.0 + max(0.0, bloomAspect) * 3.0,
+                                1.0 + max(0.0, -bloomAspect) * 3.0
                             );
                             vec2 stepUv = (radiusPx * aspectScale) / max(uResolution, vec2(64.0));
 
-                            vec3 bloomAcc = vec3(0.0);
-                            float weightSum = 0.0;
+                            vec3 bloomNear = vec3(0.0);
+                            float wNearSum = 0.0;
+                            vec3 bloomWide = vec3(0.0);
+                            float wWideSum = 0.0;
 
-                            // Lưới lọc Gaussian 2 tầng (9x9 mẫu phân tầng mượt mà không lộ hạt)
+                            // Ngưỡng mềm (Soft-Knee Threshold) khớp với thang Thresh 1.0 của MagicaVoxel
+                            float effThresh = bloomThresh * 0.65;
+                            float knee = max(0.15, effThresh * 0.5);
+
                             for (float x = -4.0; x <= 4.0; x += 1.0) {
                                 for (float y = -4.0; y <= 4.0; y += 1.0) {
                                     float r2 = x * x + y * y;
                                     if (r2 > 18.0) continue;
-                                    float w = exp(-r2 / 5.5);
-                                    vec2 offsetUv = vUv + vec2(x, y) * (stepUv * 0.28);
-                                    vec3 sCol = max(vec3(0.0), texture2D(tInput, offsetUv).rgb);
-                                    float lum = max(sCol.r, max(sCol.g, sCol.b));
-                                    float softKnee = max(0.0, lum - bloomThresh) / max(lum, 0.0001);
-                                    // Nén nhẹ đỉnh HDR cực đại để quầng hào quang lan tỏa êm dịu như MagicaVoxel
-                                    vec3 brightPart = (sCol * softKnee) / (vec3(1.0) + sCol * 0.12);
-                                    bloomAcc += brightPart * w;
-                                    weightSum += w;
+                                    float w = exp(-r2 / 5.2);
+
+                                    // Lớp 1: Quầng sáng sát mép nguồn sáng
+                                    vec2 uv1 = clamp(vUv + vec2(x, y) * (stepUv * 0.12), vec2(0.001), vec2(0.999));
+                                    vec3 s1 = max(vec3(0.0), texture2D(tInput, uv1).rgb) * exposure;
+                                    float l1 = max(s1.r, max(s1.g, s1.b));
+                                    float rq1 = clamp(l1 - effThresh + knee, 0.0, 2.0 * knee);
+                                    float kWeight1 = (rq1 * rq1) / (4.0 * knee);
+                                    float contrib1 = max(l1 - effThresh, kWeight1) / max(l1, 0.0001);
+                                    vec3 b1 = (s1 * contrib1) / (vec3(1.0) + s1 * 0.08);
+                                    bloomNear += b1 * w;
+                                    wNearSum += w;
+
+                                    // Lớp 2: Quầng hào quang tán xạ rộng ra không gian xung quanh
+                                    vec2 uv2 = clamp(vUv + vec2(x, y) * (stepUv * 0.32), vec2(0.001), vec2(0.999));
+                                    vec3 s2 = max(vec3(0.0), texture2D(tInput, uv2).rgb) * exposure;
+                                    float l2 = max(s2.r, max(s2.g, s2.b));
+                                    float rq2 = clamp(l2 - effThresh + knee, 0.0, 2.0 * knee);
+                                    float kWeight2 = (rq2 * rq2) / (4.0 * knee);
+                                    float contrib2 = max(l2 - effThresh, kWeight2) / max(l2, 0.0001);
+                                    vec3 b2 = (s2 * contrib2) / (vec3(1.0) + s2 * 0.08);
+                                    bloomWide += b2 * w;
+                                    wWideSum += w;
                                 }
                             }
-                            if (weightSum > 0.0) {
-                                bloomAcc /= weightSum;
-                                col += bloomAcc * (mixNorm * 1.65);
-                            }
+                            vec3 finalBloom = (bloomNear / max(wNearSum, 0.001)) * 0.55 + (bloomWide / max(wWideSum, 0.001)) * 0.65;
+                            col += finalBloom * (mixNorm * 1.85);
                         }
 
                         col *= exposure;
@@ -14860,6 +14895,7 @@ const elExposure = document.getElementById('prop-render-exposure');
         requestAnimationFrame(animate);
         
         updateFreeCamera();
+		
         if (AppState.renderMode === 'preview') {
             updateGridVisibilityByCamera();
         }
