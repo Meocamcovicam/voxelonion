@@ -12207,39 +12207,28 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                 float emitPwr = max(0.1, m2Emit.a);
                                 vec3 srgbCol = hitColor.rgb;
                                 vec3 emitBaseColor = albedo;
-                                vec3 trueEmitColor = mix(emitBaseColor, srgbCol, 0.25);
+                                vec3 trueEmitColor = mix(emitBaseColor, srgbCol, 0.18);
 
                                 if (bounce == 0 || isSpecularPath) {
-                                    // 1. Chế độ HDR (khi Ldr = 0):
-                                    // Bức xạ năng lượng cao đẩy các kênh màu thứ cấp tràn ngưỡng bão hòa giống hệt MagicaVoxel:
-                                    // - Màu Đỏ / Cam -> Lõi rực Vàng tươi
-                                    // - Màu Xanh lá (Lime Green) -> Кênh Red dâng cao tạo lõi Vàng chanh rực rỡ (như ảnh image_d454be.jpg)
-                                    // - Màu Vàng / Xanh dương -> Lõi rực Trắng kem ấm
-                                    float hdrIntensity = max(1.0, emitPwr * 0.25);
-                                    float burnout = clamp((emitPwr - 2.5) / 28.0, 0.0, 1.0);
+                                    // 1. Chế độ HDR (khi Ldr = 0, giống ảnh ldr 1.JPG của MagicaVoxel):
+                                    // Giữ đúng 100% tông màu gốc của ô màu (tuyệt đối không tự ý pha kênh màu khác biến Đỏ thành Vàng),
+                                    // chỉ nhân đúng năng lượng bức xạ HDR thực tế để độ chói bề mặt tiệp mượt mà với quầng sáng rực trên tường xung quanh.
+                                    float hdrIntensity = max(1.0, emitPwr * 0.38);
+                                    // Chỉ làm dịu nhẹ độ chói ở mức năng lượng cao bằng chính màu gốc của nó (giữ nguyên Hue 100%)
+                                    float highlightSoft = clamp((hdrIntensity - 1.5) / 14.0, 0.0, 1.0);
+                                    vec3 hdrSurfaceCol = mix(trueEmitColor, srgbCol, highlightSoft * 0.35);
+                                    vec3 colHDR = hdrSurfaceCol * (1.20 + hdrIntensity * 1.35);
 
-                                    // Dịch chuyển nhiệt màu HDR (Thermal / Channel Spill) trước khi qua ACES Tone Mapping
-                                    float maxCh = max(srgbCol.r, max(srgbCol.g, srgbCol.b));
-                                    vec3 normCol = srgbCol / max(maxCh, 0.001);
-                                    vec3 hotTarget = vec3(
-                                        max(normCol.r, normCol.g * 0.96 + normCol.b * 0.55),
-                                        max(normCol.g, normCol.r * 0.92 + normCol.b * 0.65),
-                                        max(normCol.b * 0.85, (normCol.r * normCol.g) * 0.65 + burnout * 0.38)
-                                    );
-                                    vec3 hdrCoreCol = mix(trueEmitColor, pow(clamp(hotTarget, vec3(0.0), vec3(1.0)), vec3(1.35)), burnout * 0.88);
-                                    vec3 colHDR = hdrCoreCol * (1.15 + hdrIntensity * 1.45);
+                                    // 2. Chế độ LDR (khi Ldr = 100, giống ảnh ldr 2.JPG của MagicaVoxel):
+                                    // Kẹp bức xạ bề mặt trực tiếp của khối Emit về dải động thấp (Low Dynamic Range) giữ đúng màu gốc sắc nét,
+                                    // làm nổi bật hình dáng khối đèn bên trong quầng sáng rực rỡ trên tường bao quanh.
+                                    vec3 colLDR = mix(emitBaseColor, srgbCol, 0.22) * 1.32;
 
-                                    // 2. Chế độ LDR (khi Ldr = 100):
-                                    // Giữ nguyên sắc độ gốc của ô màu trong Palette (ví dụ: Xanh lá giữ nguyên Xanh lá, Vàng giữ nguyên Vàng, Cam giữ nguyên Cam)
-                                    // không bị cháy sáng thành màu khác khi đi qua ACES Tone Mapping (như ảnh image_d45483.jpg)
-                                    vec3 colLDR = mix(emitBaseColor, srgbCol, 0.28) * 1.08;
-
-                                    // Nội suy mượt giữa HDR (Ldr = 0) và LDR (Ldr = 100)
-                                    float ldrCurve = smoothstep(0.0, 1.0, ldrVal);
-                                    radiance += throughput * mix(colHDR, colLDR, ldrCurve);
+                                    // Nội suy trực tiếp giữa HDR (Ldr = 0) và LDR (Ldr = 100) theo thanh trượt Ldr
+                                    radiance += throughput * mix(colHDR, colLDR, ldrVal);
                                 } else {
-                                    // Ánh sáng gián tiếp (Indirect Bounce) không bị giảm khi kéo Ldr
-                                    radiance += throughput * trueEmitColor * min(emitPwr * 0.26, 4.2);
+                                    // Ánh sáng gián tiếp (Indirect Bounce) luôn giữ nguyên năng lượng phát sáng thật, không bị giảm khi kéo Ldr
+                                    radiance += throughput * trueEmitColor * min(emitPwr * 0.28, 4.5);
                                 }
                                 break;
                             }
@@ -12255,7 +12244,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     vec3 lMax = uEmitMax[li];
                                     vec3 lSize = max(vec3(1.0), lMax - lMin);
 
-                                    // Lấy mẫu ngẫu nhiên toàn bộ thể tích cụm đèn Emit (loại bỏ hoàn toàn ranh giới cắt khúc 1.15 voxel)
+                                    // Lấy mẫu ngẫu nhiên toàn bộ thể tích cụm đèn Emit
                                     vec3 r3 = vec3(rand(seed), rand(seed), rand(seed));
                                     vec3 sampleLightPos = mix(lMin + vec3(0.05), lMax - vec3(0.05), r3);
                                     vec3 closestBoxPt = clamp(hitPos, lMin, lMax);
@@ -12267,11 +12256,10 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
                                     float rawNdotL = dot(hitNormal, L);
 
-                                    // Lưu ý quan trọng chuẩn MagicaVoxel: Thanh trượt Ldr chỉ kẹp độ chói bề mặt trực tiếp của khối Emit,
-                                    // KHÔNG làm yếu ánh sáng hay quầng Halo hắt lên tường và sàn xung quanh (giống hệt image_d454be.jpg & image_d45483.jpg)
-                                    float highPowerStrength = smoothstep(3.0, 22.0, effectivePower);
-
-                                    float nearWrap = highPowerStrength * (exp(-boxProximity * 0.42) * 0.62 + exp(-dist * 0.12) * 0.22);
+                                    // Quầng sáng lan tỏa sát chân khối Emit trên tường giống MagicaVoxel (ldr 1.JPG & ldr 2.JPG):
+                                    // Ở sát viền khối Emit (boxProximity nhỏ), ánh sáng khúc xạ/tán xạ cận trường ôm sát bề mặt tường xung quanh
+                                    float emitStrengthNorm = clamp(effectivePower / 8.0, 0.0, 1.5);
+                                    float nearWrap = emitStrengthNorm * (exp(-boxProximity * 0.45) * 0.72 + exp(-dist * 0.14) * 0.25);
                                     float cosSurface = isVolume 
                                         ? (phaseHG(clamp(dot(L, rd), -1.0, 1.0), matPhase) * 2.0) 
                                         : clamp((rawNdotL + nearWrap) / (1.0 + nearWrap), 0.0, 1.0);
@@ -12285,7 +12273,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
                                     if ((hasDiffEmit || hasSpecEmit) && maxPotentialContrib > 0.0015) {
                                         vec3 shadowOrigin = isVolume ? (hitPos + L * 0.02) : (hitPos + hitNormal * 0.045 + L * 0.02);
-                                        // Luôn kiểm tra shadowTraversal nhất quán ở mọi khoảng cách (không cắt khúc tại boxProximity >= 1.15)
                                         vec3 shadowTrans = (uEnableShadow > 0.5 && dist > 0.14) 
                                             ? shadowTraversal(shadowOrigin, L, max(0.05, dist - 0.09), seed) 
                                             : vec3(1.0);
@@ -12300,11 +12287,11 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                                 float geomTerm = (cosSurface * faceAreaPre) / (dist * dist * 0.78 + faceAreaPre * 0.55 + 1.0);
                                                 geomTerm = min(geomTerm, 2.8);
 
-                                                // Quầng sáng Halo mượt quanh viền chỉ xuất hiện khi Emit có cường độ mạnh (highPowerStrength > 0)
-                                                float borderHalo = highPowerStrength * exp(-boxProximity * 0.52) * clamp(effectivePower * 0.022, 0.0, 1.8) * clamp(rawNdotL + 0.65, 0.0, 1.0);
-                                                vec3 haloCol = mix(emitCol, vec3(1.0, 0.92, 0.45) * emitCol, highPowerStrength * 0.40);
+                                                // Quầng hào quang (Wall Glow) ôm sát viền khối Emit trên tường giữ đúng 100% màu gốc emitCol của đèn
+                                                // (Hoạt động cả ở Emission vừa và cao như Emission=9.5, Power=1.5 hoặc Emission=52, Power=2)
+                                                float borderHalo = exp(-boxProximity * 0.48) * clamp(effectivePower * 0.14, 0.0, 2.4) * clamp(rawNdotL + 0.75, 0.0, 1.0);
 
-                                                vec3 emitContrib = throughput * albedo * (emitCol * (effectivePower * geomTerm * 1.12 * bounceDamp) + haloCol * borderHalo) * diffuseWeight * shadowTrans;
+                                                vec3 emitContrib = throughput * albedo * emitCol * ((effectivePower * geomTerm * 1.12 * bounceDamp) + borderHalo) * diffuseWeight * shadowTrans;
                                                 radiance += emitContrib;
                                             }
 
