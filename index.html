@@ -1051,23 +1051,27 @@
                                 <span class="text-[10px] uppercase tracking-widest font-bold text-amber-400 flex items-center gap-1">
                                     <span>✨</span> Bloom
                                 </span>
-                                <span class="text-[9px] font-mono text-gray-400">MagicaVoxel</span>
+                                <label class="flex items-center text-[10px] text-gray-300 gap-1 cursor-pointer font-bold">
+                                    <input type="checkbox" id="bloom-enabled" class="rounded bg-gray-800 border-gray-700 text-amber-500 focus:ring-0"> Enable
+                                </label>
                             </div>
-                            <div>
-                                <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>Mix</label><span id="val-bloom-strength">0</span></div>
-                                <input type="range" id="prop-bloom-strength" min="0" max="100" step="1" value="0" class="!mb-1">
-                            </div>
-                            <div>
-                                <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>Size</label><span id="val-bloom-size">40</span></div>
-                                <input type="range" id="prop-bloom-size" min="0" max="100" step="1" value="40" class="!mb-1">
-                            </div>
-                            <div>
-                                <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>Aspect</label><span id="val-bloom-aspect">0.00</span></div>
-                                <input type="range" id="prop-bloom-aspect" min="-1" max="1" step="0.05" value="0.0" class="!mb-1">
-                            </div>
-                            <div>
-                                <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>Thresh</label><span id="val-bloom-thresh">1.00</span></div>
-                                <input type="range" id="prop-bloom-thresh" min="0.0" max="5.0" step="0.05" value="1.0" class="!mb-1">
+                            <div id="bloom-controls-wrap" class="hidden space-y-2">
+                                <div>
+                                    <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>Mix</label><span id="val-bloom-strength">0</span></div>
+                                    <input type="range" id="prop-bloom-strength" min="0" max="100" step="1" value="0" class="!mb-1">
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>Size</label><span id="val-bloom-size">0</span></div>
+                                    <input type="range" id="prop-bloom-size" min="0" max="100" step="1" value="0" class="!mb-1">
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>Aspect</label><span id="val-bloom-aspect">0</span></div>
+                                    <input type="range" id="prop-bloom-aspect" min="0" max="100" step="1" value="0" class="!mb-1">
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-xs text-gray-300 font-bold mb-0.5"><label>Thresh</label><span id="val-bloom-thresh">0.0</span></div>
+                                    <input type="range" id="prop-bloom-thresh" min="0.0" max="100.0" step="0.5" value="0.0" class="!mb-1">
+                                </div>
                             </div>
                         </div>
 						
@@ -1364,10 +1368,11 @@
 		saturation: 1.10,
 		vibrance: 0.20,
 		
-		bloomStrength: 0.0, // Mix (0..100, mặc định 0 như MagicaVoxel khi chưa bật Bloom)
-		bloomSize: 40.0,    // Size (0..100, mặc định 40)
-		bloomAspect: 0.0,   // Aspect (-1..1, mặc định 0)
-		bloomThresh: 1.0,   // Thresh (0..5, mặc định 1.0)
+		bloomEnabled: false, // Mặc định tắt Bloom
+		bloomStrength: 0.0,  // Mix (0..100, mặc định min = 0)
+		bloomSize: 0.0,      // Size (0..100, mặc định min = 0)
+		bloomAspect: 0.0,    // Aspect (0..100, mặc định min = 0)
+		bloomThresh: 0.0,    // Thresh (0..100, mặc định min = 0.0)
 		filterTint: new THREE.Color(0xffffff),
 		
 		filterStrength: 0.0,
@@ -6471,15 +6476,16 @@ function captureStateSnapshot() {
         sampleOptions: { ...AppState.sampleOptions },
 		
         postProcess: {
-            filterEnabled: AppState.filterEnabled,
-            exposure: AppState.exposure,
-            saturation: AppState.saturation,
-            vibrance: AppState.vibrance,
-            bloomStrength: AppState.bloomStrength,
-            bloomSize: AppState.bloomSize,
-            bloomAspect: AppState.bloomAspect,
-            bloomThresh: AppState.bloomThresh
-        },
+			filterEnabled: AppState.filterEnabled,
+			exposure: AppState.exposure,
+			saturation: AppState.saturation,
+			vibrance: AppState.vibrance,
+			bloomEnabled: !!AppState.bloomEnabled,
+			bloomStrength: AppState.bloomStrength,
+			bloomSize: AppState.bloomSize,
+			bloomAspect: AppState.bloomAspect,
+			bloomThresh: AppState.bloomThresh
+		},
 		
         renderConfig: {
             isCustomResolution: AppState.isCustomResolution,
@@ -6635,6 +6641,7 @@ function restoreStateFromSnapshot(snapshot) {
         AppState.exposure = snapshot.postProcess.exposure;
         AppState.saturation = snapshot.postProcess.saturation;
         AppState.vibrance = snapshot.postProcess.vibrance;
+        AppState.bloomEnabled = !!snapshot.postProcess.bloomEnabled;
         AppState.bloomStrength = snapshot.postProcess.bloomStrength ?? 0.0;
         if (snapshot.postProcess.bloomSize !== undefined) AppState.bloomSize = snapshot.postProcess.bloomSize;
         if (snapshot.postProcess.bloomAspect !== undefined) AppState.bloomAspect = snapshot.postProcess.bloomAspect;
@@ -9553,14 +9560,18 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         if (pp.vibrance !== undefined) AppState.vibrance = parseSafeFloat(pp.vibrance, AppState.vibrance);
 		
 		
+        if (pp.bloomEnabled !== undefined) {
+            AppState.bloomEnabled = !!pp.bloomEnabled;
+        } else {
+            AppState.bloomEnabled = false;
+        }
         if (pp.bloomStrength !== undefined || pp.bloom !== undefined) {
             const rawMix = parseSafeFloat(pp.bloomStrength ?? pp.bloom, AppState.bloomStrength);
-            // Tương thích ngược nếu file cũ lưu bloomStrength trong khoảng [0..3]
             AppState.bloomStrength = (rawMix > 0 && rawMix <= 3.0 && pp.bloomSize === undefined) ? Math.round(rawMix * 33.3) : rawMix;
         }
         if (pp.bloomSize !== undefined) AppState.bloomSize = parseSafeFloat(pp.bloomSize, AppState.bloomSize);
-        if (pp.bloomAspect !== undefined) AppState.bloomAspect = parseSafeFloat(pp.bloomAspect, AppState.bloomAspect);
-        if (pp.bloomThresh !== undefined) AppState.bloomThresh = parseSafeFloat(pp.bloomThresh, AppState.bloomThresh);
+        if (pp.bloomAspect !== undefined) AppState.bloomAspect = Math.max(0.0, parseSafeFloat(pp.bloomAspect, AppState.bloomAspect));
+        if (pp.bloomThresh !== undefined) AppState.bloomThresh = Math.max(0.0, parseSafeFloat(pp.bloomThresh, AppState.bloomThresh));
         if (pp.filterEnabled !== undefined) AppState.filterEnabled = !!pp.filterEnabled;
 		
 		
@@ -9647,13 +9658,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         syncUI('prop-sky-ambient-int', AppState.sky.ambientIntensity);
         syncTxt('val-sky-ambient-int', AppState.sky.ambientIntensity.toFixed(2));
 
-        const fogToggle = document.getElementById('fog-enabled');
-        if (fogToggle) fogToggle.checked = AppState.fog.enabled;
-        syncCol('prop-fog-col', AppState.fog.color);
-        syncUI('prop-fog-density', AppState.fog.density || 0);
-        syncTxt('val-fog-density', Math.round(AppState.fog.density || 0));
-
-
         syncUI('prop-bloom-strength', Math.round(AppState.bloomStrength)); syncTxt('val-bloom-strength', Math.round(AppState.bloomStrength));
         syncUI('prop-bloom-size', Math.round(AppState.bloomSize ?? 40)); syncTxt('val-bloom-size', Math.round(AppState.bloomSize ?? 40));
         syncUI('prop-bloom-aspect', (AppState.bloomAspect ?? 0).toFixed(2)); syncTxt('val-bloom-aspect', (AppState.bloomAspect ?? 0).toFixed(2));
@@ -9663,6 +9667,15 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         syncUI('prop-render-vibrance', AppState.vibrance); syncTxt('val-render-vibrance', AppState.vibrance.toFixed(2));
         const filterToggle = document.getElementById('filter-enabled');
         if (filterToggle) filterToggle.checked = AppState.filterEnabled;
+
+        safeSetVal('render-samples', AppState.maxRenderFrames);
+        safeSetVal('render-width', AppState.resolutionWidth);
+        safeSetVal('render-height', AppState.resolutionHeight);
+
+        if (AppState.bloomPass) AppState.bloomPass.strength = (AppState.bloomStrength / 100.0) * 1.5;
+
+
+       
 
         safeSetVal('render-samples', AppState.maxRenderFrames);
         safeSetVal('render-width', AppState.resolutionWidth);
@@ -10049,11 +10062,44 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             refreshPostProcessRealtime();
         });
 
+        
+
+        const elBloomToggle = document.getElementById('bloom-enabled');
+        const elBloomWrap = document.getElementById('bloom-controls-wrap');
+        if (elBloomToggle) {
+            elBloomToggle.checked = !!AppState.bloomEnabled;
+            if (elBloomWrap) elBloomWrap.classList.toggle('hidden', !AppState.bloomEnabled);
+
+            elBloomToggle.addEventListener('change', e => {
+                const snap = captureStateSnapshot();
+                AppState.bloomEnabled = e.target.checked;
+                if (AppState.bloomEnabled) {
+                    // Khi bật dấu tick Bloom: đưa cả 4 giá trị về min (0) hết theo đúng yêu cầu
+                    AppState.bloomStrength = 0.0;
+                    AppState.bloomSize = 0.0;
+                    AppState.bloomAspect = 0.0;
+                    AppState.bloomThresh = 0.0;
+                    safeSetVal('prop-bloom-strength', 0); safeSetText('val-bloom-strength', '0');
+                    safeSetVal('prop-bloom-size', 0);     safeSetText('val-bloom-size', '0');
+                    safeSetVal('prop-bloom-aspect', 0);   safeSetText('val-bloom-aspect', '0');
+                    safeSetVal('prop-bloom-thresh', 0);   safeSetText('val-bloom-thresh', '0.0');
+                }
+                if (elBloomWrap) elBloomWrap.classList.toggle('hidden', !AppState.bloomEnabled);
+                if (AppState.bloomPass) {
+                    AppState.bloomPass.strength = AppState.bloomEnabled ? ((AppState.bloomStrength / 100.0) * 1.5) : 0.0;
+                }
+                recordUndoStep(snap);
+                refreshPostProcessRealtime();
+            });
+        }
+
         const elBloom = document.getElementById('prop-bloom-strength');
         bindUndoableInput(elBloom, e => {
             AppState.bloomStrength = parseFloat(e.target.value);
             safeSetText('val-bloom-strength', Math.round(AppState.bloomStrength));
-            if (AppState.bloomPass) AppState.bloomPass.strength = (AppState.bloomStrength / 100.0) * 1.5;
+            if (AppState.bloomPass) {
+                AppState.bloomPass.strength = AppState.bloomEnabled ? ((AppState.bloomStrength / 100.0) * 1.5) : 0.0;
+            }
             refreshPostProcessRealtime();
         });
 
@@ -10067,14 +10113,14 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         const elBloomAspect = document.getElementById('prop-bloom-aspect');
         bindUndoableInput(elBloomAspect, e => {
             AppState.bloomAspect = parseFloat(e.target.value);
-            safeSetText('val-bloom-aspect', AppState.bloomAspect.toFixed(2));
+            safeSetText('val-bloom-aspect', Math.round(AppState.bloomAspect));
             refreshPostProcessRealtime();
         });
 
         const elBloomThresh = document.getElementById('prop-bloom-thresh');
         bindUndoableInput(elBloomThresh, e => {
             AppState.bloomThresh = parseFloat(e.target.value);
-            safeSetText('val-bloom-thresh', AppState.bloomThresh.toFixed(2));
+            safeSetText('val-bloom-thresh', AppState.bloomThresh.toFixed(1));
             refreshPostProcessRealtime();
         });
     }
@@ -10214,15 +10260,15 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 			AppState.displayMaterial.uniforms.exposure.value = AppState.exposure;
 			AppState.displayMaterial.uniforms.saturation.value = AppState.saturation;
 			AppState.displayMaterial.uniforms.vibrance.value = AppState.vibrance;
-			AppState.displayMaterial.uniforms.bloomStrength.value = AppState.bloomStrength;
+			AppState.displayMaterial.uniforms.bloomStrength.value = AppState.bloomEnabled ? (AppState.bloomStrength ?? 0.0) : 0.0;
 			if (AppState.displayMaterial.uniforms.bloomSize) {
-				AppState.displayMaterial.uniforms.bloomSize.value = AppState.bloomSize ?? 40.0;
+				AppState.displayMaterial.uniforms.bloomSize.value = AppState.bloomSize ?? 0.0;
 			}
 			if (AppState.displayMaterial.uniforms.bloomAspect) {
 				AppState.displayMaterial.uniforms.bloomAspect.value = AppState.bloomAspect ?? 0.0;
 			}
 			if (AppState.displayMaterial.uniforms.bloomThresh) {
-				AppState.displayMaterial.uniforms.bloomThresh.value = AppState.bloomThresh ?? 1.0;
+				AppState.displayMaterial.uniforms.bloomThresh.value = AppState.bloomThresh ?? 0.0;
 			}
 			if (AppState.displayMaterial.uniforms.uResolution) {
 				AppState.displayMaterial.uniforms.uResolution.value.set(AppState.resolutionWidth || window.innerWidth, AppState.resolutionHeight || window.innerHeight);
@@ -13066,7 +13112,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 //////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////
-            AppState.displayMaterial = new THREE.ShaderMaterial({
+           AppState.displayMaterial = new THREE.ShaderMaterial({
                 uniforms: {
                     tInput: { value: null },
                     filterEnabled: { value: 1.0 },
@@ -13074,9 +13120,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     saturation: { value: 1.10 },
                     vibrance: { value: 0.20 },
                     bloomStrength: { value: 0.0 },
-                    bloomSize: { value: 40.0 },
+                    bloomSize: { value: 0.0 },
                     bloomAspect: { value: 0.0 },
-                    bloomThresh: { value: 1.0 },
+                    bloomThresh: { value: 0.0 },
                     uResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) }
                 },
                 vertexShader: `
@@ -13108,66 +13154,92 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                         return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
                     }
 
+                    // Trích xuất năng lượng sáng vượt ngưỡng Thresh (0..100) chuẩn MagicaVoxel
+                    vec3 extractBloomSample(vec2 uv, float effThresh, float knee) {
+                        vec3 s = max(vec3(0.0), texture2D(tInput, clamp(uv, vec2(0.001), vec2(0.999))).rgb) * exposure;
+                        float lum = max(s.r, max(s.g, s.b));
+                        float rq = clamp(lum - effThresh + knee, 0.0, 2.0 * knee);
+                        float kWeight = (rq * rq) / max(4.0 * knee, 0.0001);
+                        float contrib = max(lum - effThresh, kWeight) / max(lum, 0.0001);
+                        vec3 bright = s * contrib;
+                        return bright / (vec3(1.0) + bright * 0.06);
+                    }
+
                     void main() {
                         vec4 base = texture2D(tInput, vUv);
                         vec3 col = max(vec3(0.0), base.rgb);
-												/////////////////////////////////////////////////////////////////////////////////////////////////////
 
-						/////////////////////////////////////////////////////////////////////////////////////////////////////
-
-						/////////////////////////////////////////////////////////////////////////////////////////////////////
-                        // Hiệu ứng Bloom chuẩn MagicaVoxel với 4 tham số: Mix (0..100), Size (0..100), Aspect (-1..1), Thresh (0..5)
-                        // Hiệu ứng Bloom chuẩn MagicaVoxel với 4 tham số: Mix (0..100), Size (0..100), Aspect (-1..1), Thresh (0..5)
+                        // Hiệu ứng Bloom chuẩn MagicaVoxel với 4 tham số:
+                        // - Mix (0..100): Cường độ hòa trộn
+                        // - Size (0..100): Độ lan tỏa đều 2D (khi Size=0, Aspect=0 vẫn có lớp viền glow mỏng quanh mép như bloom 3.JPG)
+                        // - Aspect (0..100): Độ kéo dài vệt sáng ngang Anamorphic Flare (như bloom 4.JPG khi Size=0, Aspect=100)
+                        // - Thresh (0..100): Ngưỡng lọc sáng (như bloom 5.JPG khi Thresh=66.0)
                         float mixNorm = clamp(bloomStrength / 100.0, 0.0, 1.0);
-                        if (mixNorm > 0.001 && bloomSize > 0.1) {
-                            // Bán kính lan tỏa rộng như MagicaVoxel (khi Size = 40 sẽ tỏa đều ra vùng tường xung quanh)
-                            float radiusPx = pow(bloomSize / 100.0, 0.85) * 68.0 + 2.0;
-                            vec2 aspectScale = vec2(
-                                1.0 + max(0.0, bloomAspect) * 3.0,
-                                1.0 + max(0.0, -bloomAspect) * 3.0
-                            );
-                            vec2 stepUv = (radiusPx * aspectScale) / max(uResolution, vec2(64.0));
+                        if (mixNorm > 0.001) {
+                            float sizeNorm = clamp(bloomSize / 100.0, 0.0, 1.0);
+                            float aspectNorm = clamp(bloomAspect / 100.0, 0.0, 1.0);
 
-                            vec3 bloomNear = vec3(0.0);
-                            float wNearSum = 0.0;
-                            vec3 bloomWide = vec3(0.0);
-                            float wWideSum = 0.0;
+                            // Chuyển đổi Thresh (0..100) sang ngưỡng HDR thực tế
+                            float effThresh = pow(clamp(bloomThresh / 100.0, 0.0, 1.0), 1.35) * 8.5 + 0.12;
+                            float knee = max(0.18, effThresh * 0.45);
 
-                            // Ngưỡng mềm (Soft-Knee Threshold) khớp với thang Thresh 1.0 của MagicaVoxel
-                            float effThresh = bloomThresh * 0.65;
-                            float knee = max(0.15, effThresh * 0.5);
+                            vec2 invRes = 1.0 / max(uResolution, vec2(64.0));
 
-                            for (float x = -4.0; x <= 4.0; x += 1.0) {
-                                for (float y = -4.0; y <= 4.0; y += 1.0) {
-                                    float r2 = x * x + y * y;
-                                    if (r2 > 18.0) continue;
-                                    float w = exp(-r2 / 5.2);
+                            // Interleaved Gradient Noise xoay góc lấy mẫu tại mỗi pixel giúp triệt tiêu 100% hiện tượng cắt vệt / banding
+                            float ign = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+                            float ign2 = fract(ign * 1.61803398875 + 0.381966);
 
-                                    // Lớp 1: Quầng sáng sát mép nguồn sáng
-                                    vec2 uv1 = clamp(vUv + vec2(x, y) * (stepUv * 0.12), vec2(0.001), vec2(0.999));
-                                    vec3 s1 = max(vec3(0.0), texture2D(tInput, uv1).rgb) * exposure;
-                                    float l1 = max(s1.r, max(s1.g, s1.b));
-                                    float rq1 = clamp(l1 - effThresh + knee, 0.0, 2.0 * knee);
-                                    float kWeight1 = (rq1 * rq1) / (4.0 * knee);
-                                    float contrib1 = max(l1 - effThresh, kWeight1) / max(l1, 0.0001);
-                                    vec3 b1 = (s1 * contrib1) / (vec3(1.0) + s1 * 0.08);
-                                    bloomNear += b1 * w;
-                                    wNearSum += w;
+                            // 1. Bán kính 2D đẳng hướng (Isotropic Radius) và bán kính tia ngang (Anamorphic Horizontal Flare)
+                            float baseRadiusPx = 3.5 + pow(sizeNorm, 0.90) * 115.0;
+                            float anamorphicPx = pow(aspectNorm, 0.92) * 240.0;
 
-                                    // Lớp 2: Quầng hào quang tán xạ rộng ra không gian xung quanh
-                                    vec2 uv2 = clamp(vUv + vec2(x, y) * (stepUv * 0.32), vec2(0.001), vec2(0.999));
-                                    vec3 s2 = max(vec3(0.0), texture2D(tInput, uv2).rgb) * exposure;
-                                    float l2 = max(s2.r, max(s2.g, s2.b));
-                                    float rq2 = clamp(l2 - effThresh + knee, 0.0, 2.0 * knee);
-                                    float kWeight2 = (rq2 * rq2) / (4.0 * knee);
-                                    float contrib2 = max(l2 - effThresh, kWeight2) / max(l2, 0.0001);
-                                    vec3 b2 = (s2 * contrib2) / (vec3(1.0) + s2 * 0.08);
-                                    bloomWide += b2 * w;
-                                    wWideSum += w;
-                                }
+                            vec2 radUv = vec2(baseRadiusPx + anamorphicPx * 0.85, baseRadiusPx) * invRes;
+
+                            // 2. Lấy mẫu 64 điểm Vogel Golden-Angle Spiral có Jitter liên tục:
+                            // Phủ kín toàn bộ hình elip mà không bao giờ bị tách thành các vệt cắt rời rạc khi tăng Size hoặc Aspect
+                            vec3 isoAcc = vec3(0.0);
+                            float isoWeightSum = 0.0;
+                            const int ISO_SAMPLES = 64;
+                            float baseAngle = ign * 6.28318530718;
+
+                            for (int i = 0; i < ISO_SAMPLES; i++) {
+                                float fi = (float(i) + ign2) / float(ISO_SAMPLES);
+                                // Phân bố mật độ tập trung ở tâm và suy giảm mượt ra biên theo hàm mũ Gaussian
+                                float r = pow(fi, 0.82);
+                                float theta = float(i) * 2.399963229728653 + baseAngle;
+                                vec2 dir = vec2(cos(theta), sin(theta));
+
+                                vec2 sampleUv = vUv + dir * r * radUv;
+                                float w = exp(-r * r * 3.35) * (1.0 - r * 0.22);
+                                isoAcc += extractBloomSample(sampleUv, effThresh, knee) * w;
+                                isoWeightSum += w;
                             }
-                            vec3 finalBloom = (bloomNear / max(wNearSum, 0.001)) * 0.55 + (bloomWide / max(wWideSum, 0.001)) * 0.65;
-                            col += finalBloom * (mixNorm * 1.85);
+                            vec3 isoBloom = isoAcc / max(isoWeightSum, 0.0001);
+
+                            // 3. Thành phần Anamorphic Horizontal Streak (khi kéo Aspect > 0, đặc biệt khi Size = 0, Aspect = 100 như ảnh bloom 4.JPG)
+                            vec3 streakBloom = vec3(0.0);
+                            if (aspectNorm > 0.005) {
+                                float streakSpanPx = anamorphicPx + baseRadiusPx * 0.45;
+                                float streakVertPx = max(2.2, baseRadiusPx * 0.16);
+                                vec3 stAcc = vec3(0.0);
+                                float stWeight = 0.0;
+                                const int STREAK_SAMPLES = 48;
+
+                                for (int j = 0; j < STREAK_SAMPLES; j++) {
+                                    float u = ((float(j) + ign) / float(STREAK_SAMPLES)) * 2.0 - 1.0;
+                                    // Lấy mẫu đối xứng dọc trục ngang X kèm độ mở dọc Y mượt mà
+                                    float vOff = (fract(float(j) * 0.6180339887 + ign2) - 0.5) * 2.0;
+                                    vec2 offset = vec2(u * streakSpanPx, vOff * streakVertPx) * invRes;
+                                    float w = exp(-abs(u) * 2.65) * exp(-vOff * vOff * 1.8);
+                                    stAcc += extractBloomSample(vUv + offset, effThresh, knee) * w;
+                                    stWeight += w;
+                                }
+                                streakBloom = (stAcc / max(stWeight, 0.0001)) * pow(aspectNorm, 0.75) * 1.15;
+                            }
+
+                            float sizeGain = 0.55 + sizeNorm * 1.15;
+                            vec3 totalBloom = isoBloom * sizeGain + streakBloom;
+                            col += totalBloom * (mixNorm * 1.45);
                         }
 
                         col *= exposure;
@@ -13837,6 +13909,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 exposure: AppState.exposure,
                 saturation: AppState.saturation,
                 vibrance: AppState.vibrance,
+                bloomEnabled: !!AppState.bloomEnabled,
                 bloomStrength: AppState.bloomStrength,
                 bloomSize: AppState.bloomSize,
                 bloomAspect: AppState.bloomAspect,
