@@ -3846,7 +3846,12 @@ function setupSkyControls() {
     function bMaxZOrBoundsZ(b) {
         return b ? b.maxZ : 0;
     }
+	
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////
+		/////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+	/////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 	function updateEmitLightsForShader() {
         if (!AppState.model || !pathTraceMaterial) return;
         if (AppState.renderMode !== 'pathtrace') {
@@ -3854,7 +3859,8 @@ function setupSkyControls() {
             return;
         }
 
-        // Chỉ chạy lại BFS gom cụm hình học khi mô hình Voxel hoặc loại vật liệu Emit thay đổi
+        // Tách chính xác mọi hình dạng Emit (chữ T, chữ I, chữ L...) thành các khối hộp chữ nhật đặc (3D Greedy Sub-Boxes)
+        // để không bao giờ tạo ra hộp Bounding Box rỗng làm vuông hóa quầng sáng
         if (!AppState.emitClustersCache || AppState.needsEmitClusterRebuild) {
             const visibleLayerIds = new Set();
             const defaultLayerId = AppState.layers[0]?.id;
@@ -3862,66 +3868,101 @@ function setupSkyControls() {
                 if (l.visible !== false) visibleLayerIds.add(l.id);
             }
 
-            const emitVoxels = [];
+            // Gom nhóm Voxel Emit theo từng (layerId, colorIndex)
+            const groupsByLayerAndColor = new Map();
             for (const v of AppState.model.voxels) {
                 const lid = (v.l !== undefined) ? v.l : defaultLayerId;
                 if (!visibleLayerIds.has(lid)) continue;
                 const p = AppState.materialProps[v.i];
                 if (p && p.type === 'emit') {
-                    emitVoxels.push(v);
+                    const gKey = `${lid}:${v.i}`;
+                    let list = groupsByLayerAndColor.get(gKey);
+                    if (!list) {
+                        list = [];
+                        groupsByLayerAndColor.set(gKey, list);
+                    }
+                    list.push(v);
                 }
             }
 
-            const vKeyMap = new Map();
-            for (let i = 0; i < emitVoxels.length; i++) {
-                const v = emitVoxels[i];
-                const lid = (v.l !== undefined) ? v.l : defaultLayerId;
-                vKeyMap.set(`${lid}:${v.x},${v.y},${v.z}`, v);
-            }
+            const builtSubBoxes = [];
 
-            const visited = new Set();
-            const builtClusters = [];
+            // Thuật toán 3D Greedy Box Meshing: tách cụm chữ T, chữ I, khung rỗng thành các thanh chữ nhật đặc khít 100%
+            for (const [, voxList] of groupsByLayerAndColor) {
+                if (voxList.length === 0) continue;
+                const vSet = new Map();
+                for (const v of voxList) {
+                    vSet.set(`${v.x},${v.y},${v.z}`, v);
+                }
 
-            for (let i = 0; i < emitVoxels.length; i++) {
-                const v = emitVoxels[i];
-                const lid = (v.l !== undefined) ? v.l : defaultLayerId;
-                const key = `${lid}:${v.x},${v.y},${v.z}`;
-                if (visited.has(key)) continue;
+                // Sắp xếp theo z -> y -> x để gộp các thanh ngang/dọc mượt mà
+                const sorted = voxList.slice().sort((a, b) => (a.z - b.z) || (a.y - b.y) || (a.x - b.x));
+                const consumed = new Set();
 
-                const cluster = [];
-                const queue = [v];
-                visited.add(key);
-                let qHead = 0;
+                for (const startV of sorted) {
+                    const startKey = `${startV.x},${startV.y},${startV.z}`;
+                    if (consumed.has(startKey)) continue;
 
-                while (qHead < queue.length) {
-                    const curr = queue[qHead++];
-                    const currLid = (curr.l !== undefined) ? curr.l : defaultLayerId;
-                    cluster.push(curr);
+                    let x0 = startV.x, x1 = startV.x;
+                    let y0 = startV.y, y1 = startV.y;
+                    let z0 = startV.z, z1 = startV.z;
 
-                    for (let dx = -1; dx <= 1; dx++) {
-                        for (let dy = -1; dy <= 1; dy++) {
-                            for (let dz = -1; dz <= 1; dz++) {
-                                if (dx === 0 && dy === 0 && dz === 0) continue;
-                                const nKey = `${currLid}:${curr.x + dx},${curr.y + dy},${curr.z + dz}`;
-                                if (vKeyMap.has(nKey) && !visited.has(nKey)) {
-                                    const neighborVox = vKeyMap.get(nKey);
-                                    if (neighborVox.i === curr.i) {
-                                        visited.add(nKey);
-                                        queue.push(neighborVox);
-                                    }
+                    // Mở rộng tối đa theo trục X
+                    while (vSet.has(`${x1 + 1},${y0},${z0}`) && !consumed.has(`${x1 + 1},${y0},${z0}`)) {
+                        x1++;
+                    }
+
+                    // Mở rộng tối đa theo trục Y
+                    let canExpandY = true;
+                    while (canExpandY) {
+                        const nextY = y1 + 1;
+                        for (let tx = x0; tx <= x1; tx++) {
+                            const k = `${tx},${nextY},${z0}`;
+                            if (!vSet.has(k) || consumed.has(k)) {
+                                canExpandY = false;
+                                break;
+                            }
+                        }
+                        if (canExpandY) y1 = nextY;
+                    }
+
+                    // Mở rộng tối đa theo trục Z
+                    let canExpandZ = true;
+                    while (canExpandZ) {
+                        const nextZ = z1 + 1;
+                        for (let tx = x0; tx <= x1 && canExpandZ; tx++) {
+                            for (let ty = y0; ty <= y1; ty++) {
+                                const k = `${tx},${ty},${nextZ}`;
+                                if (!vSet.has(k) || consumed.has(k)) {
+                                    canExpandZ = false;
+                                    break;
                                 }
                             }
                         }
+                        if (canExpandZ) z1 = nextZ;
                     }
+
+                    const boxVoxels = [];
+                    for (let tz = z0; tz <= z1; tz++) {
+                        for (let ty = y0; ty <= y1; ty++) {
+                            for (let tx = x0; tx <= x1; tx++) {
+                                const k = `${tx},${ty},${tz}`;
+                                consumed.add(k);
+                                boxVoxels.push(vSet.get(k));
+                            }
+                        }
+                    }
+                    builtSubBoxes.push(boxVoxels);
                 }
-                builtClusters.push(cluster);
             }
 
-            AppState.emitClustersCache = builtClusters;
+            // Ưu tiên các thanh có diện tích/thể tích lớn hơn nếu tổng số nhánh vượt quá MAX_LIGHTS
+            builtSubBoxes.sort((a, b) => b.length - a.length);
+            AppState.emitClustersCache = builtSubBoxes;
             AppState.needsEmitClusterRebuild = false;
         }
 
-        // Lọc nhanh các cụm Emit đang có cường độ emission > 0.05 (O(1) khi kéo thanh trượt)
+        // Lọc nhanh các khối Emit đang có cường độ emission > 0.05
         const clusters = AppState.emitClustersCache.filter(c => {
             if (!c || c.length === 0) return false;
             const p = AppState.materialProps[c[0].i];
@@ -3935,7 +3976,7 @@ function setupSkyControls() {
             return;
         }
 
-        const MAX_LIGHTS = 16;
+        const MAX_LIGHTS = 32;
         const count = Math.min(clusters.length, MAX_LIGHTS);
         pathTraceMaterial.uniforms.uNumEmitLights.value = count;
 
@@ -3945,16 +3986,6 @@ function setupSkyControls() {
             let minY = Infinity, maxY = -Infinity;
             let minZ = Infinity, maxZ = -Infinity;
 
-            let colR = 0, colG = 0, colB = 0;
-            let totalPower = 0;
-
-
-
-
-            let totalLdr = 0;
-
-            let weightSum = 0;
-
             for (const v of c) {
                 if (v.x < minX) minX = v.x;
                 if (v.x > maxX) maxX = v.x;
@@ -3962,43 +3993,21 @@ function setupSkyControls() {
                 if (v.y > maxY) maxY = v.y;
                 if (v.z < minZ) minZ = v.z;
                 if (v.z > maxZ) maxZ = v.z;
-
-                const p = AppState.materialProps[v.i];
-                const em = Math.max(0.0, p.emission !== undefined ? p.emission : 0.0);
-                const fl = Math.max(0.0, p.power !== undefined ? p.power : 1.0);
-                let ldrRaw = (p.ldr !== undefined) ? p.ldr : 0.0;
-                const ldr = Math.max(0.0, Math.min(1.0, (ldrRaw > 1.0) ? (ldrRaw / 100.0) : ldrRaw));
-
-                // Chuẩn hóa bức xạ Emit theo thang hàm mũ Power (0..5) của MagicaVoxel:
-                // Khi Emission=79, Power=2 -> rad đủ mạnh để phủ ánh sáng cam ấm áp lên toàn bộ tường và sàn xung quanh
-                const rad = (em / 100.0) * Math.pow(2.35, fl) * 24.0;
-
-                // Lấy màu ở hệ sRGB [0..1] để đồng bộ với tVoxelGrid và không bị sụt kênh Green (màu vàng)
-                const srgb = colorToSRGBUint8(p.color);
-                const sr = srgb.r / 255.0;
-                const sg = srgb.g / 255.0;
-                const sb = srgb.b / 255.0;
-
-                // Ưu tiên trọng số cho các hạt có độ sáng (luminance) và năng lượng phát xạ cao
-                const lumWeight = Math.max(0.1, rad * (0.299 * sr + 0.587 * sg + 0.114 * sb));
-                colR += sr * lumWeight;
-                colG += sg * lumWeight;
-                colB += sb * lumWeight;
-                weightSum += lumWeight;
-
-                totalPower += rad;
-                totalLdr += ldr;
             }
 
-            colR /= Math.max(0.0001, weightSum);
-            colG /= Math.max(0.0001, weightSum);
-            colB /= Math.max(0.0001, weightSum);
-            const avgPower = totalPower / c.length;
-            const avgLdr = totalLdr / c.length;
-			
-			
+            const sampleVox = c[0];
+            const p = AppState.materialProps[sampleVox.i];
+            const em = Math.max(0.0, p.emission !== undefined ? p.emission : 0.0);
+            const fl = Math.max(0.0, p.power !== undefined ? p.power : 1.0);
+            let ldrRaw = (p.ldr !== undefined) ? p.ldr : 0.0;
+            const avgLdr = Math.max(0.0, Math.min(1.0, (ldrRaw > 1.0) ? (ldrRaw / 100.0) : ldrRaw));
+            const avgPower = (em / 100.0) * Math.pow(2.35, fl) * 24.0;
 
-           const sampleVox = c[0];
+            const srgb = colorToSRGBUint8(p.color);
+            const colR = srgb.r / 255.0;
+            const colG = srgb.g / 255.0;
+            const colB = srgb.b / 255.0;
+
             const layer = getLayerOfVoxel(sampleVox);
             ensureLayerProperties(layer);
             const lMat = getLayerWorldMatrix(layer);
@@ -4007,25 +4016,20 @@ function setupSkyControls() {
 
             const pMin = new THREE.Vector3(minX - lcx, minZ, minY - lcy).applyMatrix4(lMat).sub(ptOffset);
             const pMax = new THREE.Vector3(maxX - lcx + 1.0, maxZ + 1.0, maxY - lcy + 1.0).applyMatrix4(lMat).sub(ptOffset);
-		  
-		  
 
-          pathTraceMaterial.uniforms.uEmitMin.value[i].set(
-              Math.min(pMin.x, pMax.x), Math.min(pMin.y, pMax.y), Math.min(pMin.z, pMax.z)
-          );
-          pathTraceMaterial.uniforms.uEmitMax.value[i].set(
-              Math.max(pMin.x, pMax.x), Math.max(pMin.y, pMax.y), Math.max(pMin.z, pMax.z)
-          );
-			
+            pathTraceMaterial.uniforms.uEmitMin.value[i].set(
+                Math.min(pMin.x, pMax.x), Math.min(pMin.y, pMax.y), Math.min(pMin.z, pMax.z)
+            );
+            pathTraceMaterial.uniforms.uEmitMax.value[i].set(
+                Math.max(pMin.x, pMax.x), Math.max(pMin.y, pMax.y), Math.max(pMin.z, pMax.z)
+            );
+
             pathTraceMaterial.uniforms.uEmitCol.value[i].set(colR, colG, colB);
             pathTraceMaterial.uniforms.uEmitPwr.value[i] = avgPower;
             pathTraceMaterial.uniforms.uEmitLdr.value[i] = avgLdr;
         }
         pathTraceMaterial.uniforms.uEmitPwr.value = new Float32Array(pathTraceMaterial.uniforms.uEmitPwr.value);
         pathTraceMaterial.uniforms.uEmitLdr.value = new Float32Array(pathTraceMaterial.uniforms.uEmitLdr.value);
-		
-		
-		
     }
 
     function updateDynamicEmitLights() {
@@ -11038,8 +11042,10 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
     // Shader DDA Path Tracing lấy cảm hứng từ cấu trúc của erichlof/THREE.js-PathTracing-Renderer
 	function createPathTraceMaterial() {
-        const MAX_LIGHTS = 16;
-		
+	
+        const MAX_LIGHTS = 32;
+        const MAX_LAYER_BOXES = 16;
+
         const uEmitMin = [];
         const uEmitMax = [];
         const uEmitCol = [];
@@ -11052,6 +11058,8 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             uEmitMin.push(new THREE.Vector3());
             uEmitMax.push(new THREE.Vector3());
             uEmitCol.push(new THREE.Vector3());
+        }
+        for (let i = 0; i < MAX_LAYER_BOXES; i++) {
             uLayerBoxMin.push(new THREE.Vector3(-20, 0, -20));
             uLayerBoxMax.push(new THREE.Vector3(20, 40, 20));
             uGodrayBoxMin.push(new THREE.Vector3(-20, 0, -20));
@@ -11210,7 +11218,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 uniform float uGlassDensity;
                 uniform float uCloudPhase;
 
-                #define MAX_EMIT_LIGHTS 16
+                #define MAX_EMIT_LIGHTS 32
                 uniform int uNumEmitLights;
                 uniform vec3 uEmitMin[MAX_EMIT_LIGHTS];
                 uniform vec3 uEmitMax[MAX_EMIT_LIGHTS];
@@ -12232,7 +12240,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                 }
                                 break;
                             }
-
+////////////////////////////////////////////////////////////////////
                             if (uNumEmitLights > 0) {
                                 vec3 reflRayPre = reflect(rd, hitNormal);
                                 for (int li = 0; li < MAX_EMIT_LIGHTS; li++) {
@@ -12244,7 +12252,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     vec3 lMax = uEmitMax[li];
                                     vec3 lSize = max(vec3(1.0), lMax - lMin);
 
-                                    // Lấy mẫu ngẫu nhiên toàn bộ thể tích cụm đèn Emit
+                                    // Lấy mẫu ngẫu nhiên trong thanh chữ nhật đặc (đã được tách nhỏ theo đúng nét ngang/nét dọc của chữ T, chữ I)
                                     vec3 r3 = vec3(rand(seed), rand(seed), rand(seed));
                                     vec3 sampleLightPos = mix(lMin + vec3(0.05), lMax - vec3(0.05), r3);
                                     vec3 closestBoxPt = clamp(hitPos, lMin, lMax);
@@ -12256,10 +12264,10 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
                                     float rawNdotL = dot(hitNormal, L);
 
-                                    // Quầng sáng lan tỏa sát chân khối Emit trên tường giống MagicaVoxel (ldr 1.JPG & ldr 2.JPG):
-                                    // Ở sát viền khối Emit (boxProximity nhỏ), ánh sáng khúc xạ/tán xạ cận trường ôm sát bề mặt tường xung quanh
-                                    float emitStrengthNorm = clamp(effectivePower / 8.0, 0.0, 1.5);
-                                    float nearWrap = emitStrengthNorm * (exp(-boxProximity * 0.45) * 0.72 + exp(-dist * 0.14) * 0.25);
+                                    // Chỉ cho phép ánh sáng wrap nhẹ ở sát mép thật của từng thanh (bán kính hẹp 1.25 voxel như MagicaVoxel),
+                                    // tuyệt đối không tràn sang các góc khuyết rỗng của chữ T hay chữ I
+                                    float emitStrengthNorm = clamp(effectivePower / 10.0, 0.0, 1.2);
+                                    float nearWrap = emitStrengthNorm * exp(-boxProximity * 1.35) * 0.42;
                                     float cosSurface = isVolume 
                                         ? (phaseHG(clamp(dot(L, rd), -1.0, 1.0), matPhase) * 2.0) 
                                         : clamp((rawNdotL + nearWrap) / (1.0 + nearWrap), 0.0, 1.0);
@@ -12283,13 +12291,13 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                             float bounceDamp = isSpecularPath ? 1.0 : 0.82;
 
                                             if (hasDiffEmit) {
-                                                // Ánh sáng diện tích khuếch tán tự nhiên theo định luật nghịch đảo bình phương khoảng cách
-                                                float geomTerm = (cosSurface * faceAreaPre) / (dist * dist * 0.78 + faceAreaPre * 0.55 + 1.0);
+                                                // Định luật nghịch đảo bình phương khoảng cách tính riêng cho từng thanh của hình chữ T / chữ I
+                                                float geomTerm = (cosSurface * faceAreaPre) / (dist * dist * 0.82 + faceAreaPre * 0.45 + 0.85);
                                                 geomTerm = min(geomTerm, 2.8);
 
-                                                // Quầng hào quang (Wall Glow) ôm sát viền khối Emit trên tường giữ đúng 100% màu gốc emitCol của đèn
-                                                // (Hoạt động cả ở Emission vừa và cao như Emission=9.5, Power=1.5 hoặc Emission=52, Power=2)
-                                                float borderHalo = exp(-boxProximity * 0.48) * clamp(effectivePower * 0.14, 0.0, 2.4) * clamp(rawNdotL + 0.75, 0.0, 1.0);
+                                                // Quầng sáng viền (Contour Halo) bám sát 100% theo đúng đường nét hình học của từng thanh (exp(-boxProximity * 1.45)),
+                                                // giữ rõ góc khuyết của chữ T và chữ I giống hệt ảnh anh sang xung quanh 2.JPG của MagicaVoxel
+                                                float borderHalo = exp(-boxProximity * 1.45) * clamp(effectivePower * 0.11, 0.0, 1.85) * clamp(rawNdotL + 0.55, 0.0, 1.0);
 
                                                 vec3 emitContrib = throughput * albedo * emitCol * ((effectivePower * geomTerm * 1.12 * bounceDamp) + borderHalo) * diffuseWeight * shadowTrans;
                                                 radiance += emitContrib;
