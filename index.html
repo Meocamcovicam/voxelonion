@@ -1368,11 +1368,12 @@
 		saturation: 1.10,
 		vibrance: 0.20,
 		
-		bloomEnabled: false, // Mặc định tắt Bloom
-		bloomStrength: 0.0,  // Mix (0..100, mặc định min = 0)
-		bloomSize: 0.0,      // Size (0..100, mặc định min = 0)
-		bloomAspect: 0.0,    // Aspect (0..100, mặc định min = 0)
-		bloomThresh: 0.0,    // Thresh (0..100, mặc định min = 0.0)
+		bloomEnabled: false,      // Mặc định tắt Bloom
+		bloomInitialized: false,  // Đánh dấu lần đầu bật Bloom sẽ về min (0), các lần bật/tắt sau giữ nguyên config cuối
+		bloomStrength: 0.0,       // Mix (0..100, mặc định min = 0)
+		bloomSize: 0.0,           // Size (0..100, mặc định min = 0)
+		bloomAspect: 0.0,         // Aspect (0..100, mặc định min = 0)
+		bloomThresh: 0.0,         // Thresh (0..100, mặc định min = 0.0)
 		filterTint: new THREE.Color(0xffffff),
 		
 		filterStrength: 0.0,
@@ -6481,6 +6482,7 @@ function captureStateSnapshot() {
 			saturation: AppState.saturation,
 			vibrance: AppState.vibrance,
 			bloomEnabled: !!AppState.bloomEnabled,
+			bloomInitialized: !!AppState.bloomInitialized,
 			bloomStrength: AppState.bloomStrength,
 			bloomSize: AppState.bloomSize,
 			bloomAspect: AppState.bloomAspect,
@@ -6642,6 +6644,9 @@ function restoreStateFromSnapshot(snapshot) {
         AppState.saturation = snapshot.postProcess.saturation;
         AppState.vibrance = snapshot.postProcess.vibrance;
         AppState.bloomEnabled = !!snapshot.postProcess.bloomEnabled;
+        if (snapshot.postProcess.bloomInitialized !== undefined) {
+            AppState.bloomInitialized = !!snapshot.postProcess.bloomInitialized;
+        }
         AppState.bloomStrength = snapshot.postProcess.bloomStrength ?? 0.0;
         if (snapshot.postProcess.bloomSize !== undefined) AppState.bloomSize = snapshot.postProcess.bloomSize;
         if (snapshot.postProcess.bloomAspect !== undefined) AppState.bloomAspect = snapshot.postProcess.bloomAspect;
@@ -9398,6 +9403,8 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         safeSetVal('input-size-y', voxData.size.y);
         safeSetVal('input-size-z', voxData.size.z);
 
+
+        // Nạp cấu hình từ Cache (vật liệu, màu sắc, camera, ánh sáng)
         // Nạp cấu hình từ Cache (vật liệu, màu sắc, camera, ánh sáng)
         const activeSettings = cachedSettings || voxData.customSettings;
         if (activeSettings && Object.keys(activeSettings).length > 0) {
@@ -9408,6 +9415,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             centerCamera(voxData.size);
             updateSkyboxColors();
             updateFog();
+            syncUIFromState();
         }
 
         // TÁI DỰNG MESH & BẢNG MÀU SAU CÙNG: Đảm bảo áp dụng đúng 100% màu và vật liệu đã lưu
@@ -9417,12 +9425,16 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             selectColor(AppState.selectedColorIndex);
         }
 
-        // Đảm bảo Shader & RenderTarget luôn được khởi tạo và đồng bộ 100% vật liệu Emit khi mở file hoặc load cache
+        // Đảm bảo Shader & RenderTarget luôn được khởi tạo và đồng bộ 100% vật liệu Emit + Bloom uniforms khi mở file mới hoặc load cache
         if (AppState.renderer) {
             initPingPongTargets(AppState.resolutionWidth, AppState.resolutionHeight);
         }
+        syncUIFromState();
+        updateFilterUniforms();
         updateDynamicEmitLights();
         updateVoxel3DTexture();
+		
+		
 
         if (AppState.renderMode === 'pathtrace') {
             updateSkyboxColors();
@@ -9562,8 +9574,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 		
         if (pp.bloomEnabled !== undefined) {
             AppState.bloomEnabled = !!pp.bloomEnabled;
-        } else {
-            AppState.bloomEnabled = false;
+        }
+        if (pp.bloomInitialized !== undefined) {
+            AppState.bloomInitialized = !!pp.bloomInitialized;
         }
         if (pp.bloomStrength !== undefined || pp.bloom !== undefined) {
             const rawMix = parseSafeFloat(pp.bloomStrength ?? pp.bloom, AppState.bloomStrength);
@@ -9572,6 +9585,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         if (pp.bloomSize !== undefined) AppState.bloomSize = parseSafeFloat(pp.bloomSize, AppState.bloomSize);
         if (pp.bloomAspect !== undefined) AppState.bloomAspect = Math.max(0.0, parseSafeFloat(pp.bloomAspect, AppState.bloomAspect));
         if (pp.bloomThresh !== undefined) AppState.bloomThresh = Math.max(0.0, parseSafeFloat(pp.bloomThresh, AppState.bloomThresh));
+        if (AppState.bloomEnabled || AppState.bloomStrength > 0 || AppState.bloomSize > 0 || AppState.bloomAspect > 0 || AppState.bloomThresh > 0) {
+            AppState.bloomInitialized = true;
+        }
         if (pp.filterEnabled !== undefined) AppState.filterEnabled = !!pp.filterEnabled;
 		
 		
@@ -9658,10 +9674,21 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         syncUI('prop-sky-ambient-int', AppState.sky.ambientIntensity);
         syncTxt('val-sky-ambient-int', AppState.sky.ambientIntensity.toFixed(2));
 
-        syncUI('prop-bloom-strength', Math.round(AppState.bloomStrength)); syncTxt('val-bloom-strength', Math.round(AppState.bloomStrength));
-        syncUI('prop-bloom-size', Math.round(AppState.bloomSize ?? 40)); syncTxt('val-bloom-size', Math.round(AppState.bloomSize ?? 40));
-        syncUI('prop-bloom-aspect', (AppState.bloomAspect ?? 0).toFixed(2)); syncTxt('val-bloom-aspect', (AppState.bloomAspect ?? 0).toFixed(2));
-        syncUI('prop-bloom-thresh', (AppState.bloomThresh ?? 1.0).toFixed(2)); syncTxt('val-bloom-thresh', (AppState.bloomThresh ?? 1.0).toFixed(2));
+        const fogToggle = document.getElementById('fog-enabled');
+        if (fogToggle) fogToggle.checked = AppState.fog.enabled;
+        syncCol('prop-fog-col', AppState.fog.color);
+        syncUI('prop-fog-density', AppState.fog.density || 0);
+        syncTxt('val-fog-density', Math.round(AppState.fog.density || 0));
+
+        const bloomToggle = document.getElementById('bloom-enabled');
+        const bloomWrap = document.getElementById('bloom-controls-wrap');
+        if (bloomToggle) bloomToggle.checked = !!AppState.bloomEnabled;
+        if (bloomWrap) bloomWrap.classList.toggle('hidden', !AppState.bloomEnabled);
+
+        syncUI('prop-bloom-strength', Math.round(AppState.bloomStrength ?? 0)); syncTxt('val-bloom-strength', Math.round(AppState.bloomStrength ?? 0));
+        syncUI('prop-bloom-size', Math.round(AppState.bloomSize ?? 0)); syncTxt('val-bloom-size', Math.round(AppState.bloomSize ?? 0));
+        syncUI('prop-bloom-aspect', Math.round(AppState.bloomAspect ?? 0)); syncTxt('val-bloom-aspect', Math.round(AppState.bloomAspect ?? 0));
+        syncUI('prop-bloom-thresh', (AppState.bloomThresh ?? 0.0).toFixed(1)); syncTxt('val-bloom-thresh', (AppState.bloomThresh ?? 0.0).toFixed(1));
         syncUI('prop-render-exposure', AppState.exposure); syncTxt('val-render-exposure', AppState.exposure.toFixed(2));
         syncUI('prop-render-saturation', AppState.saturation); syncTxt('val-render-saturation', AppState.saturation.toFixed(2));
         syncUI('prop-render-vibrance', AppState.vibrance); syncTxt('val-render-vibrance', AppState.vibrance.toFixed(2));
@@ -9672,7 +9699,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         safeSetVal('render-width', AppState.resolutionWidth);
         safeSetVal('render-height', AppState.resolutionHeight);
 
-        if (AppState.bloomPass) AppState.bloomPass.strength = (AppState.bloomStrength / 100.0) * 1.5;
+        if (AppState.bloomPass) {
+            AppState.bloomPass.strength = AppState.bloomEnabled ? ((AppState.bloomStrength / 100.0) * 1.5) : 0.0;
+        }
 
 
        
@@ -10062,9 +10091,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             refreshPostProcessRealtime();
         });
 
-        
+        ///////////////////////////////////////////////
 
-        const elBloomToggle = document.getElementById('bloom-enabled');
+			const elBloomToggle = document.getElementById('bloom-enabled');
         const elBloomWrap = document.getElementById('bloom-controls-wrap');
         if (elBloomToggle) {
             elBloomToggle.checked = !!AppState.bloomEnabled;
@@ -10074,15 +10103,22 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 const snap = captureStateSnapshot();
                 AppState.bloomEnabled = e.target.checked;
                 if (AppState.bloomEnabled) {
-                    // Khi bật dấu tick Bloom: đưa cả 4 giá trị về min (0) hết theo đúng yêu cầu
-                    AppState.bloomStrength = 0.0;
-                    AppState.bloomSize = 0.0;
-                    AppState.bloomAspect = 0.0;
-                    AppState.bloomThresh = 0.0;
-                    safeSetVal('prop-bloom-strength', 0); safeSetText('val-bloom-strength', '0');
-                    safeSetVal('prop-bloom-size', 0);     safeSetText('val-bloom-size', '0');
-                    safeSetVal('prop-bloom-aspect', 0);   safeSetText('val-bloom-aspect', '0');
-                    safeSetVal('prop-bloom-thresh', 0);   safeSetText('val-bloom-thresh', '0.0');
+                    // Chỉ lần đầu tiên bật Bloom mới đưa về min (0) hết; các lần tắt rồi bật lại sẽ giữ nguyên giá trị config cuối
+                    if (!AppState.bloomInitialized) {
+                        AppState.bloomInitialized = true;
+                        AppState.bloomStrength = 0.0;
+                        AppState.bloomSize = 0.0;
+                        AppState.bloomAspect = 0.0;
+                        AppState.bloomThresh = 0.0;
+                    }
+                    safeSetVal('prop-bloom-strength', Math.round(AppState.bloomStrength));
+                    safeSetText('val-bloom-strength', Math.round(AppState.bloomStrength));
+                    safeSetVal('prop-bloom-size', Math.round(AppState.bloomSize));
+                    safeSetText('val-bloom-size', Math.round(AppState.bloomSize));
+                    safeSetVal('prop-bloom-aspect', Math.round(AppState.bloomAspect));
+                    safeSetText('val-bloom-aspect', Math.round(AppState.bloomAspect));
+                    safeSetVal('prop-bloom-thresh', AppState.bloomThresh.toFixed(1));
+                    safeSetText('val-bloom-thresh', AppState.bloomThresh.toFixed(1));
                 }
                 if (elBloomWrap) elBloomWrap.classList.toggle('hidden', !AppState.bloomEnabled);
                 if (AppState.bloomPass) {
@@ -10095,6 +10131,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
         const elBloom = document.getElementById('prop-bloom-strength');
         bindUndoableInput(elBloom, e => {
+            AppState.bloomInitialized = true;
             AppState.bloomStrength = parseFloat(e.target.value);
             safeSetText('val-bloom-strength', Math.round(AppState.bloomStrength));
             if (AppState.bloomPass) {
@@ -10105,6 +10142,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
         const elBloomSize = document.getElementById('prop-bloom-size');
         bindUndoableInput(elBloomSize, e => {
+            AppState.bloomInitialized = true;
             AppState.bloomSize = parseFloat(e.target.value);
             safeSetText('val-bloom-size', Math.round(AppState.bloomSize));
             refreshPostProcessRealtime();
@@ -10112,6 +10150,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
         const elBloomAspect = document.getElementById('prop-bloom-aspect');
         bindUndoableInput(elBloomAspect, e => {
+            AppState.bloomInitialized = true;
             AppState.bloomAspect = parseFloat(e.target.value);
             safeSetText('val-bloom-aspect', Math.round(AppState.bloomAspect));
             refreshPostProcessRealtime();
@@ -10119,6 +10158,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
         const elBloomThresh = document.getElementById('prop-bloom-thresh');
         bindUndoableInput(elBloomThresh, e => {
+            AppState.bloomInitialized = true;
             AppState.bloomThresh = parseFloat(e.target.value);
             safeSetText('val-bloom-thresh', AppState.bloomThresh.toFixed(1));
             refreshPostProcessRealtime();
@@ -13910,6 +13950,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 saturation: AppState.saturation,
                 vibrance: AppState.vibrance,
                 bloomEnabled: !!AppState.bloomEnabled,
+                bloomInitialized: !!AppState.bloomInitialized,
                 bloomStrength: AppState.bloomStrength,
                 bloomSize: AppState.bloomSize,
                 bloomAspect: AppState.bloomAspect,
@@ -14051,6 +14092,8 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                         exposure: AppState.exposure,
                         saturation: AppState.saturation,
                         vibrance: AppState.vibrance,
+                        bloomEnabled: !!AppState.bloomEnabled,
+                        bloomInitialized: !!AppState.bloomInitialized,
                         bloomStrength: AppState.bloomStrength,
                         bloomSize: AppState.bloomSize,
                         bloomAspect: AppState.bloomAspect,
