@@ -1436,13 +1436,14 @@
         if (bar) bar.style.width = `${clamped}%`;
         if (pct) pct.textContent = `${clamped}%`;
         if (txt && statusText) txt.textContent = statusText;
-		
         if (loader && hideWhenDone && clamped >= 100) {
-            loader.style.pointerEvents = 'none';
-            loader.style.opacity = '0';
             setTimeout(() => {
-                if (loader.parentNode) loader.style.display = 'none';
-            }, 150);
+                loader.style.opacity = '0';
+                loader.style.pointerEvents = 'none';
+                setTimeout(() => {
+                    if (loader.parentNode) loader.style.display = 'none';
+                }, 300);
+            }, 120);
         }
     }
 
@@ -9296,9 +9297,10 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     dummy.updateMatrix();
                     iMesh.setMatrixAt(j, dummy.matrix);
                 }
-				
                iMesh.instanceMatrix.needsUpdate = true;
                 iMesh.frustumCulled = false;
+                iMesh.computeBoundingBox();
+                iMesh.computeBoundingSphere();
                 layerGroup.add(iMesh);
             }
 
@@ -9453,6 +9455,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
 
         // Nạp cấu hình từ Cache (vật liệu, màu sắc, camera, ánh sáng)
+        // Nạp cấu hình từ Cache (vật liệu, màu sắc, camera, ánh sáng)
         const activeSettings = cachedSettings || voxData.customSettings;
         if (activeSettings && Object.keys(activeSettings).length > 0) {
             applyLoadedSettings(activeSettings);
@@ -9462,9 +9465,10 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             centerCamera(voxData.size);
             updateSkyboxColors();
             updateFog();
+            syncUIFromState();
         }
 
-        // TÁI DỰNG MESH & BẢNG MÀU ĐÚNG 1 LẦN DUY NHẤT SAU KHI ĐÃ NẠP XONG CẤU HÌNH
+        // TÁI DỰNG MESH & BẢNG MÀU SAU CÙNG: Đảm bảo áp dụng đúng 100% màu và vật liệu đã lưu
         rebuildMesh();
         buildPaletteUI();
         if (AppState.selectedColorIndex) {
@@ -9473,9 +9477,6 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
         syncUIFromState();
         updateFilterUniforms();
-
-        // Giải phóng và ẩn ngay màn hình Loading để người dùng vào thẳng Preview tức thì
-        updateBootProgress(100, "Ready!", true);
 
         if (AppState.renderMode === 'pathtrace') {
             if (AppState.renderer) {
@@ -9489,7 +9490,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             AppState.latestAccumTarget = null;
             AppState.needsAccumulationReset = true;
         } else {
-            // Khởi chạy tiến trình nạp sẵn Shader P-Tracing ngầm hoàn toàn sau khi Preview đã hiển thị mượt mà
+            // Khởi chạy tiến trình nạp sẵn Shader P-Tracing & 3D Texture có thanh trượt Progress mượt mà
             if (typeof schedulePathTracePrewarmWithProgress === 'function') {
                 schedulePathTracePrewarmWithProgress();
             }
@@ -9681,8 +9682,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             centerCamera(AppState.model.size);
         }
 
-        AppState.renderMode = 'preview';
-        AppState.isRendering = false;
+        setRenderMode('preview');
     }
     
     function syncUIFromState() {
@@ -13377,60 +13377,53 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
     // Quy trình nạp sẵn toàn bộ GPU Pipeline (Shader + 3D Texture + RenderTarget + 1x1 Draw Warmup)
     // chia thành các bước nhỏ mượt mà trên thanh Slide Progress để không bao giờ bị giật/đơ khi bấm P-Tracing lần đầu
-    // Mở khóa giao diện Preview tức thì và đẩy toàn bộ quá trình khởi tạo P-Tracing sang chạy ngầm khi trình duyệt rảnh
     function schedulePathTracePrewarmWithProgress() {
-        // Đóng ngay lập tức màn hình chờ để người dùng thao tác trên Preview mà không phải đợi
-        updateBootProgress(100, "Engine Ready!", true);
+        if (!AppState.renderer || AppState.isWarmingUpPt) return;
 
-        if (!AppState.renderer || AppState.isWarmingUpPt || AppState.isPtGpuWarm) return;
-        AppState.isWarmingUpPt = true;
-
-        const runIdleStep = (fn, delay = 180) => new Promise(resolve => {
-            if (typeof window.requestIdleCallback === 'function') {
-                window.requestIdleCallback(() => { fn(); resolve(); }, { timeout: 600 });
-            } else {
-                setTimeout(() => { fn(); resolve(); }, delay);
-            }
-        });
-
-        // Chờ 350ms sau khi khung hình Preview đầu tiên đã vẽ xong và mượt mà mới bắt đầu biên dịch ngầm
-        setTimeout(async () => {
-            try {
-                // Nếu người dùng đã bấm thẳng sang P-Tracing ngay lập tức thì nhường quyền cho luồng chính
-                if (AppState.renderMode === 'pathtrace') {
-                    AppState.isWarmingUpPt = false;
-                    return;
+        // Nếu GPU đã được nạp ấm từ trước (ví dụ khi mở file .vox thứ 2), chỉ cần build sẵn 3D Texture ngầm
+        if (AppState.isPtGpuWarm) {
+            updateBootProgress(100, "Ready!", true);
+            setTimeout(() => {
+                if (AppState.renderMode === 'preview' && AppState.needsVoxelTextureUpdate) {
+                    updateVoxel3DTexture(true);
+                    AppState.needsVoxelTextureUpdate = false;
                 }
+            }, 60);
+            return;
+        }
 
-                // Bước 1: Khởi tạo cấu trúc Shader & RenderTargets ở hậu cảnh
-                await runIdleStep(() => {
-                    if (AppState.renderMode === 'pathtrace') return;
-                    const rw = Math.max(64, Math.min(4096, AppState.resolutionWidth || 800));
-                    const rh = Math.max(64, Math.min(4096, AppState.resolutionHeight || 800));
-                    initPingPongTargets(rw, rh);
-                    updateMaterialLUTTexture();
-                });
+        AppState.isWarmingUpPt = true;
+        const nextFrame = () => new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 16)));
 
-                // Bước 2: Tạo một 3D Texture nháp 4x4x4 siêu nhẹ (64 bytes) thay vì quét 64,000 voxels lúc khởi động
-                // để biên dịch Shader P-Tracing không gây khựng CPU
-                await runIdleStep(() => {
-                    if (AppState.renderMode === 'pathtrace') return;
-                    if (!voxel3DTexture) {
-                        const dummyData = new Uint8Array(4 * 4 * 4 * 4);
-                        voxel3DTexture = new THREE.Data3DTexture(dummyData, 4, 4, 4);
-                        voxel3DTexture.format = THREE.RGBAFormat;
-                        voxel3DTexture.type = THREE.UnsignedByteType;
-                        voxel3DTexture.minFilter = THREE.NearestFilter;
-                        voxel3DTexture.magFilter = THREE.NearestFilter;
-                        voxel3DTexture.unpackAlignment = 1;
-                        voxel3DTexture.needsUpdate = true;
-                        // Giữ cờ true để khi người dùng thực sự bấm nút P-Tracing mới tính 3D Distance Field chuẩn của mô hình
-                        AppState.needsVoxelTextureUpdate = true;
-                    }
-                });
+        (async () => {
+            try {
+                updateBootProgress(18, "Loading 3D Voxel Workspace...");
+                await nextFrame();
 
-                // Bước 3: Biên dịch Shader bất đồng bộ bằng KHR_parallel_shader_compile (không khóa luồng chính)
-                if (AppState.renderMode !== 'pathtrace' && pathTraceMaterial && AppState.displayMaterial) {
+                // Bước 1: Tạo RenderTargets và khởi tạo cấu trúc Shader P-Tracing + Post-Processing
+                updateBootProgress(38, "Allocating GPU Render Targets...");
+                await nextFrame();
+                const rw = Math.max(64, Math.min(4096, AppState.resolutionWidth || 800));
+                const rh = Math.max(64, Math.min(4096, AppState.resolutionHeight || 800));
+                initPingPongTargets(rw, rh);
+
+                // Bước 2: Tạo Material LUT & 3D Distance Field Texture thực tế của mô hình hiện tại
+                updateBootProgress(58, "Building 3D Voxel Distance Field...");
+                await nextFrame();
+                updateVoxel3DTexture(true);
+                AppState.needsVoxelTextureUpdate = false;
+
+                // Đồng bộ cả cụm đèn Emit để lần đầu bấm P-Tracing không phải quét lại
+                const prevMode = AppState.renderMode;
+                AppState.renderMode = 'pathtrace';
+                updateDynamicEmitLights();
+                AppState.needsEmitLightUpdate = false;
+                AppState.renderMode = prevMode;
+
+                // Bước 3: Biên dịch bất đồng bộ (KHR_parallel_shader_compile) cho cả PathTrace & Display Shader
+                updateBootProgress(78, "Compiling Path-Tracing GLSL3 Shaders...");
+                await nextFrame();
+                if (pathTraceMaterial && AppState.displayMaterial) {
                     pathTraceMaterial.uniforms.tVoxelGrid.value = voxel3DTexture;
                     pathTraceMaterial.uniforms.tMaterialLUT.value = materialLUTTexture;
                     pathTraceMaterial.uniforms.tAccum.value = AppState.renderTargetA.texture;
@@ -13446,14 +13439,38 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                     }
                 }
 
+                // Bước 4: Vẽ nháp 1x1 pixel lên RenderTarget để ép Driver GPU hoàn tất 100% liên kết trạng thái (Pipeline State Object)
+                updateBootProgress(94, "Warming up GPU Ray-Tracing Pipeline...");
+                await nextFrame();
+                if (AppState.renderer && pathTraceScene && AppState.displaySceneQuad && AppState.renderTargetInteractive) {
+                    const prevTarget = AppState.renderer.getRenderTarget();
+                    const prevViewport = new THREE.Vector4();
+                    AppState.renderer.getViewport(prevViewport);
+
+                    AppState.renderer.setRenderTarget(AppState.renderTargetInteractive);
+                    AppState.renderer.setViewport(0, 0, 1, 1);
+                    AppState.renderer.render(pathTraceScene, AppState.renderOrthoCam);
+
+                    AppState.renderer.setRenderTarget(AppState.renderTargetB);
+                    AppState.renderer.setViewport(0, 0, 1, 1);
+                    AppState.renderer.render(AppState.displaySceneQuad, AppState.renderOrthoCam);
+
+                    AppState.renderer.setRenderTarget(prevTarget);
+                    AppState.renderer.setViewport(prevViewport);
+                    pathTraceMaterial.uniforms.uInteractiveMode.value = 0.0;
+                    pathTraceMaterial.uniforms.uMaxBounces.value = 4;
+                }
+
                 AppState.isPtGpuWarm = true;
                 AppState.ptShaderPrecompiled = true;
+                updateBootProgress(100, "Engine Ready!", true);
             } catch (err) {
-                console.warn("Shader background prewarm warning:", err);
+                console.warn("Shader prewarm warning:", err);
+                updateBootProgress(100, "Ready!", true);
             } finally {
                 AppState.isWarmingUpPt = false;
             }
-        }, 350);
+        })();
     }
 
     let lastPtFrameTimestamp = 0;
