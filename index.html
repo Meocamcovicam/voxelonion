@@ -283,29 +283,6 @@
     </script>
 </head>
 <body>
-<!-- THANH SLIDE PROGRESS KHỞI TẠO & NẠP SẴN GPU PATH-TRACING SHADER -->
-<div id="app-boot-loader" class="fixed inset-0 z-[300] bg-[#18181f]/95 backdrop-blur-md flex flex-col items-center justify-center transition-opacity duration-300">
-    <div class="w-[320px] max-w-[88vw] bg-[#22222c] border border-gray-700/80 rounded-xl p-5 shadow-2xl flex flex-col gap-3">
-        <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2">
-                <svg class="w-5 h-5 text-blue-500 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-                </svg>
-                <span class="text-xs font-black tracking-wider text-white uppercase">ONION VOXEL ENGINE</span>
-            </div>
-            <span id="boot-progress-percent" class="text-xs font-mono font-bold text-blue-400">0%</span>
-        </div>
-        <!-- Thanh trượt Slide Progress -->
-        <div class="w-full h-2 bg-[#14141a] rounded-full overflow-hidden border border-gray-800 p-0.5">
-            <div id="boot-progress-bar" class="h-full bg-gradient-to-r from-blue-600 via-indigo-500 to-purple-500 rounded-full transition-all duration-150 ease-out" style="width: 0%;"></div>
-        </div>
-        <div class="flex items-center justify-between text-[10px] font-mono text-gray-400">
-            <span id="boot-progress-status">Initializing 3D Workspace...</span>
-            <span class="text-purple-400">✨ P-Tracing Ready</span>
-        </div>
-    </div>
-</div>
-
 <div id="toast-container" class="fixed top-3 left-1/2 transform -translate-x-1/2 z-[200] flex flex-col gap-1.5 pointer-events-none"></div>
 <div id="canvas-container"></div>
 
@@ -1419,33 +1396,11 @@
         needsEmitClusterRebuild: true,
         renderTargetInteractive: null,
 		
-        isPtGpuWarm: false,
-        isWarmingUpPt: false,
         isCustomResolution: window.innerWidth >= 1024,
         userModifiedResolution: false,
         resolutionWidth: window.innerWidth >= 1024 ? 800 : window.innerWidth,
         resolutionHeight: window.innerWidth >= 1024 ? 800 : window.innerHeight
     };
-
-    function updateBootProgress(percent, statusText, hideWhenDone = false) {
-        const loader = document.getElementById('app-boot-loader');
-        const bar = document.getElementById('boot-progress-bar');
-        const pct = document.getElementById('boot-progress-percent');
-        const txt = document.getElementById('boot-progress-status');
-        const clamped = Math.max(0, Math.min(100, Math.round(percent)));
-        if (bar) bar.style.width = `${clamped}%`;
-        if (pct) pct.textContent = `${clamped}%`;
-        if (txt && statusText) txt.textContent = statusText;
-        if (loader && hideWhenDone && clamped >= 100) {
-            setTimeout(() => {
-                loader.style.opacity = '0';
-                loader.style.pointerEvents = 'none';
-                setTimeout(() => {
-                    if (loader.parentNode) loader.style.display = 'none';
-                }, 300);
-            }, 120);
-        }
-    }
 
     function showToast(message, type = 'error', force = false) {
         // Nếu thông báo đang bị tắt và không phải hành động bắt buộc (như Save) thì bỏ qua
@@ -4046,8 +4001,7 @@ function setupSkyControls() {
             const fl = Math.max(0.0, p.power !== undefined ? p.power : 1.0);
             let ldrRaw = (p.ldr !== undefined) ? p.ldr : 0.0;
             const avgLdr = Math.max(0.0, Math.min(1.0, (ldrRaw > 1.0) ? (ldrRaw / 100.0) : ldrRaw));
-            // Thang bức xạ chuẩn MagicaVoxel: Power=0 phát sáng nhẹ tại chỗ (0.jpg), Power=1..4 tăng theo cấp số nhân (2.jpg -> 6.jpg)
-            const avgPower = (em / 100.0) * (Math.pow(4.2, fl) - 0.65) * 4.5;
+            const avgPower = (em / 100.0) * Math.pow(2.35, fl) * 24.0;
 
             const srgb = colorToSRGBUint8(p.color);
             const colR = srgb.r / 255.0;
@@ -9475,25 +9429,23 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             selectColor(AppState.selectedColorIndex);
         }
 
+        // Đảm bảo Shader & RenderTarget luôn được khởi tạo và đồng bộ 100% vật liệu Emit + Bloom uniforms khi mở file mới hoặc load cache
+        if (AppState.renderer) {
+            initPingPongTargets(AppState.resolutionWidth, AppState.resolutionHeight);
+        }
         syncUIFromState();
         updateFilterUniforms();
+        updateDynamicEmitLights();
+        updateVoxel3DTexture();
+		
+		
 
         if (AppState.renderMode === 'pathtrace') {
-            if (AppState.renderer) {
-                initPingPongTargets(AppState.resolutionWidth, AppState.resolutionHeight);
-            }
-            updateVoxel3DTexture();
-            updateDynamicEmitLights();
             updateSkyboxColors();
             updateFog();
             updateSunPosition();
             AppState.latestAccumTarget = null;
             AppState.needsAccumulationReset = true;
-        } else {
-            // Khởi chạy tiến trình nạp sẵn Shader P-Tracing & 3D Texture có thanh trượt Progress mượt mà
-            if (typeof schedulePathTracePrewarmWithProgress === 'function') {
-                schedulePathTracePrewarmWithProgress();
-            }
         }
     }
 
@@ -10027,17 +9979,12 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             updateRenderViewportSize();
             AppState.needsCubeMapUpdate = false;
 
-            // Đặt nhẹ 1 frame Interactive ở độ phân giải 50% trong 120ms đầu tiên khi vừa bấm P-Tracing
-            // để màn hình chuyển sang P-Tracing tức thì 100% không có bất kỳ độ trễ nào
-            const now = performance.now();
-            AppState.isParameterEditing = true;
-            AppState.ptEditCountdownUntil = now + 120;
-            AppState.ptPreviewDirty = true;
-
             AppState.accumulatedFrames = 0;
             AppState.latestAccumTarget = null;
             AppState.needsAccumulationReset = true;
         }
+		
+		
     }
 
     function initDefaultProject() {
@@ -10432,10 +10379,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             const matGodrayDens = THREE.MathUtils.clamp(p.godrayDensity ?? 0.15, 0.0, 1.0);
             const rawLdr = (p.ldr !== undefined && !Number.isNaN(p.ldr)) ? p.ldr : 0.0;
             const emitLdrNorm = THREE.MathUtils.clamp(rawLdr > 1.0 ? rawLdr / 100.0 : rawLdr, 0.0, 1.0);
-			
             const emVal = Math.max(0.0, p.emission !== undefined ? p.emission : 0.0);
             const flVal = Math.max(0.0, p.power !== undefined ? p.power : 1.0);
-            const emitRad = (emVal / 100.0) * (Math.pow(4.2, flVal) - 0.65) * 4.5;
+            const emitRad = (emVal / 100.0) * Math.pow(2.35, flVal) * 24.0;
             const idx2 = (512 + i) * 4;
 			
             data[idx2]     = matGodray;
@@ -10492,12 +10438,12 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         }
     }
 
-    function updateVoxel3DTexture(forceBuild = false) {
+    function updateVoxel3DTexture() {
         updateMaterialLUTTexture();
         if (!AppState.model || !AppState.renderer) return;
 
-        // Cho phép xây dựng sẵn 3D Texture khi forceBuild = true (lúc chạy thanh Progress lúc đầu) hoặc khi đang ở P-Tracing
-        if (AppState.renderMode !== 'pathtrace' && !forceBuild) {
+        // Chỉ tạo Texture 3D khi đang ở chế độ P-Tracing; nếu đang ở Preview thì đánh dấu cờ để cập nhật ngay khi bật P-Tracing
+        if (AppState.renderMode !== 'pathtrace') {
             AppState.needsVoxelTextureUpdate = true;
             return;
         }
@@ -12266,29 +12212,31 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                 // Đọc trực tiếp Ldr (m2.b) và năng lượng phát xạ (m2.a) của chính ô màu đó từ tMaterialLUT
                                 vec4 m2Emit = texelFetch(tMaterialLUT, ivec2(matIdx, 2), 0);
                                 float ldrVal = clamp(m2Emit.b, 0.0, 1.0);
-                                float emitPwr = max(0.05, m2Emit.a);
+                                float emitPwr = max(0.1, m2Emit.a);
                                 vec3 srgbCol = hitColor.rgb;
                                 vec3 emitBaseColor = albedo;
-                                vec3 trueEmitColor = mix(emitBaseColor, srgbCol, 0.22);
+                                vec3 trueEmitColor = mix(emitBaseColor, srgbCol, 0.18);
 
                                 if (bounce == 0 || isSpecularPath) {
-                                    // Tạo độ phân tách mặt khối 3D nhẹ (giữa mặt chính diện và mặt cạnh bên của chữ T như 0.jpg, 5.jpg, 6.jpg)
-                                    float viewFacing = clamp(abs(dot(hitNormal, -rd)), 0.0, 1.0);
-                                    float sideShade = mix(0.76, 1.0, smoothstep(0.15, 0.85, viewFacing));
+                                    // 1. Chế độ HDR (khi Ldr = 0, giống ảnh ldr 1.JPG của MagicaVoxel):
+                                    // Giữ đúng 100% tông màu gốc của ô màu (tuyệt đối không tự ý pha kênh màu khác biến Đỏ thành Vàng),
+                                    // chỉ nhân đúng năng lượng bức xạ HDR thực tế để độ chói bề mặt tiệp mượt mà với quầng sáng rực trên tường xung quanh.
+                                    float hdrIntensity = max(1.0, emitPwr * 0.38);
+                                    // Chỉ làm dịu nhẹ độ chói ở mức năng lượng cao bằng chính màu gốc của nó (giữ nguyên Hue 100%)
+                                    float highlightSoft = clamp((hdrIntensity - 1.5) / 14.0, 0.0, 1.0);
+                                    vec3 hdrSurfaceCol = mix(trueEmitColor, srgbCol, highlightSoft * 0.35);
+                                    vec3 colHDR = hdrSurfaceCol * (1.20 + hdrIntensity * 1.35);
 
-                                    // 1. Chế độ HDR (khi Ldr = 0, giống 0.jpg -> 5.jpg):
-                                    // Ở Power=0 (emitPwr~1.5): khối sáng rõ màu gốc. Ở Power=2..4: bức xạ HDR tăng mạnh làm bề mặt rực sáng đồng nhất với quầng sáng trên tường
-                                    float hdrGain = 1.15 + emitPwr * 0.55;
-                                    vec3 colHDR = trueEmitColor * hdrGain * sideShade;
+                                    // 2. Chế độ LDR (khi Ldr = 100, giống ảnh ldr 2.JPG của MagicaVoxel):
+                                    // Kẹp bức xạ bề mặt trực tiếp của khối Emit về dải động thấp (Low Dynamic Range) giữ đúng màu gốc sắc nét,
+                                    // làm nổi bật hình dáng khối đèn bên trong quầng sáng rực rỡ trên tường bao quanh.
+                                    vec3 colLDR = mix(emitBaseColor, srgbCol, 0.22) * 1.32;
 
-                                    // 2. Chế độ LDR (khi Ldr = 100, giống 6.jpg):
-                                    // Kẹp bức xạ bề mặt trực tiếp về dải màu gốc sắc nét (không bị chói trắng), giúp chữ T nổi bật rõ ràng trên nền tường rực sáng xung quanh
-                                    vec3 colLDR = mix(emitBaseColor, srgbCol, 0.25) * 1.28 * sideShade;
-
+                                    // Nội suy trực tiếp giữa HDR (Ldr = 0) và LDR (Ldr = 100) theo thanh trượt Ldr
                                     radiance += throughput * mix(colHDR, colLDR, ldrVal);
                                 } else {
-                                    // Ánh sáng gián tiếp (Indirect GI Bounce) tăng theo đúng năng lượng thật của đèn để phủ sáng toàn bộ phòng khi Power cao (3.jpg -> 6.jpg)
-                                    radiance += throughput * trueEmitColor * min(emitPwr * 0.42, 28.0);
+                                    // Ánh sáng gián tiếp (Indirect Bounce) luôn giữ nguyên năng lượng phát sáng thật, không bị giảm khi kéo Ldr
+                                    radiance += throughput * trueEmitColor * min(emitPwr * 0.28, 4.5);
                                 }
                                 break;
                             }
@@ -12304,7 +12252,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                     vec3 lMax = uEmitMax[li];
                                     vec3 lSize = max(vec3(1.0), lMax - lMin);
 
-                                    // Lấy mẫu ngẫu nhiên trong thanh chữ nhật đặc (đã tách theo từng nét của chữ T, chữ I, hình gấp khúc)
+                                    // Lấy mẫu ngẫu nhiên trong thanh chữ nhật đặc (đã được tách nhỏ theo đúng nét ngang/nét dọc của chữ T, chữ I)
                                     vec3 r3 = vec3(rand(seed), rand(seed), rand(seed));
                                     vec3 sampleLightPos = mix(lMin + vec3(0.05), lMax - vec3(0.05), r3);
                                     vec3 closestBoxPt = clamp(hitPos, lMin, lMax);
@@ -12316,32 +12264,22 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
                                     float rawNdotL = dot(hitNormal, L);
 
-                                    // Quy luật lan tỏa theo cấp độ Power của MagicaVoxel (0.jpg -> 7.jpg):
-                                    // - Khi Power thấp (effectivePower <= 16, ứng với Power <= 1.2 như 0.jpg, 2.jpg, 7.jpg):
-                                    //   highPwrFactor = 0 -> bán kính falloff sắc nét (1.42), quầng sáng bám khít 100% theo đúng hình dáng (shape) chữ T và hình gấp khúc.
-                                    // - Khi Power tăng cao (Power = 2, 3, 4 như 3.jpg, 4.jpg, 5.jpg, 6.jpg):
-                                    //   highPwrFactor tăng dần -> mở rộng góc chiếu nghiêng (grazing wrap) trên mặt tường phẳng gắn chữ T, giúp ánh sáng lan tỏa rộng khắp bức tường và sàn!
-                                    float lowPwrGate = smoothstep(1.2, 4.8, effectivePower);
-                                    float highPwrFactor = smoothstep(14.0, 140.0, effectivePower);
-
-                                    float contourFalloff = mix(1.42, 0.22, highPwrFactor);
-                                    float nearWrap = lowPwrGate * (
-                                        exp(-boxProximity * contourFalloff) * mix(0.42, 1.35, highPwrFactor) +
-                                        highPwrFactor * exp(-dist * 0.055) * 0.65
-                                    );
-
+                                    // Chỉ cho phép ánh sáng wrap nhẹ ở sát mép thật của từng thanh (bán kính hẹp 1.25 voxel như MagicaVoxel),
+                                    // tuyệt đối không tràn sang các góc khuyết rỗng của chữ T hay chữ I
+                                    float emitStrengthNorm = clamp(effectivePower / 10.0, 0.0, 1.2);
+                                    float nearWrap = emitStrengthNorm * exp(-boxProximity * 1.35) * 0.42;
                                     float cosSurface = isVolume 
                                         ? (phaseHG(clamp(dot(L, rd), -1.0, 1.0), matPhase) * 2.0) 
                                         : clamp((rawNdotL + nearWrap) / (1.0 + nearWrap), 0.0, 1.0);
 
-                                    bool hasDiffEmit = (diffuseWeight > 0.001 && (cosSurface > 0.001 || (lowPwrGate > 0.01 && boxProximity < 3.5)));
+                                    bool hasDiffEmit = (diffuseWeight > 0.001 && cosSurface > 0.001);
                                     bool hasSpecEmit = (!isVolume && rawNdotL > 0.0 && dot(reflRayPre, L) > 0.0);
 
                                     vec3 absLPre = abs(L);
                                     float faceAreaPre = max(1.0, lSize.y * lSize.z * absLPre.x + lSize.x * lSize.z * absLPre.y + lSize.x * lSize.y * absLPre.z);
-                                    float maxPotentialContrib = (effectivePower * faceAreaPre) / (dist * dist * 0.65 + faceAreaPre * 0.45 + 0.8);
+                                    float maxPotentialContrib = (effectivePower * faceAreaPre) / (dist * dist + faceAreaPre * 0.55 + 1.0);
 
-                                    if ((hasDiffEmit || hasSpecEmit) && maxPotentialContrib > 0.0008) {
+                                    if ((hasDiffEmit || hasSpecEmit) && maxPotentialContrib > 0.0015) {
                                         vec3 shadowOrigin = isVolume ? (hitPos + L * 0.02) : (hitPos + hitNormal * 0.045 + L * 0.02);
                                         vec3 shadowTrans = (uEnableShadow > 0.5 && dist > 0.14) 
                                             ? shadowTraversal(shadowOrigin, L, max(0.05, dist - 0.09), seed) 
@@ -12350,23 +12288,18 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                                         if (max(shadowTrans.r, max(shadowTrans.g, shadowTrans.b)) > 0.001) {
                                             vec3 emitLin = pow(uEmitCol[li], vec3(2.2));
                                             vec3 emitCol = mix(emitLin, uEmitCol[li], 0.22);
-                                            float bounceDamp = isSpecularPath ? 1.0 : 0.85;
+                                            float bounceDamp = isSpecularPath ? 1.0 : 0.82;
 
                                             if (hasDiffEmit) {
-                                                // Định luật nghịch đảo bình phương khoảng cách không bị kẹp trần thấp, cho phép Power=3, 4 làm rực sáng toàn bộ tường bên cạnh và sàn nhà (4.jpg, 5.jpg, 6.jpg)
-                                                float geomTerm = (cosSurface * faceAreaPre) / (dist * dist * 0.72 + faceAreaPre * 0.42 + 0.80);
-                                                geomTerm = min(geomTerm, 16.0);
+                                                // Định luật nghịch đảo bình phương khoảng cách tính riêng cho từng thanh của hình chữ T / chữ I
+                                                float geomTerm = (cosSurface * faceAreaPre) / (dist * dist * 0.82 + faceAreaPre * 0.45 + 0.85);
+                                                geomTerm = min(geomTerm, 2.8);
 
-                                                // 1. Quầng sáng viền sắc nét (Shape Contour Glow): luôn ôm sát theo đúng hình dáng từng nét chữ T / hình gấp khúc (như 2.jpg & 7.jpg)
-                                                float tightShapeHalo = lowPwrGate * exp(-boxProximity * 1.40) * clamp(effectivePower * 0.085, 0.0, 3.2) * clamp(rawNdotL + 0.65, 0.0, 1.0);
+                                                // Quầng sáng viền (Contour Halo) bám sát 100% theo đúng đường nét hình học của từng thanh (exp(-boxProximity * 1.45)),
+                                                // giữ rõ góc khuyết của chữ T và chữ I giống hệt ảnh anh sang xung quanh 2.JPG của MagicaVoxel
+                                                float borderHalo = exp(-boxProximity * 1.45) * clamp(effectivePower * 0.11, 0.0, 1.85) * clamp(rawNdotL + 0.55, 0.0, 1.0);
 
-                                                // 2. Quầng bức xạ trường rộng (Wide Wall Flood): chỉ xuất hiện khi tăng Power từ 2 -> 4 (như 3.jpg, 4.jpg, 5.jpg, 6.jpg),
-                                                // giúp toàn bộ mặt tường chứa chữ T cũng bừng sáng mượt mà từ tâm chữ T tỏa ra xa
-                                                float wideWallFlood = highPwrFactor * exp(-boxProximity * mix(0.35, 0.095, highPwrFactor)) * (effectivePower * 0.048) * clamp(rawNdotL + 0.92, 0.0, 1.0);
-
-                                                float totalHalo = tightShapeHalo + wideWallFlood;
-
-                                                vec3 emitContrib = throughput * albedo * emitCol * ((effectivePower * geomTerm * 1.15 * bounceDamp) + totalHalo) * diffuseWeight * shadowTrans;
+                                                vec3 emitContrib = throughput * albedo * emitCol * ((effectivePower * geomTerm * 1.12 * bounceDamp) + borderHalo) * diffuseWeight * shadowTrans;
                                                 radiance += emitContrib;
                                             }
 
@@ -13373,104 +13306,40 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 		///////////////////////////////////////////////////////
        updateFilterUniforms();
 
-        }
-
-    // Quy trình nạp sẵn toàn bộ GPU Pipeline (Shader + 3D Texture + RenderTarget + 1x1 Draw Warmup)
-    // chia thành các bước nhỏ mượt mà trên thanh Slide Progress để không bao giờ bị giật/đơ khi bấm P-Tracing lần đầu
-    function schedulePathTracePrewarmWithProgress() {
-        if (!AppState.renderer || AppState.isWarmingUpPt) return;
-
-        // Nếu GPU đã được nạp ấm từ trước (ví dụ khi mở file .vox thứ 2), chỉ cần build sẵn 3D Texture ngầm
-        if (AppState.isPtGpuWarm) {
-            updateBootProgress(100, "Ready!", true);
-            setTimeout(() => {
-                if (AppState.renderMode === 'preview' && AppState.needsVoxelTextureUpdate) {
-                    updateVoxel3DTexture(true);
-                    AppState.needsVoxelTextureUpdate = false;
-                }
-            }, 60);
-            return;
-        }
-
-        AppState.isWarmingUpPt = true;
-        const nextFrame = () => new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 16)));
-
-        (async () => {
-            try {
-                updateBootProgress(18, "Loading 3D Voxel Workspace...");
-                await nextFrame();
-
-                // Bước 1: Tạo RenderTargets và khởi tạo cấu trúc Shader P-Tracing + Post-Processing
-                updateBootProgress(38, "Allocating GPU Render Targets...");
-                await nextFrame();
-                const rw = Math.max(64, Math.min(4096, AppState.resolutionWidth || 800));
-                const rh = Math.max(64, Math.min(4096, AppState.resolutionHeight || 800));
-                initPingPongTargets(rw, rh);
-
-                // Bước 2: Tạo Material LUT & 3D Distance Field Texture thực tế của mô hình hiện tại
-                updateBootProgress(58, "Building 3D Voxel Distance Field...");
-                await nextFrame();
-                updateVoxel3DTexture(true);
-                AppState.needsVoxelTextureUpdate = false;
-
-                // Đồng bộ cả cụm đèn Emit để lần đầu bấm P-Tracing không phải quét lại
-                const prevMode = AppState.renderMode;
-                AppState.renderMode = 'pathtrace';
-                updateDynamicEmitLights();
-                AppState.needsEmitLightUpdate = false;
-                AppState.renderMode = prevMode;
-
-                // Bước 3: Biên dịch bất đồng bộ (KHR_parallel_shader_compile) cho cả PathTrace & Display Shader
-                updateBootProgress(78, "Compiling Path-Tracing GLSL3 Shaders...");
-                await nextFrame();
-                if (pathTraceMaterial && AppState.displayMaterial) {
-                    pathTraceMaterial.uniforms.tVoxelGrid.value = voxel3DTexture;
-                    pathTraceMaterial.uniforms.tMaterialLUT.value = materialLUTTexture;
-                    pathTraceMaterial.uniforms.tAccum.value = AppState.renderTargetA.texture;
-                    pathTraceMaterial.uniforms.uInteractiveMode.value = 1.0;
-                    pathTraceMaterial.uniforms.uMaxBounces.value = 3;
-                    AppState.displayMaterial.uniforms.tInput.value = AppState.renderTargetInteractive.texture;
-
-                    if (typeof AppState.renderer.compileAsync === 'function') {
-                        await Promise.all([
-                            AppState.renderer.compileAsync(pathTraceScene, AppState.renderOrthoCam),
-                            AppState.renderer.compileAsync(AppState.displaySceneQuad, AppState.renderOrthoCam)
-                        ]).catch(() => {});
-                    }
-                }
-
-                // Bước 4: Vẽ nháp 1x1 pixel lên RenderTarget để ép Driver GPU hoàn tất 100% liên kết trạng thái (Pipeline State Object)
-                updateBootProgress(94, "Warming up GPU Ray-Tracing Pipeline...");
-                await nextFrame();
-                if (AppState.renderer && pathTraceScene && AppState.displaySceneQuad && AppState.renderTargetInteractive) {
-                    const prevTarget = AppState.renderer.getRenderTarget();
-                    const prevViewport = new THREE.Vector4();
-                    AppState.renderer.getViewport(prevViewport);
-
-                    AppState.renderer.setRenderTarget(AppState.renderTargetInteractive);
-                    AppState.renderer.setViewport(0, 0, 1, 1);
-                    AppState.renderer.render(pathTraceScene, AppState.renderOrthoCam);
-
-                    AppState.renderer.setRenderTarget(AppState.renderTargetB);
-                    AppState.renderer.setViewport(0, 0, 1, 1);
-                    AppState.renderer.render(AppState.displaySceneQuad, AppState.renderOrthoCam);
-
-                    AppState.renderer.setRenderTarget(prevTarget);
-                    AppState.renderer.setViewport(prevViewport);
-                    pathTraceMaterial.uniforms.uInteractiveMode.value = 0.0;
-                    pathTraceMaterial.uniforms.uMaxBounces.value = 4;
-                }
-
-                AppState.isPtGpuWarm = true;
-                AppState.ptShaderPrecompiled = true;
-                updateBootProgress(100, "Engine Ready!", true);
-            } catch (err) {
-                console.warn("Shader prewarm warning:", err);
-                updateBootProgress(100, "Ready!", true);
-            } finally {
-                AppState.isWarmingUpPt = false;
+        // Pre-compile (biên dịch sẵn) Shader P-Tracing ngay khi khởi tạo để bấm P-Tracing lần đầu không bị đơ
+        // Pre-compile & Warm-up 1x1 pixel RenderTarget ngay khi khởi tạo để bấm P-Tracing lần đầu vào ngay lập tức
+        if (!AppState.ptShaderPrecompiled && AppState.renderer && pathTraceScene && AppState.displaySceneQuad) {
+            AppState.ptShaderPrecompiled = true;
+            if (!materialLUTTexture) updateMaterialLUTTexture();
+            if (!voxel3DTexture) {
+                voxel3DTexture = new THREE.Data3DTexture(new Uint8Array(4 * 4 * 4 * 4), 4, 4, 4);
+                voxel3DTexture.format = THREE.RGBAFormat;
+                voxel3DTexture.type = THREE.UnsignedByteType;
+                voxel3DTexture.minFilter = THREE.NearestFilter;
+                voxel3DTexture.magFilter = THREE.NearestFilter;
+                voxel3DTexture.unpackAlignment = 1;
+                voxel3DTexture.needsUpdate = true;
+                AppState.needsVoxelTextureUpdate = true;
             }
-        })();
+            pathTraceMaterial.uniforms.tVoxelGrid.value = voxel3DTexture;
+            pathTraceMaterial.uniforms.tMaterialLUT.value = materialLUTTexture;
+            pathTraceMaterial.uniforms.tAccum.value = AppState.renderTargetA.texture;
+            pathTraceMaterial.uniforms.uMaxBounces.value = 1;
+            AppState.displayMaterial.uniforms.tInput.value = AppState.renderTargetB.texture;
+
+            const prevTarget = AppState.renderer.getRenderTarget();
+            const prevViewport = new THREE.Vector4();
+            AppState.renderer.getViewport(prevViewport);
+
+            AppState.renderer.setRenderTarget(AppState.renderTargetB);
+            AppState.renderer.setViewport(0, 0, 1, 1);
+            AppState.renderer.render(pathTraceScene, AppState.renderOrthoCam);
+
+            AppState.renderer.setRenderTarget(prevTarget);
+            AppState.renderer.setViewport(prevViewport);
+            pathTraceMaterial.uniforms.uMaxBounces.value = 4;
+        }
+		
     }
 
     let lastPtFrameTimestamp = 0;
