@@ -127,9 +127,23 @@
 		}
 
         
-		.palette-swatch { width: 100%; aspect-ratio: 1; cursor: pointer; box-sizing: border-box; transition: transform 0.08s, border 0.08s; border-radius: 2px; }
+		.palette-swatch { width: 100%; aspect-ratio: 1; cursor: pointer; box-sizing: border-box; transition: transform 0.08s, border 0.08s; border-radius: 2px; position: relative; }
         .palette-swatch:hover { transform: scale(1.1); z-index: 10; box-shadow: 0 0 6px rgba(0,0,0,0.9); }
         .palette-swatch.selected { border: 2px solid #60a5fa; transform: scale(1.15); z-index: 20; box-shadow: 0 0 8px rgba(96,165,250,0.8); }
+        .palette-swatch.multi-selected::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 6px;
+            height: 6px;
+            background-color: #ffffff;
+            border: 1.2px solid #000000;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            box-shadow: 0 0 2px rgba(0,0,0,0.85);
+        }
         
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
@@ -673,8 +687,9 @@
             
 
             <!-- PALETTE HEADER: TÍCH HỢP Ô CHỌN MÀU VÀ NÚT THÊM MÀU TRÊN ĐẦU -->
+            <!-- PALETTE HEADER: TÍCH HỢP Ô CHỌN MÀU, NÚT THÊM MÀU VÀ MULTI COLOR TRÊN ĐẦU -->
             <div class="flex justify-between items-center mt-1 shrink-0 border-t border-gray-700 pt-1.5">
-                <div class="flex items-center gap-1.5">
+                <div class="flex items-center gap-1.5 flex-wrap">
                     <h3 class="text-[10px] uppercase tracking-widest font-bold text-gray-400">Palette</h3>
                     <label for="color-picker" class="flex items-center gap-1 bg-[#141418] hover:bg-[#22222c] px-1.5 py-0.5 rounded border border-gray-700 cursor-pointer transition-colors shadow-sm" title="Click to change color">
                         <span class="text-[9px] text-gray-400 font-bold uppercase">Color:</span>
@@ -682,6 +697,11 @@
                     </label>
                     <!-- Nút thêm màu nổi bật trên thanh tiêu đề -->
                     <button id="btn-header-add-color" class="bg-blue-600 hover:bg-blue-500 text-white font-black px-2 py-0.5 rounded text-xs leading-none shadow flex items-center justify-center transition-transform active:scale-95" title="Add new color slot">+</button>
+                    <!-- Tùy chọn Multi Color chỉ xuất hiện khi ấn Color trong Select -> SELECT -->
+                    <label id="multi-color-toggle-wrap" class="hidden items-center gap-1 bg-[#14141c] hover:bg-[#1e1e2a] px-1.5 py-0.5 rounded border border-amber-500/50 cursor-pointer select-none transition-colors shadow-sm" title="Multi Color: Chọn nhiều màu dưới Palette để tô ngẫu nhiên (Random) vùng chọn">
+                        <input type="checkbox" id="chk-multi-color" class="rounded bg-gray-800 border-gray-600 text-amber-500 focus:ring-0 w-3 h-3 cursor-pointer">
+                        <span class="text-[9px] font-bold text-amber-300 uppercase tracking-tight whitespace-nowrap">Multi</span>
+                    </label>
                 </div>
                 <span id="palette-dup-noti" class="hidden text-[9px] bg-rose-950/90 text-rose-300 px-1.5 py-0.5 rounded border border-rose-600/60 font-bold whitespace-nowrap">Color already in palette</span>
             </div>
@@ -1319,6 +1339,9 @@
 		
 		selectionBounds: null,
         selectionMode: 'select',
+        selColorOptionActive: false,
+        multiColorEnabled: false,
+        multiSelectedColors: new Set([1]),
         rectSelectActive: false,
 		
         rectSelectStart: new THREE.Vector2(),
@@ -5474,12 +5497,75 @@ function setupSkyControls() {
         if (typeof setSelectionMode === 'function' && AppState.action !== 'shape') setSelectionMode('select');
     }
 	
+	// Kiểm tra chế độ Multi Color trong Select -> SELECT -> Color đang bật hay không
+    function isMultiColorActive() {
+        return Boolean(
+            AppState.action === 'select' &&
+            AppState.selectionMode === 'select' &&
+            AppState.selColorOptionActive &&
+            AppState.multiColorEnabled
+        );
+    }
+
+    // Cập nhật chấm tròn trắng viền đen ở chính giữa các ô màu được chọn trong Palette (giống MagicaVoxel)
+    function updatePaletteMultiColorDots() {
+        const showDots = isMultiColorActive();
+        document.querySelectorAll('#palette-grid .palette-swatch').forEach(el => {
+            if (!el.id || !el.id.startsWith('swatch-')) return;
+            const idx = parseInt(el.id.replace('swatch-', ''), 10);
+            const isMultiSel = showDots && AppState.multiSelectedColors && AppState.multiSelectedColors.has(idx);
+            el.classList.toggle('multi-selected', !!isMultiSel);
+        });
+    }
+
+    // Ẩn/hiện ô tick Multi Color bên cạnh nút [+] của Palette (chỉ hiện khi ấn Color ở Select -> SELECT)
+    function updateMultiColorUIVisibility() {
+        const wrap = document.getElementById('multi-color-toggle-wrap');
+        const chk = document.getElementById('chk-multi-color');
+        const btnPaint = document.getElementById('btn-sel-paint');
+        const canShow = (
+            AppState.action === 'select' &&
+            AppState.selectionMode === 'select' &&
+            !!AppState.selColorOptionActive &&
+            !AppState.layerTransformMode
+        );
+        if (wrap) {
+            wrap.classList.toggle('hidden', !canShow);
+            wrap.classList.toggle('flex', canShow);
+        }
+        if (chk) {
+            chk.checked = !!AppState.multiColorEnabled;
+        }
+        if (btnPaint) {
+            btnPaint.classList.toggle('ring-1', canShow);
+            btnPaint.classList.toggle('ring-amber-400', canShow);
+        }
+        updatePaletteMultiColorDots();
+    }
+
+    // Lấy màu ngẫu nhiên trong danh sách các màu được đánh dấu chấm trắng trên Palette
+    function getRandomMultiOrSelectedColorIndex() {
+        if (isMultiColorActive() && AppState.multiSelectedColors && AppState.multiSelectedColors.size > 0) {
+            const validColors = Array.from(AppState.multiSelectedColors).filter(c => AppState.usedIndices.has(c));
+            if (validColors.length > 0) {
+                const randIdx = Math.floor(Math.random() * validColors.length);
+                return validColors[randIdx];
+            }
+        }
+        return AppState.selectedColorIndex;
+    }
+
 	// THÊM HÀM NÀY VÀO NGAY TRÊN setupSelectionActions
 	function setSelectionMode(mode) {
         if (AppState.action === 'shape') {
             mode = 'transform';
         }
+        if (mode !== 'select') {
+            AppState.selColorOptionActive = false;
+        }
         AppState.selectionMode = mode;
+        updateMultiColorUIVisibility();
+		
         const tabSel = document.getElementById('tab-sel-mode');
         const tabTrans = document.getElementById('tab-trans-mode');
         const conSel = document.getElementById('sel-tools-container');
@@ -5644,9 +5730,35 @@ function setupSkyControls() {
             inp.addEventListener('change', () => handleArraySpacingChange(true));
             inp.addEventListener('keydown', (e) => e.stopPropagation());
         });
+////////////////////////////////////////////////////////////
+		const chkMultiColor = document.getElementById('chk-multi-color');
+        if (chkMultiColor) {
+            chkMultiColor.checked = !!AppState.multiColorEnabled;
+            chkMultiColor.addEventListener('change', (e) => {
+                e.stopPropagation();
+                AppState.multiColorEnabled = e.target.checked;
+                if (AppState.multiColorEnabled) {
+                    if (!AppState.multiSelectedColors || AppState.multiSelectedColors.size === 0) {
+                        AppState.multiSelectedColors = new Set([AppState.selectedColorIndex]);
+                    } else {
+                        AppState.multiSelectedColors.add(AppState.selectedColorIndex);
+                    }
+                }
+                updatePaletteMultiColorDots();
+                showToast(
+                    AppState.multiColorEnabled
+                        ? "Multi Color ON: Click colors in Palette to toggle, then click Color!"
+                        : "Multi Color OFF",
+                    "success",
+                    true
+                );
+            });
+        }
 
 		if (btnDelete) {
             btnDelete.addEventListener('click', () => {
+             AppState.selColorOptionActive = false;
+             updateMultiColorUIVisibility();
              if (!AppState.model || AppState.selectedVoxels.size === 0) return;
              const snapshotBefore = captureStateSnapshot();
 
@@ -5677,6 +5789,13 @@ function setupSkyControls() {
 
         if (btnPaint) {
             btnPaint.addEventListener('click', () => {
+             // Khi ấn Color: Hiện tùy chọn tick Multi Color ngay bên cạnh nút [+] trên thanh Palette
+             AppState.selColorOptionActive = true;
+             if (!AppState.multiSelectedColors || AppState.multiSelectedColors.size === 0) {
+                 AppState.multiSelectedColors = new Set([AppState.selectedColorIndex]);
+             }
+             updateMultiColorUIVisibility();
+
              if (!AppState.model || AppState.selectedVoxels.size === 0) return;
              const snapshotBefore = captureStateSnapshot();
 
@@ -5688,11 +5807,12 @@ function setupSkyControls() {
                  if (lid !== AppState.activeLayerId) continue;
                  if (toPaint.has(`${v.x},${v.y},${v.z}`)) {
                      if (isVoxelLocked(v)) continue; // Bỏ qua khối bị khóa
-                     v.i = AppState.selectedColorIndex;
+                     const chosenCol = getRandomMultiOrSelectedColorIndex();
+                     v.i = chosenCol;
+                     AppState.usedIndices.add(chosenCol);
                      count++;
                  }
              }
-                AppState.usedIndices.add(AppState.selectedColorIndex);
 
                 recordUndoStep(snapshotBefore); // Lưu vào Undo
                 rebuildMesh();
@@ -5703,6 +5823,9 @@ function setupSkyControls() {
 
         if (btnFill) {
            btnFill.addEventListener('click', () => {
+             AppState.selColorOptionActive = false;
+             updateMultiColorUIVisibility();
+             if (!AppState.model || !AppState.selectionBounds) return;
              if (getActiveLayer().locked) {
                  showToast(`Layer "${getActiveLayer().name}" is locked, cannot Fill!`, "error");
                  return;
@@ -5716,20 +5839,21 @@ function setupSkyControls() {
                     for (let y = b.minY; y <= b.maxY; y++) {
                         for (let z = b.minZ; z <= b.maxZ; z++) {
                             const key = `${x},${y},${z}`;
+                            const chosenCol = getRandomMultiOrSelectedColorIndex();
                             if (!vMap.has(key)) {
-                                const newVox = { x, y, z, i: AppState.selectedColorIndex, l: AppState.activeLayerId };
+                                const newVox = { x, y, z, i: chosenCol, l: AppState.activeLayerId };
                                 AppState.model.voxels.push(newVox);
                                 vMap.set(key, newVox);
                             } else {
                                 const v = vMap.get(key);
-                                v.i = AppState.selectedColorIndex;
+                                v.i = chosenCol;
                             }
+                            AppState.usedIndices.add(chosenCol);
                             AppState.selectedVoxels.add(key);
                         }
                     }
                 }
 
-                AppState.usedIndices.add(AppState.selectedColorIndex);
                 recordUndoStep(snapshotBefore); // Lưu vào Undo
                 rebuildMesh();
                 renderLayerUI();
@@ -11083,6 +11207,13 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
       AppState.action = action;
       AppState.isTransformingGizmo = false;
 
+      if (action !== 'select') {
+          AppState.selColorOptionActive = false;
+      }
+      if (typeof updateMultiColorUIVisibility === 'function') {
+          updateMultiColorUIVisibility();
+      }
+
       // Khi chuyển sang action khác Select và Shape: Tháo rời và tắt hoàn toàn Gizmo
       if (action !== 'select' && action !== 'shape' && AppState.transformControls) {
           AppState.transformControls.detach();
@@ -15092,14 +15223,41 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
         // Vẽ các ô màu đang có trong Palette
         const sortedIndices = Array.from(AppState.usedIndices).sort((a, b) => a - b);
+        const multiActive = (typeof isMultiColorActive === 'function') && isMultiColorActive();
         for (const i of sortedIndices) {
             const swatch = document.createElement('div');
             swatch.id = `swatch-${i}`;
-            swatch.className = `palette-swatch ${i === AppState.selectedColorIndex ? 'selected' : ''}`;
+            const isMultiSel = multiActive && AppState.multiSelectedColors && AppState.multiSelectedColors.has(i);
+            swatch.className = `palette-swatch ${i === AppState.selectedColorIndex ? 'selected' : ''} ${isMultiSel ? 'multi-selected' : ''}`;
             const p = AppState.materialProps[i];
             swatch.style.backgroundColor = p ? colorToSRGBHex(p.color) : '#ffffff';
             swatch.title = `Color Slot #${i}`;
-            swatch.addEventListener('click', () => selectColorWithUndo(i));
+            swatch.addEventListener('click', () => {
+                if (typeof isMultiColorActive === 'function' && isMultiColorActive()) {
+                    if (!AppState.multiSelectedColors) {
+                        AppState.multiSelectedColors = new Set([AppState.selectedColorIndex]);
+                    }
+                    if (AppState.multiSelectedColors.has(i)) {
+                        if (AppState.multiSelectedColors.size > 1) {
+                            AppState.multiSelectedColors.delete(i);
+                            if (AppState.selectedColorIndex === i) {
+                                const nextCol = Array.from(AppState.multiSelectedColors)[0];
+                                if (nextCol) selectColor(nextCol);
+                            }
+                        } else {
+                            selectColor(i);
+                        }
+                    } else {
+                        AppState.multiSelectedColors.add(i);
+                        selectColor(i);
+                    }
+                    if (typeof updatePaletteMultiColorDots === 'function') {
+                        updatePaletteMultiColorDots();
+                    }
+                } else {
+                    selectColorWithUndo(i);
+                }
+            });
             grid.appendChild(swatch);
         }
     }
