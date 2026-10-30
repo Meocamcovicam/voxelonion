@@ -154,6 +154,7 @@
 		
 		.mv-action-btn.active-pick { background: #0891b2; color: #ffffff; border-color: #22d3ee; box-shadow: 0 0 10px rgba(8,145,178,0.6); }
 		.mv-action-btn.active-draw { background: #7c3aed; color: #ffffff; border-color: #a78bfa; box-shadow: 0 0 10px rgba(124,58,237,0.6); }
+		.mv-action-btn.active-shape { background: #0d9488; color: #ffffff; border-color: #2dd4bf; box-shadow: 0 0 10px rgba(13,148,136,0.6); }
 
         .mv-mode-btn { background: #1a1a20; color: #9ca3af; border: 1px solid #333948; font-weight: 800; font-size: 11px; border-radius: 4px; padding: 5px 2px; }
         .mv-mode-btn.active { background: #059669; color: #ffffff; border-color: #34d399; box-shadow: 0 0 10px rgba(5,150,105,0.6); }
@@ -186,7 +187,18 @@
 			white-space: nowrap;
 			margin-bottom: 2px;
 		}
+		
 		#render-status-overlay.is-visible { display: flex; }
+		#rect-select-marquee {
+			position: fixed;
+			pointer-events: none;
+			z-index: 55;
+			border: 1.5px dashed #fbbf24;
+			background: rgba(245, 158, 11, 0.18);
+			box-shadow: 0 0 8px rgba(245, 158, 11, 0.35);
+			display: none;
+		}
+		
         .pulse-dot { width: 8px; height: 8px; background-color: #3b82f6; border-radius: 50%; box-shadow: 0 0 8px #3b82f6; animation: pulse 1.2s infinite; }
         @keyframes pulse { 0% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(1.3); } 100% { opacity: 1; transform: scale(1); } }
 		
@@ -287,6 +299,7 @@
 <body>
 <div id="toast-container" class="fixed top-3 left-1/2 transform -translate-x-1/2 z-[200] flex flex-col gap-1.5 pointer-events-none"></div>
 <div id="canvas-container"></div>
+<div id="rect-select-marquee"></div>
 
 
 
@@ -478,7 +491,7 @@
 			
               <div class="flex justify-between items-center text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">
                   <span>Action</span>
-                  <span class="text-[8px] text-amber-400">[S / T / R / G / V / K]</span>
+                  <span class="text-[8px] text-amber-400">[S / T / R / G / V / K / H]</span>
               </div>
               <div class="grid grid-cols-3 gap-1">
                   <button id="btn-action-select" class="mv-action-btn" data-action="select">Select</button>
@@ -487,7 +500,9 @@
                   <button id="btn-action-paint" class="mv-action-btn" data-action="paint">Paint</button>
                   <button id="btn-action-draw" class="mv-action-btn" data-action="draw">Draw</button>
                   <button id="btn-action-pick" class="mv-action-btn" data-action="pick">Pick Color</button>
+                  <button id="btn-action-shape" class="mv-action-btn col-span-3" data-action="shape">Shape</button>
               </div>
+			  
           </div>
 		  
 
@@ -500,11 +515,21 @@
 				<div id="brush-shape-container" class="grid grid-cols-2 gap-1.5">
                     <button id="btn-shape-box" class="brush-shape-btn active" data-shape="box">📦 Box (-B-)</button>
                     <button id="btn-shape-face" class="brush-shape-btn" data-shape="face">🧊 Face (-F-)</button>
-                    <button id="btn-shape-wand" class="brush-shape-btn hidden" data-shape="wand" title="Magic Wand: Select connected voxels with same color">🪄 Wand (-W-)</button>
+					
+                 <button id="btn-shape-wand" class="brush-shape-btn hidden" data-shape="wand" title="Magic Wand: Select connected voxels with same color">🪄 Wand (-W-)</button>
+                    <button id="btn-shape-rect" class="brush-shape-btn hidden" data-shape="rect" title="Rect Select: Drag a 2D rectangle to select voxels">⬚ Rect (-M-)</button>
                     <button id="btn-shape-bucket" class="brush-shape-btn hidden" data-shape="bucket" title="Bucket: Paint all voxels with same color (including separated blocks)">🪣 Bucket (-G-)</button>
+					
                     <button id="btn-shape-free" class="brush-shape-btn hidden" data-shape="free" title="Free Draw: Hold & drag to draw continuous 1-voxel line">✏️ Free (-P-)</button>
                     <button id="btn-shape-circle" class="brush-shape-btn hidden" data-shape="circle" title="Circle Draw: Draw 2D circle / disc brush">⚪ Circle (-C-)</button>
                     <button id="btn-shape-square" class="brush-shape-btn hidden" data-shape="square" title="Square Draw: Draw 2D square brush">⬛ Square (-Q-)</button>
+                    <button id="btn-shape-ellipsoid" class="brush-shape-btn hidden" data-shape="ellipsoid" title="Ellipsoid / Sphere: Hold & drag from contact point">🌐 Ellipsoid</button>
+                    <button id="btn-shape-cylinder" class="brush-shape-btn hidden" data-shape="cylinder" title="Cylinder: Hold & drag from base">🛢️ Cylinder</button>
+                    <button id="btn-shape-pyramid" class="brush-shape-btn hidden" data-shape="pyramid" title="Pyramid: Hold & drag from base">🔺 Pyramid</button>
+                    <button id="btn-shape-cone" class="brush-shape-btn hidden" data-shape="cone" title="Cone: Hold & drag from base">🍦 Cone</button>
+                    <button id="btn-shape-maze" class="brush-shape-btn hidden" data-shape="maze" title="Maze: Hold & drag from base">🧩 Maze</button>
+                    <button id="btn-shape-perlin" class="brush-shape-btn hidden" data-shape="perlin" title="Perlin Terrain: Hold & drag from base">🌊 Perlin</button>
+                    <button id="btn-shape-fractal" class="brush-shape-btn hidden col-span-2" data-shape="fractal" title="Fractal (Menger Sponge): Hold & drag from base">❄️ Fractal</button>
                 </div>
 
                 <!-- Thanh chỉnh bán kính Size cho Circle / Square trong chế độ Draw giống MagicaVoxel -->
@@ -516,6 +541,16 @@
                         <input type="number" id="input-draw-size" min="1" max="32" value="4" class="size-input !w-11 !text-purple-300">
                     </div>
                     <input type="range" id="range-draw-size" min="1" max="32" step="1" value="4" class="!my-0.5">
+                </div>
+
+                <!-- Tùy chọn tick Rotate / Pan khi đang ở chế độ Rect Select -->
+                <div id="rect-rotate-pan-row" class="hidden pt-1.5 mt-0.5 border-t border-gray-700/70">
+                    <label class="flex items-center justify-between bg-[#14141c] hover:bg-[#1c1c26] px-2 py-1 rounded border border-gray-700/80 cursor-pointer w-full select-none transition-colors" title="Khi bật: Cho phép Rotate / Pan camera, tạm ngắt kéo chọn Rect Select và bấm ra ngoài để Deselect">
+                        <span class="text-[9px] font-bold text-purple-300 flex items-center gap-1">
+                            <span>🔄</span> Rotate / Pan
+                        </span>
+                        <input type="checkbox" id="chk-rect-rotate-pan" class="rounded bg-gray-800 border-gray-600 text-purple-500 focus:ring-0 w-3.5 h-3.5 cursor-pointer">
+                    </label>
                 </div>
               
 			  <!-- Thanh Mirror X, Y, Z chuẩn MagicaVoxel -->
@@ -536,12 +571,12 @@
 
             <div id="selection-ops-panel" class="flex flex-col gap-1.5 bg-[#171722] p-2 rounded-md border border-amber-600/40 shrink-0" style="display: none;">
                 <div class="flex items-center justify-between text-[9px] font-bold text-amber-300 uppercase tracking-wider">
-                    <span>📦 Selection & Transform</span>
+                    <span id="selection-ops-title">📦 Selection & Transform</span>
                     <span id="selected-voxel-count-badge" class="bg-[#22222c] text-gray-400 border border-gray-700 px-1.5 py-0.2 rounded font-mono text-[9px]">0 selected</span>
                 </div>
 
                 <!-- Tab Select & Transform -->
-                <div class="flex border-b border-gray-700 mt-1">
+                <div id="selection-ops-tabs-bar" class="flex border-b border-gray-700 mt-1">
                     <button id="tab-sel-mode" class="flex-1 py-1 text-[10px] font-bold text-amber-400 border-b-2 border-amber-500 bg-[#1e1e24]">SELECT</button>
                     <button id="tab-trans-mode" class="flex-1 py-1 text-[10px] font-bold text-gray-500 border-b-2 border-transparent hover:text-gray-300">TRANSFORM</button>
                 </div>
@@ -1255,8 +1290,21 @@
       action: 'attach',
         brushShape: 'box',
         lastDrawShape: 'free',
+		
+        lastGenShape: 'pyramid',
+        shapeSession: null,
+        shapeCreateActive: false,
+        shapeCreateStartCoord: null,
+        shapeCreateNormal: null,
+        shapeCreateVoxelDir: null,
+        shapeCreatePlane: null,
+        shapeDragSnapshot: null,
+        shapeDragStartBounds: null,
+        shapeDragLocalPivotCenter: null,
+        shapeLastLiveBoundsKey: '',
         drawBrushSize: 4,
         drawActive: false,
+		
         drawPlane: null,
         drawNormal: null,
         drawVoxelDir: null,
@@ -1271,6 +1319,13 @@
 		
 		selectionBounds: null,
         selectionMode: 'select',
+        rectSelectActive: false,
+		
+        rectSelectStart: new THREE.Vector2(),
+        rectSelectCurrent: new THREE.Vector2(),
+        rectSelectInitialSet: new Set(),
+        rectSelectRotatePan: false,
+		
         gizmoMode: 'translate',
         arraySubMode: 'scale', // 'scale' (kéo giãn vùng lặp) hoặc 'translate' (di chuyển vùng lặp)
         arraySpacing: { x: 0, y: 0, z: 0 }, // Bước cách X, Y, Z giống MagicaVoxel Wrap
@@ -2122,7 +2177,21 @@ function setupSkyControls() {
 		// Kích hoạt Pan khi người dùng: Bật nút Pan (✋) HOẶC Giữ phím Shift HOẶC Giữ phím Space
 		const isPanActive = (AppState.touchNavMode === 'pan') || AppState.isSpaceDown || AppState.isShiftDown;
 
-		if (AppState.action === 'select' && AppState.selectionMode === 'transform') {
+
+		const isRectSelectMode = (AppState.action === 'select' && AppState.selectionMode === 'select' && AppState.brushShape === 'rect' && !AppState.rectSelectRotatePan && !AppState.layerTransformMode && AppState.renderMode === 'preview');
+
+		if (isRectSelectMode && !AppState.isSpaceDown && !AppState.isShiftDown) {
+			// Khi chọn Rect Select: Khóa hoàn toàn Rotate/Pan để người dùng chạm/kéo ở bất kỳ đâu (kể cả ngoài khoảng trống) luôn vẽ vùng chọn mà không làm xoay/trượt camera
+			AppState.controls.enableRotate = false;
+			AppState.controls.enablePan = false;
+			AppState.controls.mouseButtons.LEFT = -1;
+			AppState.controls.mouseButtons.MIDDLE = -1;
+			AppState.controls.mouseButtons.RIGHT = -1;
+			AppState.controls.touches.ONE = -1;
+			AppState.controls.touches.TWO = -1;
+			
+		} else if ((AppState.action === 'select' || AppState.action === 'shape') && AppState.selectionMode === 'transform') {
+		
 			AppState.controls.mouseButtons.LEFT = isPanActive ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
 			AppState.controls.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
 			AppState.controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
@@ -2140,6 +2209,7 @@ function setupSkyControls() {
 			// 2 ngón tay: Luôn cố định là Pan camera và Pinch-Zoom
 			AppState.controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
 		}
+		
 
 		if (AppState.renderer && AppState.renderer.domElement) {
 			if (isPanActive) {
@@ -2281,9 +2351,23 @@ function setupSkyControls() {
             if (AppState.controls) {
                 AppState.controls.enabled = !event.value;
             }
+			//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			/////////////////////////////////////////////////////////////
             if (event.value) {
                 if (AppState.layerTransformMode) {
                     layerTransformBeforeSnap = captureStateSnapshot();
+                } else if (AppState.gizmoMode === 'scale' && AppState.shapeSession && AppState.selectedVoxels.size > 0 && AppState.model) {
+                    AppState.shapeDragSnapshot = captureStateSnapshot();
+                    const b = AppState.shapeSession.boxBounds;
+                    AppState.shapeDragStartBounds = { ...b };
+                    const cx = AppState.model.size.x / 2;
+                    const cy = AppState.model.size.y / 2;
+                    AppState.shapeDragLocalPivotCenter = new THREE.Vector3(
+                        (b.minX + b.maxX + 1) * 0.5 - cx,
+                        (b.minZ + b.maxZ + 1) * 0.5,
+                        (b.minY + b.maxY + 1) * 0.5 - cy
+                    );
+                    AppState.shapeLastLiveBoundsKey = '';
                 } else if (AppState.gizmoMode === 'array' && AppState.selectedVoxels.size > 0 && AppState.model) {
                     AppState.arrayDragSnapshot = captureStateSnapshot();
                     const session = ensureArraySessionInitialized();
@@ -2306,6 +2390,7 @@ function setupSkyControls() {
                 }
             } else {
                 AppState.arrayDragLocalPivotCenter = null;
+                AppState.shapeDragLocalPivotCenter = null;
             }
         });
 
@@ -2315,6 +2400,8 @@ function setupSkyControls() {
             if (!AppState.isTransformingGizmo) return;
             if (AppState.layerTransformMode) {
                 syncLiveLayerTransformFromPivot();
+            } else if (AppState.gizmoMode === 'scale' && AppState.shapeSession && AppState.selectedVoxels.size > 0) {
+                syncLiveShapeScaleVisual();
             } else if (AppState.gizmoMode === 'array') {
                 syncLiveArrayBoxVisual();
             }
@@ -3629,16 +3716,46 @@ function setupSkyControls() {
 
     function updateDrawSizeUIVisibility() {
         const sizeRow = document.getElementById('draw-size-controls-row');
-        if (!sizeRow) return;
-        const showSize = (AppState.action === 'draw') && (AppState.brushShape === 'circle' || AppState.brushShape === 'square');
-        sizeRow.classList.toggle('hidden', !showSize);
-        sizeRow.classList.toggle('flex', showSize);
+        if (sizeRow) {
+            const showSize = (AppState.action === 'draw') && (AppState.brushShape === 'circle' || AppState.brushShape === 'square');
+            sizeRow.classList.toggle('hidden', !showSize);
+            sizeRow.classList.toggle('flex', showSize);
+        }
+
+        const rectRotPanRow = document.getElementById('rect-rotate-pan-row');
+        if (rectRotPanRow) {
+            const showRectRotPan = (AppState.action === 'select') && (AppState.brushShape === 'rect');
+            rectRotPanRow.classList.toggle('hidden', !showRectRotPan);
+            const chk = document.getElementById('chk-rect-rotate-pan');
+            if (chk) chk.checked = !!AppState.rectSelectRotatePan;
+        }
     }
 
     function setupBrushShapeButtons() {
         document.querySelectorAll('.brush-shape-btn').forEach(btn => {
             btn.addEventListener('click', () => setBrushShape(btn.dataset.shape));
         });
+
+        const chkRectRotPan = document.getElementById('chk-rect-rotate-pan');
+        if (chkRectRotPan) {
+            chkRectRotPan.checked = !!AppState.rectSelectRotatePan;
+            chkRectRotPan.addEventListener('change', (e) => {
+                AppState.rectSelectRotatePan = e.target.checked;
+                if (AppState.rectSelectActive) {
+                    AppState.rectSelectActive = false;
+                    const marqueeEl = document.getElementById('rect-select-marquee');
+                    if (marqueeEl) marqueeEl.style.display = 'none';
+                }
+                updateControlsConfiguration();
+                showToast(
+                    AppState.rectSelectRotatePan
+                        ? "Rotate / Pan ON (Rect Select disabled)"
+                        : "Rotate / Pan OFF (Drag to Rect Select)",
+                    "success",
+                    true
+                );
+            });
+        }
 
         const inpSize = document.getElementById('input-draw-size');
         const rngSize = document.getElementById('range-draw-size');
@@ -3661,10 +3778,23 @@ function setupSkyControls() {
         }
     }
 
+    const PROCEDURAL_SHAPE_TYPES = new Set(['ellipsoid', 'cylinder', 'pyramid', 'cone', 'maze', 'perlin', 'fractal']);
+
     function setBrushShape(shape) {
         AppState.brushShape = shape;
         if (shape === 'free' || shape === 'circle' || shape === 'square') {
             AppState.lastDrawShape = shape;
+        } else if (PROCEDURAL_SHAPE_TYPES.has(shape)) {
+            AppState.lastGenShape = shape;
+            if (AppState.action === 'shape' && AppState.shapeSession && AppState.selectedVoxels.size > 0 && AppState.model) {
+                const snapBefore = captureStateSnapshot();
+                AppState.shapeSession.shapeType = shape;
+                rebuildShapeVoxelsFromSession(AppState.shapeSession);
+                recordUndoStep(snapBefore);
+                rebuildMesh();
+                renderLayerUI();
+                updateSelectionBoxVisual();
+            }
         }
         document.querySelectorAll('.brush-shape-btn').forEach(b => {
             b.classList.toggle('active', b.dataset.shape === shape);
@@ -3673,7 +3803,11 @@ function setupSkyControls() {
         updateDrawSizeUIVisibility();
         updateMirrorUIVisibility();
 
-        if (shape === 'free') {
+        updateControlsConfiguration();
+
+        if (PROCEDURAL_SHAPE_TYPES.has(shape)) {
+            showToast(`Shape (${shape.toUpperCase()}): Hold & drag on surface to create, then Scale/Transform`, "success");
+        } else if (shape === 'free') {
             showToast("Free Draw (-P-): Hold & drag to draw continuous line", "success");
         } else if (shape === 'circle') {
             showToast(`Circle Draw (-C-): Click or drag circle (Size: ${AppState.drawBrushSize})`, "success");
@@ -3681,6 +3815,8 @@ function setupSkyControls() {
             showToast(`Square Draw (-Q-): Click or drag square (Size: ${AppState.drawBrushSize})`, "success");
         } else if (shape === 'bucket') {
             showToast("Bucket Tool: Click a voxel to recolor all identical voxels", "success");
+        } else if (shape === 'rect') {
+            showToast("Rect Select (-M-): Drag 2D box to select voxels (Camera Rotate/Pan locked)", "success");
         } else if (shape === 'wand') {
             showToast("Magic Wand Mode: Click a voxel to select connected identical voxels", "success");
         } else if (shape === 'face') {
@@ -3737,17 +3873,21 @@ function setupSkyControls() {
         // Tọa độ tâm pivot: Luôn lấy đúng tâm hình học của hộp bao vùng chọn (selectionBounds) để khi Rotate/Scale không bị lệch tâm
         const pivotCenter = (AppState.gizmoMode === 'array' && AppState.isTransformingGizmo && AppState.arrayDragLocalPivotCenter)
             ? AppState.arrayDragLocalPivotCenter.clone()
-            : (AppState.selectionBounds
+            : ((AppState.gizmoMode === 'scale' && AppState.shapeSession && AppState.isTransformingGizmo && AppState.shapeDragLocalPivotCenter)
+                ? AppState.shapeDragLocalPivotCenter.clone()
+                : (AppState.selectionBounds
+			
                 ? new THREE.Vector3(
                     (AppState.selectionBounds.minX + AppState.selectionBounds.maxX + 1) * 0.5 - cx,
                     (AppState.selectionBounds.minZ + bMaxZOrBoundsZ(AppState.selectionBounds) + 1) * 0.5,
                     (AppState.selectionBounds.minY + AppState.selectionBounds.maxY + 1) * 0.5 - cy
                 )
+				
                 : new THREE.Vector3(
                     sumX / selectedCoords.length,
                     sumY / selectedCoords.length,
                     sumZ / selectedCoords.length
-                ));
+                )));
 			
 			
 
@@ -3885,9 +4025,11 @@ function setupSkyControls() {
 
         if (AppState.transformControls && !AppState.layerTransformMode) {
             const shouldShowGizmo = (AppState.renderMode === 'preview') && 
-                                    (AppState.action === 'select') && 
+                                    (AppState.action === 'select' || AppState.action === 'shape') && 
                                     (AppState.selectionMode === 'transform') && 
                                     (AppState.selectedVoxels.size > 0);
+									
+									
             if (shouldShowGizmo) {
                 // Nếu đang giữ chuột kéo Gizmo thì không gọi attach/setMode lại để tránh ngắt quãng thao tác kéo
                 if (!AppState.isTransformingGizmo) {
@@ -4513,10 +4655,345 @@ function setupSkyControls() {
         showToast(`Array updated (${AppState.selectedVoxels.size} voxels)`, "success");
     }
 
+    // Bộ hàm băm và nhiễu mượt 2D phục vụ tạo khối Maze & Perlin trong tab Shape
+    function hash2DProcedural(x, y) {
+        const h = Math.sin(x * 127.1 + y * 311.7) * 43758.5453123;
+        return h - Math.floor(h);
+    }
+
+    function valueNoise2DProcedural(x, y) {
+        const ix = Math.floor(x), iy = Math.floor(y);
+        const fx = x - ix, fy = y - iy;
+        const ux = fx * fx * (3.0 - 2.0 * fx);
+        const uy = fy * fy * (3.0 - 2.0 * fy);
+        const a = hash2DProcedural(ix, iy);
+        const b = hash2DProcedural(ix + 1, iy);
+        const c = hash2DProcedural(ix, iy + 1);
+        const d = hash2DProcedural(ix + 1, iy + 1);
+        return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
+    }
+
+    function fbmPerlin2D(x, y) {
+        let val = 0.0, amp = 0.55, freq = 1.0, norm = 0.0;
+        for (let i = 0; i < 3; i++) {
+            val += amp * valueNoise2DProcedural(x * freq, y * freq);
+            norm += amp;
+            freq *= 2.02;
+            amp *= 0.5;
+        }
+        return val / norm;
+    }
+
+    function isMengerSpongeSolid(u, v, h) {
+        let x = u, y = v, z = h;
+        while (x > 0 || y > 0 || z > 0) {
+            const mx = (x % 3 === 1) ? 1 : 0;
+            const my = (y % 3 === 1) ? 1 : 0;
+            const mz = (z % 3 === 1) ? 1 : 0;
+            if (mx + my + mz >= 2) return false;
+            x = Math.floor(x / 3);
+            y = Math.floor(y / 3);
+            z = Math.floor(z / 3);
+        }
+        return true;
+    }
+
+    // Sinh danh sách tọa độ Voxel cho 7 loại Shape chuẩn MagicaVoxel theo khung hộp boxBounds và hướng pháp tuyến mặt đáy
+    function generateProceduralShapeCoords(shapeType, b, voxelDir) {
+        const minX = b.minX, maxX = b.maxX;
+        const minY = b.minY, maxY = b.maxY;
+        const minZ = b.minZ, maxZ = b.maxZ;
+
+        const dir = voxelDir || { nx: 0, ny: 0, nz: 1 };
+        let spanU, spanV, spanH;
+        if (dir.nx !== 0) {
+            spanH = Math.max(1, maxX - minX + 1);
+            spanU = Math.max(1, maxY - minY + 1);
+            spanV = Math.max(1, maxZ - minZ + 1);
+        } else if (dir.ny !== 0) {
+            spanH = Math.max(1, maxY - minY + 1);
+            spanU = Math.max(1, maxX - minX + 1);
+            spanV = Math.max(1, maxZ - minZ + 1);
+        } else {
+            spanH = Math.max(1, maxZ - minZ + 1);
+            spanU = Math.max(1, maxX - minX + 1);
+            spanV = Math.max(1, maxY - minY + 1);
+        }
+
+        const cu = (spanU - 1) * 0.5;
+        const cv = (spanV - 1) * 0.5;
+        const ch = (spanH - 1) * 0.5;
+        const ru = Math.max(0.5, spanU * 0.5);
+        const rv = Math.max(0.5, spanV * 0.5);
+        const rh = Math.max(0.5, spanH * 0.5);
+///////////////////////////////////////////////////////////////////////
+        // Tiền tính toán bản đồ 2D cho Maze hoặc Perlin
+        // Tiền tính toán mê cung 3D (3D Maze) chuẩn MagicaVoxel trên cả 3 trục (u, v, h)
+       // Hàm băm nguyên 3D phân phối đều (0, 1, 2) cho thuật toán 3D Binary Tree Maze chuẩn MagicaVoxel
+        const getMazeNodeDir = (nu, nv, nh) => {
+            let h3 = (Math.imul(nu, 374761393) + Math.imul(nv, 668265263) + Math.imul(nh, 2147483647)) ^ 0x5bd1e995;
+            h3 = Math.imul(h3 ^ (h3 >>> 13), 1274126177);
+            h3 = (h3 ^ (h3 >>> 16)) >>> 0;
+            return h3 % 3;
+        };
+
+        const coords = [];
+        for (let vx = minX; vx <= maxX; vx++) {
+            for (let vy = minY; vy <= maxY; vy++) {
+                for (let vz = minZ; vz <= maxZ; vz++) {
+                    let u, v, h;
+                    if (dir.nx !== 0) {
+                        h = (dir.nx >= 0) ? (vx - minX) : (maxX - vx);
+                        u = vy - minY;
+                        v = vz - minZ;
+                    } else if (dir.ny !== 0) {
+                        h = (dir.ny >= 0) ? (vy - minY) : (maxY - vy);
+                        u = vx - minX;
+                        v = vz - minZ;
+                    } else {
+                        h = (dir.nz >= 0) ? (vz - minZ) : (maxZ - vz);
+                        u = vx - minX;
+                        v = vy - minY;
+                    }
+
+                    let inside = false;
+                    if (shapeType === 'ellipsoid') {
+                        const du = (u - cu) / ru;
+                        const dv = (v - cv) / rv;
+                        const dh = (h - ch) / rh;
+                        inside = (du * du + dv * dv + dh * dh <= 1.02);
+                    } else if (shapeType === 'cylinder') {
+                        const du = (u - cu) / ru;
+                        const dv = (v - cv) / rv;
+                        inside = (du * du + dv * dv <= 1.02);
+                    } else if (shapeType === 'pyramid') {
+                        const t = (spanH <= 1) ? 0.0 : (h / spanH);
+                        const maxDu = Math.max(0.45, (spanU * 0.5) * (1.0 - t) - 0.01);
+                        const maxDv = Math.max(0.45, (spanV * 0.5) * (1.0 - t) - 0.01);
+                        inside = (Math.abs(u - cu) <= maxDu && Math.abs(v - cv) <= maxDv);
+                    } else if (shapeType === 'cone') {
+                        const t = (spanH <= 1) ? 0.0 : (h / spanH);
+                        const curRu = Math.max(0.5, ru * (1.0 - t));
+                        const curRv = Math.max(0.5, rv * (1.0 - t));
+                        const du = (u - cu) / curRu;
+                        const dv = (v - cv) / curRv;
+                        inside = (du * du + dv * dv <= 1.02);
+                    } else if (shapeType === 'maze') {
+                        // Chuẩn 3D Binary Tree Maze của MagicaVoxel:
+                        // - Các nút (u, v, h) cùng chẵn (oddCount === 0) luôn đặc.
+                        // - Các điểm nối có đúng 1 tọa độ lẻ (oddCount === 1) chỉ đặc khi nút chẵn liền trước chọn đúng hướng trục đó (0: +U, 1: +V, 2: +H).
+                        // - Các điểm có >= 2 tọa độ lẻ luôn rỗng để tạo đường rãnh mê cung 1-voxel thông thoáng.
+                        const oddU = u & 1;
+                        const oddV = v & 1;
+                        const oddH = h & 1;
+                        const oddCount = oddU + oddV + oddH;
+                        if (oddCount === 0) {
+                            inside = true;
+                        } else if (oddCount === 1) {
+                            const chosenAxis = getMazeNodeDir(u - oddU, v - oddV, h - oddH);
+                            if (oddU === 1 && chosenAxis === 0) inside = true;
+                            else if (oddV === 1 && chosenAxis === 1) inside = true;
+                            else if (oddH === 1 && chosenAxis === 2) inside = true;
+                        }
+                    } else if (shapeType === 'perlin') {
+					
+					
+                        const n = fbmPerlin2D(u * 0.16 + 1.7, v * 0.16 + 3.1);
+                        const targetH = Math.max(1, Math.round((0.15 + 0.85 * n) * spanH));
+                        inside = (h < targetH);
+                    } else if (shapeType === 'fractal') {
+                        inside = isMengerSpongeSolid(u, v, h);
+                    } else {
+                        inside = true;
+                    }
+
+                    if (inside) {
+                        coords.push({ x: vx, y: vy, z: vz });
+                    }
+                }
+            }
+        }
+        return coords;
+    }
+
+    // Tái tạo các Voxel của Shape từ phiên shapeSession hiện hành và giữ nguyên trạng thái Select
+    function rebuildShapeVoxelsFromSession(session) {
+        if (!session || !AppState.model) return;
+        const sx = AppState.model.size.x;
+        const sy = AppState.model.size.y;
+        const sz = AppState.model.size.z;
+
+        const b = session.boxBounds;
+        const minX = Math.max(0, Math.min(sx - 1, b.minX));
+        const maxX = Math.max(0, Math.min(sx - 1, b.maxX));
+        const minY = Math.max(0, Math.min(sy - 1, b.minY));
+        const maxY = Math.max(0, Math.min(sy - 1, b.maxY));
+        const minZ = Math.max(0, Math.min(sz - 1, b.minZ));
+        const maxZ = Math.max(0, Math.min(sz - 1, b.maxZ));
+
+        const clampedBounds = { minX, maxX, minY, maxY, minZ, maxZ };
+        session.boxBounds = clampedBounds;
+
+        AppState.model.voxels = session.nonShapeVoxels.map(v => ({ ...v }));
+        const coords = generateProceduralShapeCoords(session.shapeType, clampedBounds, session.voxelDir);
+        const colorIdx = session.colorIndex || AppState.selectedColorIndex;
+
+        const newSelectedKeys = new Set();
+        let actualMinX = Infinity, actualMinY = Infinity, actualMinZ = Infinity;
+        let actualMaxX = -Infinity, actualMaxY = -Infinity, actualMaxZ = -Infinity;
+
+        for (const c of coords) {
+            const key = `${c.x},${c.y},${c.z}`;
+            if (!newSelectedKeys.has(key)) {
+                AppState.model.voxels.push({
+                    x: c.x, y: c.y, z: c.z,
+                    i: colorIdx,
+                    l: AppState.activeLayerId,
+                    _pasted: true
+                });
+                newSelectedKeys.add(key);
+                if (c.x < actualMinX) actualMinX = c.x;
+                if (c.x > actualMaxX) actualMaxX = c.x;
+                if (c.y < actualMinY) actualMinY = c.y;
+                if (c.y > actualMaxY) actualMaxY = c.y;
+                if (c.z < actualMinZ) actualMinZ = c.z;
+                if (c.z > actualMaxZ) actualMaxZ = c.z;
+            }
+        }
+
+        AppState.usedIndices.add(colorIdx);
+        AppState.selectedVoxels = newSelectedKeys;
+        AppState.selectionBounds = { ...clampedBounds };
+        AppState.arraySession = null;
+    }
+
+    // Tính toán biên boxBounds mới khi người dùng nắm kéo trục Scale của Shape (kéo hướng nào thì chỉ biên hướng đó thay đổi, đáy đối diện đứng yên)
+    function computeShapeScaleBoundsFromGizmo(session) {
+        const tc = AppState.transformControls;
+        if (!tc || !session || !AppState.model) return null;
+
+        const ptStart = tc.pointStart || tc._pointStart;
+        const ptEnd = tc.pointEnd || tc._pointEnd;
+        if (!ptStart || !ptEnd) return null;
+
+        const curLayer = getActiveLayer();
+        ensureLayerProperties(curLayer);
+        const invRotMat = new THREE.Matrix4().extractRotation(getLayerWorldMatrix(curLayer)).invert();
+        const layerScale = new THREE.Vector3(
+            curLayer.scale?.x || 1,
+            curLayer.scale?.y || 1,
+            curLayer.scale?.z || 1
+        );
+
+        const localDelta = ptEnd.clone().sub(ptStart).applyMatrix4(invRotMat).divide(layerScale);
+        const localHandleOffset = ptStart.clone().applyMatrix4(invRotMat).divide(layerScale);
+
+        const axis = (tc.axis || '').toUpperCase();
+        const activeX = axis.includes('X');
+        const activeY = axis.includes('Y'); // Trục Xanh lá (Y) = Chiều cao Voxel Z
+        const activeZ = axis.includes('Z'); // Trục Xanh dương (Z) = Chiều sâu Voxel Y
+
+        const sx = AppState.model.size.x;
+        const sy = AppState.model.size.y;
+        const sz = AppState.model.size.z;
+
+        const sb = AppState.shapeDragStartBounds || session.boxBounds;
+        const dx = activeX ? Math.round(localDelta.x) : 0;
+        const dz = activeY ? Math.round(localDelta.y) : 0;
+        const dy = activeZ ? Math.round(localDelta.z) : 0;
+
+        let nMinX = sb.minX, nMaxX = sb.maxX;
+        let nMinY = sb.minY, nMaxY = sb.maxY;
+        let nMinZ = sb.minZ, nMaxZ = sb.maxZ;
+
+        if (activeX) {
+            if (localHandleOffset.x >= 0) nMaxX = Math.max(nMinX, Math.min(sx - 1, sb.maxX + dx));
+            else nMinX = Math.max(0, Math.min(nMaxX, sb.minX + dx));
+        }
+        if (activeZ) {
+            if (localHandleOffset.z >= 0) nMaxY = Math.max(nMinY, Math.min(sy - 1, sb.maxY + dy));
+            else nMinY = Math.max(0, Math.min(nMaxY, sb.minY + dy));
+        }
+        if (activeY) {
+            if (localHandleOffset.y >= 0) nMaxZ = Math.max(nMinZ, Math.min(sz - 1, sb.maxZ + dz));
+            else nMinZ = Math.max(0, Math.min(nMaxZ, sb.minZ + dz));
+        }
+
+        return {
+            minX: nMinX, maxX: nMaxX,
+            minY: nMinY, maxY: nMaxY,
+            minZ: nMinZ, maxZ: nMaxZ
+        };
+    }
+
+    // Cập nhật trực tiếp (Live Preview) hình dạng khối Shape ngay trong lúc kéo mũi tên Scale
+    function syncLiveShapeScaleVisual() {
+        const pivot = AppState.selectionPivotGroup;
+        const session = AppState.shapeSession;
+        if (!pivot || !session || !AppState.model) return;
+
+        const curLayer = getActiveLayer();
+        ensureLayerProperties(curLayer);
+        pivot.scale.set(
+            curLayer.scale?.x ?? 1,
+            curLayer.scale?.y ?? 1,
+            curLayer.scale?.z ?? 1
+        );
+        if (AppState.shapeDragLocalPivotCenter) {
+            const worldPos = AppState.shapeDragLocalPivotCenter.clone().applyMatrix4(getLayerWorldMatrix(curLayer));
+            pivot.position.copy(worldPos);
+        }
+
+        const nextBounds = computeShapeScaleBoundsFromGizmo(session);
+        if (!nextBounds) return;
+
+        const boundsKey = `${nextBounds.minX},${nextBounds.maxX},${nextBounds.minY},${nextBounds.maxY},${nextBounds.minZ},${nextBounds.maxZ}`;
+        if (boundsKey !== AppState.shapeLastLiveBoundsKey) {
+            AppState.shapeLastLiveBoundsKey = boundsKey;
+            session.boxBounds = nextBounds;
+            rebuildShapeVoxelsFromSession(session);
+            rebuildMesh();
+        }
+    }
+
+    // Chốt kết quả Scale của khối Shape khi nhả chuột khỏi Gizmo
+    function applyShapeScaleFromGizmo() {
+        if (!AppState.selectionPivotGroup || !AppState.shapeSession || AppState.selectedVoxels.size === 0 || !AppState.model) return;
+
+        const snapshotBefore = AppState.shapeDragSnapshot || captureStateSnapshot();
+        AppState.shapeDragSnapshot = null;
+
+        const session = AppState.shapeSession;
+        const nextBounds = computeShapeScaleBoundsFromGizmo(session);
+        if (nextBounds) {
+            session.boxBounds = nextBounds;
+        }
+
+        rebuildShapeVoxelsFromSession(session);
+        AppState.isTransformingGizmo = false;
+        AppState.shapeDragLocalPivotCenter = null;
+        AppState.shapeDragStartBounds = null;
+        AppState.shapeLastLiveBoundsKey = '';
+
+        recordUndoStep(snapshotBefore);
+
+        const pivot = AppState.selectionPivotGroup;
+        pivot.position.set(0, 0, 0);
+        pivot.rotation.set(0, 0, 0);
+        pivot.scale.set(1, 1, 1);
+
+        rebuildMesh();
+        renderLayerUI();
+        updateSelectionBoxVisual();
+        showToast(`Scaled ${session.shapeType} (${AppState.selectedVoxels.size} voxels)`, "success");
+    }
+
     // --- Khắc phục triệt để lỗi rỗ khối khi Rotate, lỗi giật scale 1 trục & không deselect sau transform ---
 	///////////////////////////////////////////////////
 	/////////////////////////////////////////
  // Tách danh sách các Voxel đang được chọn trên Layer hiện hành để thực hiện phép biến đổi
+ 
+ 
     function extractSelectedVoxelsForTransform() {
         const selectedSet = new Set(AppState.selectedVoxels);
         const defaultLayerId = AppState.layers[0]?.id;
@@ -4733,7 +5210,13 @@ function setupSkyControls() {
     // --- Khắc phục triệt để lỗi lệch bậc thang khi Rotate 90°, lỗi rỗ khối & không deselect sau transform ---
     function applyGizmoTransformToVoxels() {
         if (!AppState.selectionPivotGroup || AppState.selectedVoxels.size === 0 || !AppState.model) return;
+		
+        if (AppState.gizmoMode === 'scale' && AppState.shapeSession) {
+            applyShapeScaleFromGizmo();
+            return;
+        }
         if (AppState.gizmoMode === 'array') {
+            AppState.shapeSession = null;
             applyArrayTransformFromGizmo();
             return;
         }
@@ -4921,6 +5404,14 @@ function setupSkyControls() {
             ? { minX: bMinX, minY: bMinY, minZ: bMinZ, maxX: bMaxX, maxY: bMaxY, maxZ: bMaxZ }
             : null;
 
+        if (AppState.shapeSession && AppState.selectionBounds) {
+            if (AppState.gizmoMode === 'translate') {
+                AppState.shapeSession.boxBounds = { ...AppState.selectionBounds };
+            } else {
+                AppState.shapeSession = null;
+            }
+        }
+
         AppState.isTransformingGizmo = false;
         recordUndoStep(snapshotBefore);
 
@@ -4973,16 +5464,21 @@ function setupSkyControls() {
         commitPastedVoxels();
         AppState.selectedVoxels.clear();
         AppState.selectionBounds = null;
+		//////////////////////////////////////////////////////
         AppState.arraySession = null;
+        AppState.shapeSession = null;
         if (AppState.selectionHelperGroup) AppState.selectionHelperGroup.visible = false;
         if (AppState.selectionPivotGroup) AppState.selectionPivotGroup.visible = false;
         if (AppState.transformControls) AppState.transformControls.detach();
         updateSelectionCountUI();
-        if (typeof setSelectionMode === 'function') setSelectionMode('select');
+        if (typeof setSelectionMode === 'function' && AppState.action !== 'shape') setSelectionMode('select');
     }
 	
 	// THÊM HÀM NÀY VÀO NGAY TRÊN setupSelectionActions
 	function setSelectionMode(mode) {
+        if (AppState.action === 'shape') {
+            mode = 'transform';
+        }
         AppState.selectionMode = mode;
         const tabSel = document.getElementById('tab-sel-mode');
         const tabTrans = document.getElementById('tab-trans-mode');
@@ -4996,10 +5492,12 @@ function setupSkyControls() {
             conSel.classList.remove('hidden');
             conTrans.classList.add('hidden');
         } else {
-            // Tự động chuyển Action sang 'select' nếu đang ở action khác (như Attach, Erase...)
-            if (AppState.action !== 'select') {
+            // Tự động chuyển Action sang 'select' nếu đang ở action khác (trừ 'select' và 'shape')
+            if (AppState.action !== 'select' && AppState.action !== 'shape') {
                 setMagicaAction('select');
             }
+		
+		
             tabTrans.className = "flex-1 py-1 text-[10px] font-bold text-amber-400 border-b-2 border-amber-500 bg-[#1e1e24]";
             tabSel.className = "flex-1 py-1 text-[10px] font-bold text-gray-500 border-b-2 border-transparent hover:text-gray-300";
             conTrans.classList.remove('hidden');
@@ -6263,17 +6761,21 @@ function setupSkyControls() {
             if (k === 'c') { setBrushShape('circle'); return; }
             if (k === 'q' || k === 'b') { setBrushShape('square'); return; }
         }
+		
 		if (k === 'f') setBrushShape('face');
         else if (k === 'b') setBrushShape('box');
-		else if (k === 'w' && AppState.action === 'select' && AppState.selectionMode === 'select') {
+        else if (k === 'm' && AppState.action === 'select' && AppState.selectionMode === 'select') {
+            setBrushShape('rect');
+        } else if (k === 'w' && AppState.action === 'select' && AppState.selectionMode === 'select') {
             setBrushShape('wand');
         } else if (k === 'g' && AppState.action === 'paint') {
             setBrushShape('bucket');
         }
 		
-       else if (k === 'w') {
+		//////////////////////////////////////////////////////
+		else if (k === 'w') {
             if (!AppState.layerTransformMode) {
-                if (AppState.action !== 'select') setMagicaAction('select');
+                if (AppState.action !== 'select' && AppState.action !== 'shape') setMagicaAction('select');
                 if (typeof setSelectionMode === 'function') setSelectionMode('transform');
                 document.getElementById('btn-gizmo-translate')?.click();
             } else {
@@ -6284,7 +6786,7 @@ function setupSkyControls() {
 			
         } else if (k === 'e') {
             if (AppState.layerTransformMode) return;
-            if (AppState.action !== 'select') setMagicaAction('select');
+            if (AppState.action !== 'select' && AppState.action !== 'shape') setMagicaAction('select');
             if (typeof setSelectionMode === 'function') setSelectionMode('transform');
             document.getElementById('btn-gizmo-rotate')?.click();
         }
@@ -6293,11 +6795,11 @@ function setupSkyControls() {
 	   
 	   else if (k === 'r') {
             if (AppState.layerTransformMode) return;
-            if (AppState.action !== 'select') setMagicaAction('select');
+            if (AppState.action !== 'select' && AppState.action !== 'shape') setMagicaAction('select');
             if (typeof setSelectionMode === 'function') setSelectionMode('transform');
             document.getElementById('btn-gizmo-scale')?.click();
         } else if (k === 'a' && !AppState.layerTransformMode && AppState.cameraMode !== 'free') {
-            if (AppState.action !== 'select') setMagicaAction('select');
+            if (AppState.action !== 'select' && AppState.action !== 'shape') setMagicaAction('select');
             if (typeof setSelectionMode === 'function') setSelectionMode('transform');
             document.getElementById('btn-gizmo-array')?.click();
         }
@@ -6510,7 +7012,10 @@ function captureStateSnapshot() {
         selectedVoxels: Array.from(AppState.selectedVoxels || []),
         selectionBounds: AppState.selectionBounds ? { ...AppState.selectionBounds } : null,
         arraySpacing: AppState.arraySpacing ? { ...AppState.arraySpacing } : { x: 0, y: 0, z: 0 },
+		
         arraySession: AppState.arraySession ? JSON.parse(JSON.stringify(AppState.arraySession)) : null,
+        shapeSession: AppState.shapeSession ? JSON.parse(JSON.stringify(AppState.shapeSession)) : null,
+		
         selectedColorIndex: AppState.selectedColorIndex,
         
         // Vật liệu & Bảng màu
@@ -6643,7 +7148,10 @@ function restoreStateFromSnapshot(snapshot) {
         safeSetVal('input-array-y', AppState.arraySpacing.y);
         safeSetVal('input-array-z', AppState.arraySpacing.z);
     }
+	
     AppState.arraySession = snapshot.arraySession ? JSON.parse(JSON.stringify(snapshot.arraySession)) : null;
+    AppState.shapeSession = snapshot.shapeSession ? JSON.parse(JSON.stringify(snapshot.shapeSession)) : null;
+	
     if (snapshot.selectionBounds && AppState.selectedVoxels.size > 0) {
         AppState.selectionBounds = { ...snapshot.selectionBounds };
     } else {
@@ -6926,7 +7434,18 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         AppState.drawLastCoord = null;
         AppState.drawVoxelMap = null;
 
+       AppState.rectSelectActive = false;
+        const marqueeEl = document.getElementById('rect-select-marquee');
+        if (marqueeEl) marqueeEl.style.display = 'none';
+
+        AppState.shapeCreateActive = false;
+        AppState.shapeCreateStartCoord = null;
+        AppState.shapeCreateNormal = null;
+        AppState.shapeCreateVoxelDir = null;
+        AppState.shapeCreatePlane = null;
+
         boxDragStart = null;
+		
         boxDragCurrent = null;
         boxDragNormal = null;
         boxHasDragged = false;
@@ -7407,6 +7926,88 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         }
         AppState.selectionBounds = { minX, minY, minZ, maxX, maxY, maxZ };
         AppState.arraySession = null;
+    }
+
+	function updateRectSelectMarqueeUI(x1, y1, x2, y2, visible = true) {
+        const el = document.getElementById('rect-select-marquee');
+        if (!el) return;
+        if (!visible) {
+            el.style.display = 'none';
+            return;
+        }
+        const left = Math.min(x1, x2);
+        const top = Math.min(y1, y2);
+        const width = Math.abs(x2 - x1);
+        const height = Math.abs(y2 - y1);
+        el.style.left = `${left}px`;
+        el.style.top = `${top}px`;
+        el.style.width = `${width}px`;
+        el.style.height = `${height}px`;
+        el.style.display = 'block';
+    }
+
+    function executeRectScreenSelection(x1, y1, x2, y2, initialSet = null) {
+        if (!AppState.model || !AppState.camera || !AppState.renderer) return false;
+        commitPastedVoxels();
+
+        const rect = AppState.renderer.domElement.getBoundingClientRect();
+        const minX = Math.min(x1, x2);
+        const maxX = Math.max(x1, x2);
+        const minY = Math.min(y1, y2);
+        const maxY = Math.max(y1, y2);
+
+        AppState.selectedVoxels.clear();
+        if (initialSet && initialSet.size > 0) {
+            for (const k of initialSet) AppState.selectedVoxels.add(k);
+        }
+
+        const dragDist = Math.hypot(maxX - minX, maxY - minY);
+        if (dragDist < 5) {
+            const hit = getRaycastIntersectionFromCoords(x2, y2);
+            if (hit && hit.voxel) {
+                const defaultLayerId = AppState.layers[0]?.id;
+                const lid = (hit.voxel.l !== undefined) ? hit.voxel.l : defaultLayerId;
+                if (lid === AppState.activeLayerId && isVoxelVisible(hit.voxel)) {
+                    AppState.selectedVoxels.add(`${hit.voxel.x},${hit.voxel.y},${hit.voxel.z}`);
+                }
+            }
+            recalculateSelectionBoundsFromSet();
+            updateSelectionBoxVisual();
+            return true;
+        }
+
+        const curLayer = getActiveLayer();
+        if (!curLayer) return false;
+        ensureLayerProperties(curLayer);
+        const layerMat = getLayerWorldMatrix(curLayer);
+        const cx = curLayer.size.x / 2;
+        const cy = curLayer.size.y / 2;
+        const defaultLayerId = AppState.layers[0]?.id;
+
+        AppState.camera.updateMatrixWorld();
+        const projPos = new THREE.Vector3();
+
+        for (const v of AppState.model.voxels) {
+            const lid = (v.l !== undefined) ? v.l : defaultLayerId;
+            if (lid !== AppState.activeLayerId) continue;
+            if (!isVoxelVisible(v)) continue;
+
+            projPos.set(v.x - cx + 0.5, v.z + 0.5, v.y - cy + 0.5).applyMatrix4(layerMat);
+            projPos.project(AppState.camera);
+
+            if (projPos.z < -1.0 || projPos.z > 1.0) continue;
+
+            const sx = (projPos.x * 0.5 + 0.5) * rect.width + rect.left;
+            const sy = (-projPos.y * 0.5 + 0.5) * rect.height + rect.top;
+
+            if (sx >= minX && sx <= maxX && sy >= minY && sy <= maxY) {
+                AppState.selectedVoxels.add(`${v.x},${v.y},${v.z}`);
+            }
+        }
+
+        recalculateSelectionBoundsFromSet();
+        updateSelectionBoxVisual();
+        return true;
     }
 
 	function executeMagicWandSelection(targetVoxel, isAdd = false) {
@@ -7920,7 +8521,186 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         return true;
     }
 
+	// Bắt đầu khởi tạo Shape tại điểm click (luôn là đáy của Pyramid/Cylinder/Cone/Maze/Perlin/Fractal hoặc điểm tiếp xúc của Ellipsoid/Sphere)
+    function startShapeInteractiveCreate(startCoord, normalVec) {
+        const curLayer = getActiveLayer();
+        if (!curLayer || curLayer.locked) {
+            if (curLayer && curLayer.locked) showToast(`Layer "${curLayer.name}" is locked!`, "error");
+            return false;
+        }
+        ensureLayerProperties(curLayer);
+        commitPastedVoxels();
+
+        const cx = curLayer.size.x / 2;
+        const cy = curLayer.size.y / 2;
+        const nx = Math.round(normalVec.x);
+        const ny = Math.round(normalVec.z);
+        const nz = Math.round(normalVec.y);
+
+        const shapeType = PROCEDURAL_SHAPE_TYPES.has(AppState.brushShape)
+            ? AppState.brushShape
+            : (AppState.lastGenShape || 'pyramid');
+
+        AppState.shapeCreateActive = true;
+        AppState.shapeCreateStartCoord = { ...startCoord };
+        AppState.shapeCreateNormal = normalVec.clone().normalize();
+        AppState.shapeCreateVoxelDir = { nx, ny, nz };
+
+        const planePoint = new THREE.Vector3(
+            startCoord.x - cx + 0.5,
+            startCoord.z + 0.5,
+            startCoord.y - cy + 0.5
+        );
+        AppState.shapeCreatePlane = new THREE.Plane().setFromNormalAndCoplanarPoint(AppState.shapeCreateNormal, planePoint);
+
+        AppState.shapeLastLiveBoundsKey = '';
+        const nonShapeVoxels = AppState.model.voxels.map(v => ({ ...v }));
+        // Khởi tạo vùng nhỏ ban đầu (bán kính R = 1 -> 3x3x3) tại điểm click trước khi người dùng kéo rộng ra
+        const initBounds = computeShapeBoundsFromAnchorAndRadius(startCoord, { nx, ny, nz }, 1);
+
+        AppState.shapeSession = {
+            layerId: AppState.activeLayerId,
+            shapeType,
+            voxelDir: { nx, ny, nz },
+            anchorCoord: { ...startCoord },
+            colorIndex: AppState.selectedColorIndex,
+            boxBounds: initBounds,
+            nonShapeVoxels
+        };
+
+        rebuildShapeVoxelsFromSession(AppState.shapeSession);
+        strokeDidModify = true;
+        rebuildMesh();
+        updateSelectionBoxVisual();
+        return true;
+    }
+
+    // Tính khung bao boxBounds từ điểm neo đáy (anchor) và bán kính kéo R:
+    // - Đáy (hoặc điểm tiếp xúc của Sphere/Ellipsoid) luôn nằm cố định trên mặt phẳng tại điểm click
+    // - Chiều cao phát triển dọc theo hướng pháp tuyến (voxelDir) của mặt phẳng click
+    function computeShapeBoundsFromAnchorAndRadius(anchor, voxelDir, radius) {
+        const curLayer = getActiveLayer();
+        ensureLayerProperties(curLayer);
+        const sx = curLayer.size.x;
+        const sy = curLayer.size.y;
+        const sz = curLayer.size.z;
+
+        const R = Math.max(1, Math.round(radius));
+        const H = Math.max(2, R * 2); // Chiều cao khởi tạo tỉ lệ cân đối với đường kính đáy (2R + 1)
+
+        let minX, maxX, minY, maxY, minZ, maxZ;
+        if (voxelDir.nx !== 0) {
+            minY = Math.max(0, anchor.y - R);
+            maxY = Math.min(sy - 1, anchor.y + R);
+            minZ = Math.max(0, anchor.z - R);
+            maxZ = Math.min(sz - 1, anchor.z + R);
+            if (voxelDir.nx > 0) {
+                minX = anchor.x;
+                maxX = Math.min(sx - 1, anchor.x + H);
+            } else {
+                maxX = anchor.x;
+                minX = Math.max(0, anchor.x - H);
+            }
+        } else if (voxelDir.ny !== 0) {
+            minX = Math.max(0, anchor.x - R);
+            maxX = Math.min(sx - 1, anchor.x + R);
+            minZ = Math.max(0, anchor.z - R);
+            maxZ = Math.min(sz - 1, anchor.z + R);
+            if (voxelDir.ny > 0) {
+                minY = anchor.y;
+                maxY = Math.min(sy - 1, anchor.y + H);
+            } else {
+                maxY = anchor.y;
+                minY = Math.max(0, anchor.y - H);
+            }
+        } else {
+            minX = Math.max(0, anchor.x - R);
+            maxX = Math.min(sx - 1, anchor.x + R);
+            minY = Math.max(0, anchor.y - R);
+            maxY = Math.min(sy - 1, anchor.y + R);
+            if (voxelDir.nz >= 0) {
+                minZ = anchor.z;
+                maxZ = Math.min(sz - 1, anchor.z + H);
+            } else {
+                maxZ = anchor.z;
+                minZ = Math.max(0, anchor.z - H);
+            }
+        }
+
+        return { minX, maxX, minY, maxY, minZ, maxZ };
+    }
+
+    // Cập nhật kích thước phóng to của Shape khi người dùng giữ chuột/touch và kéo (Hold & Drag)
+    function updateShapeInteractiveCreate(event) {
+        if (!AppState.shapeCreateActive || !AppState.shapeSession || !AppState.model) return;
+        const anchor = AppState.shapeCreateStartCoord;
+        const dir = AppState.shapeCreateVoxelDir;
+        if (!anchor || !dir) return;
+
+        const curLayer = getActiveLayer();
+        ensureLayerProperties(curLayer);
+        const cx = curLayer.size.x / 2;
+        const cy = curLayer.size.y / 2;
+
+        let radius = 1;
+        updateRaycasterFromClientCoords(event.clientX, event.clientY);
+        const invMat = getLayerWorldMatrix(curLayer).clone().invert();
+        const localRay = AppState.raycaster.ray.clone().applyMatrix4(invMat);
+
+        const hitPt = new THREE.Vector3();
+        if (AppState.shapeCreatePlane && localRay.intersectPlane(AppState.shapeCreatePlane, hitPt)) {
+            const hx = hitPt.x + cx - 0.5;
+            const hy = hitPt.z + cy - 0.5;
+            const hz = hitPt.y - 0.5;
+            if (dir.nx !== 0) {
+                radius = Math.max(1, Math.round(Math.hypot(hy - anchor.y, hz - anchor.z)));
+            } else if (dir.ny !== 0) {
+                radius = Math.max(1, Math.round(Math.hypot(hx - anchor.x, hz - anchor.z)));
+            } else {
+                radius = Math.max(1, Math.round(Math.hypot(hx - anchor.x, hy - anchor.y)));
+            }
+        } else {
+            const distPx = Math.hypot(event.clientX - pointerDownStartPos.x, event.clientY - pointerDownStartPos.y);
+            radius = Math.max(1, Math.round(distPx / 14));
+        }
+
+        const maxDim = Math.max(curLayer.size.x, curLayer.size.y, curLayer.size.z);
+        radius = Math.min(maxDim, radius);
+
+        const nextBounds = computeShapeBoundsFromAnchorAndRadius(anchor, dir, radius);
+        const bKey = `${nextBounds.minX},${nextBounds.maxX},${nextBounds.minY},${nextBounds.maxY},${nextBounds.minZ},${nextBounds.maxZ}`;
+        if (bKey !== AppState.shapeLastLiveBoundsKey) {
+            AppState.shapeLastLiveBoundsKey = bKey;
+            AppState.shapeSession.boxBounds = nextBounds;
+            rebuildShapeVoxelsFromSession(AppState.shapeSession);
+            strokeDidModify = true;
+            rebuildMesh();
+            updateSelectionBoxVisual();
+        }
+    }
+
+    // Hoàn tất khởi tạo Shape khi nhả chuột: luôn giữ chế độ Select trên các điểm khởi tạo và bật sẵn Gizmo Scale (kèm Move, Rotate, Array)
+    function finishShapeInteractiveCreate() {
+        AppState.shapeCreateActive = false;
+        AppState.shapeCreateStartCoord = null;
+        AppState.shapeCreateNormal = null;
+        AppState.shapeCreateVoxelDir = null;
+        AppState.shapeCreatePlane = null;
+        AppState.shapeLastLiveBoundsKey = '';
+
+        if (AppState.shapeSession && AppState.selectedVoxels.size > 0) {
+            setSelectionMode('transform');
+            const btnScale = document.getElementById('btn-gizmo-scale');
+            if (btnScale) btnScale.click();
+            renderLayerUI();
+            buildPaletteUI();
+            updateSelectionBoxVisual();
+            showToast(`Created ${AppState.shapeSession.shapeType}! Drag Scale handles or Move/Rotate/Array. Click outside to unselect.`, "success");
+        }
+    }
+
 	function onPointerDownCapture(event) {
+	
     if (!AppState.model) return;
 
     if (event.pointerId !== undefined) {
@@ -7974,12 +8754,26 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
     }
 
     // Các chế độ vẽ (Attach, Paint, Erase, Select...)
-    if (AppState.action !== 'select' || AppState.selectionMode !== 'transform') {
+    const isTransformActive = (AppState.action === 'select' || AppState.action === 'shape') &&
+                              AppState.selectionMode === 'transform' &&
+                              AppState.selectedVoxels.size > 0;
+
+    if (!isTransformActive) {
         AppState.isTransformingGizmo = false;
+		
+		
+        if (AppState.action === 'select' && AppState.selectionMode === 'select' && AppState.brushShape === 'rect' && !AppState.isSpaceDown && !AppState.isShiftDown) {
+            if (AppState.controls) AppState.controls.enabled = !!AppState.rectSelectRotatePan;
+            return;
+        }
+		
         if (event.button === 0 && event.pointerType === 'mouse') {
 		
             const ray = getRaycastIntersection(event);
-            const gridHit = (AppState.action === 'attach' || AppState.action === 'draw') ? getGridPlaneIntersection(event) : null;
+            const gridHit = (AppState.action === 'attach' || AppState.action === 'draw' || AppState.action === 'shape') ? getGridPlaneIntersection(event) : null;
+			
+			
+			
             if ((ray && ray.voxel) || (gridHit && gridHit.isInsideBase)) {
 			
 			
@@ -8111,7 +8905,9 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
         // TỰ ĐỘNG CHUYỂN LAYER KHI BẬT AUTO-SELECT LAYER (ÁP DỤNG CHO MỌI THAO TÁC EDIT: ATTACH, ERASE, PAINT, SELECT)
         // TỰ ĐỘNG CHUYỂN LAYER KHI BẬT AUTO-SELECT LAYER (KHÔNG ÁP DỤNG CHO ERASE ĐỂ CHỈ XÓA TRÊN LAYER ĐANG CHỌN)
-        if ((event.button === 0 || event.pointerType !== 'mouse') && AppState.action !== 'erase') {
+		
+        if ((event.button === 0 || event.pointerType !== 'mouse') && AppState.action !== 'erase' && !(AppState.action === 'select' && AppState.brushShape === 'rect')) {
+		
             const preRay = getRaycastIntersection(event);
             if (preRay && preRay.voxel) {
                 const hitLayer = getLayerOfVoxel(preRay.voxel);
@@ -8137,6 +8933,86 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
         // 1. XỬ LÝ KHI Ở CHẾ ĐỘ TRANSFORM
 		// 1. XỬ LÝ KHI Ở CHẾ ĐỘ TRANSFORM
+		// 1. XỬ LÝ KHI Ở CHẾ ĐỘ SHAPE (CHỈ TRANSFORM, ẤN NGOÀI GRID XOAY/PAN CAMERA KHÔNG MẤT SELECT)
+		if (AppState.action === 'shape') {
+          if (AppState.isTransformingGizmo) {
+              event.stopImmediatePropagation();
+              if (AppState.controls) AppState.controls.enabled = false;
+              return;
+          }
+          if (event.pointerType === 'mouse' && event.button !== 0) return;
+
+          const shapeRay = getRaycastIntersection(event);
+          const shapeGridHit = getGridPlaneIntersection(event);
+          const isInsideGrid = (shapeRay && shapeRay.voxel) || (shapeGridHit && shapeGridHit.isInsideBase);
+
+          // Nếu đang có vùng khởi tạo Shape được chọn:
+          // - Ấn ra NGOÀI Grid (!isInsideGrid): Giữ nguyên Select & cho phép Xoay / Pan camera bình thường
+          // - Ấn vào TRONG Grid nhưng ngoài khối Shape đang chọn (!hitSelected): Unselect khối Shape
+          if (AppState.selectedVoxels.size > 0) {
+              if (!isInsideGrid) {
+                  if (AppState.controls) AppState.controls.enabled = true;
+                  return;
+              }
+              let hitSelected = false;
+              if (shapeRay && shapeRay.voxel && AppState.selectedVoxels.has(`${shapeRay.voxel.x},${shapeRay.voxel.y},${shapeRay.voxel.z}`)) {
+                  hitSelected = true;
+              }
+              if (!hitSelected) {
+                  const snapshotBefore = captureStateSnapshot();
+                  clearSelection();
+                  recordUndoStep(snapshotBefore);
+                  showToast("Deselected shape!", "success");
+              }
+              if (AppState.controls) AppState.controls.enabled = true;
+              return;
+          }
+
+          // Khi chưa có vùng chọn: Nếu ấn ngoài Grid thì cho phép Xoay / Pan camera tự do
+          if (!isInsideGrid) {
+              if (AppState.controls) AppState.controls.enabled = true;
+              return;
+          }
+
+          // Khi chưa có vùng chọn và ấn vào trong Grid: Hold & drag trên bề mặt Voxel hoặc mặt phẳng Grid để khởi tạo Shape từ đáy
+          const activeSize = getActiveLayerSize();
+          if (shapeRay && shapeRay.voxel) {
+              if (event.pointerType === 'mouse') event.stopImmediatePropagation();
+              if (AppState.controls) AppState.controls.enabled = false;
+
+              const nx = Math.round(shapeRay.normal.x);
+              const ny = Math.round(shapeRay.normal.z);
+              const nz = Math.round(shapeRay.normal.y);
+              const tx = Math.max(0, Math.min(activeSize.x - 1, shapeRay.voxel.x + nx));
+              const ty = Math.max(0, Math.min(activeSize.y - 1, shapeRay.voxel.y + ny));
+              const tz = Math.max(0, Math.min(activeSize.z - 1, shapeRay.voxel.z + nz));
+
+              AppState.isInteracting = true;
+              strokeSnapshot = captureStateSnapshot();
+              strokeDidModify = false;
+              pointerDownStartPos.set(event.clientX, event.clientY);
+
+              startShapeInteractiveCreate({ x: tx, y: ty, z: tz }, shapeRay.normal);
+              return;
+          }
+
+          if (shapeGridHit && shapeGridHit.isInsideBase) {
+              if (event.pointerType === 'mouse') event.stopImmediatePropagation();
+              if (AppState.controls) AppState.controls.enabled = false;
+
+              AppState.isInteracting = true;
+              strokeSnapshot = captureStateSnapshot();
+              strokeDidModify = false;
+              pointerDownStartPos.set(event.clientX, event.clientY);
+
+              startShapeInteractiveCreate(shapeGridHit.voxelCoord, shapeGridHit.normal);
+              return;
+          }
+
+          if (AppState.controls) AppState.controls.enabled = true;
+          return;
+      }
+
 		if (AppState.action === 'select' && AppState.selectionMode === 'transform') {
           if (AppState.isTransformingGizmo) {
               // Đang giữ và kéo mũi tên Transform -> Chặn mọi thao tác khác
@@ -8149,6 +9025,8 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
               return;
           }
       }
+	  
+	  
 
 		if (event.pointerType === 'mouse' && event.button !== 0) return;
 
@@ -8190,6 +9068,42 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                 return;
             }
         }
+		// XỬ LÝ CHẾ ĐỘ MAGIC WAND
+        // XỬ LÝ CHẾ ĐỘ RECT SELECT (Kéo vùng chọn 2D từ bất kỳ đâu, khóa hoàn toàn Rotate/Pan)
+       // XỬ LÝ CHẾ ĐỘ RECT SELECT (Kéo vùng chọn 2D khi tắt Rotate/Pan, hoặc xoay/pan & bấm ra ngoài unselect giống Box/Face khi bật Rotate/Pan)
+        if (AppState.action === 'select' && AppState.selectionMode === 'select' && AppState.brushShape === 'rect') {
+            if (AppState.rectSelectRotatePan) {
+                if (AppState.selectedVoxels.size > 0 && (!ray || !ray.voxel)) {
+                    if (!AppState.multiSelect) {
+                        const snapshotBefore = captureStateSnapshot();
+                        clearSelection();
+                        recordUndoStep(snapshotBefore);
+                        showToast("Deselected!", "success");
+                    }
+                }
+                if (AppState.controls) AppState.controls.enabled = true;
+                return;
+            }
+
+            event.stopImmediatePropagation();
+            if (AppState.controls) AppState.controls.enabled = false;
+
+            AppState.isInteracting = true;
+            strokeSnapshot = captureStateSnapshot();
+            strokeDidModify = false;
+            pointerDownStartPos.set(event.clientX, event.clientY);
+
+            AppState.rectSelectActive = true;
+            AppState.rectSelectStart.set(event.clientX, event.clientY);
+            AppState.rectSelectCurrent.set(event.clientX, event.clientY);
+            AppState.rectSelectInitialSet = (AppState.multiSelect || event.shiftKey)
+                ? new Set(AppState.selectedVoxels)
+                : new Set();
+
+            updateRectSelectMarqueeUI(event.clientX, event.clientY, event.clientX, event.clientY, true);
+            return;
+        }
+
 		// XỬ LÝ CHẾ ĐỘ MAGIC WAND
         if (AppState.brushShape === 'wand' || (AppState.action === 'select' && AppState.brushShape === 'wand')) {
             if (ray && ray.voxel) {
@@ -8690,8 +9604,38 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
         if (!AppState.isInteracting || !AppState.model) return;
 
+        // Kéo khung chọn 2D liên tục trong chế độ Rect Select (cập nhật vùng chọn trực tiếp theo khoảng kéo)
+        if (AppState.action === 'select' && AppState.brushShape === 'rect' && AppState.rectSelectActive) {
+            if (AppState.controls) AppState.controls.enabled = false;
+            AppState.rectSelectCurrent.set(event.clientX, event.clientY);
+            updateRectSelectMarqueeUI(
+                AppState.rectSelectStart.x,
+                AppState.rectSelectStart.y,
+                event.clientX,
+                event.clientY,
+                true
+            );
+            executeRectScreenSelection(
+                AppState.rectSelectStart.x,
+                AppState.rectSelectStart.y,
+                event.clientX,
+                event.clientY,
+                AppState.rectSelectInitialSet
+            );
+            strokeDidModify = true;
+            return;
+        }
+
+        // Kéo chuột vẽ liên tục trong chế độ Draw (Free Draw / Circle / Square)
+        // Kéo chuột phóng to vùng khởi tạo Shape (Hold & Drag từ đáy/điểm tiếp xúc)
+        if (AppState.action === 'shape' && AppState.shapeCreateActive) {
+            updateShapeInteractiveCreate(event);
+            return;
+        }
+
         // Kéo chuột vẽ liên tục trong chế độ Draw (Free Draw / Circle / Square)
         if (AppState.action === 'draw' && AppState.drawActive) {
+		
             const nextCoord = getDrawPlaneIntersectionCoord(event);
             if (nextCoord) {
                 drawContinuousStrokeTo(nextCoord);
@@ -8852,6 +9796,26 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 		
 		
 
+      if (AppState.shapeCreateActive) {
+            finishShapeInteractiveCreate();
+        }
+
+       if (AppState.rectSelectActive) {
+            AppState.rectSelectActive = false;
+            updateRectSelectMarqueeUI(0, 0, 0, 0, false);
+            const endX = (event && event.clientX !== undefined) ? event.clientX : AppState.rectSelectCurrent.x;
+            const endY = (event && event.clientY !== undefined) ? event.clientY : AppState.rectSelectCurrent.y;
+            executeRectScreenSelection(
+                AppState.rectSelectStart.x,
+                AppState.rectSelectStart.y,
+                endX,
+                endY,
+                AppState.rectSelectInitialSet
+            );
+            strokeDidModify = true;
+            showToast(`Rect Select: Selected ${AppState.selectedVoxels.size} voxels!`, "success");
+        }
+
         // Nhả chuột: Bật lại OrbitControls nếu vừa kéo Gizmo xong
         if (AppState.isTransformingGizmo) {
             AppState.isTransformingGizmo = false;
@@ -8892,8 +9856,15 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 			 strokeDidModify = false;
 		}
 
-        if (AppState.controls) AppState.controls.enabled = true;
+        if (AppState.controls) {
+            AppState.controls.enabled = true;
+            updateControlsConfiguration();
+        }
     }
+		
+		
+
+		
 
 	function getRaycastIntersectionFromCoords(clientX, clientY) {
         if (!AppState.voxelMesh || !AppState.camera || !AppState.model) return null;
@@ -10100,8 +11071,11 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
             else if (key === 'r' && !(AppState.action === 'select' && AppState.selectionMode === 'transform')) setMagicaAction('erase');
             else if (key === 'g' && AppState.action !== 'paint') setMagicaAction('paint');
 			/////////////////////////////////////////////////////////////////////////////////////////
+			/////////////
+			/////////////
             else if (key === 'v') setMagicaAction('draw');
             else if (key === 'k') setMagicaAction('pick');
+            else if (key === 'h') setMagicaAction('shape');
         });
     }
 
@@ -10109,8 +11083,8 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
       AppState.action = action;
       AppState.isTransformingGizmo = false;
 
-      // Khi chuyển sang action khác Select (Attach, Erase, Paint, Draw, Pick): Tháo rời và tắt hoàn toàn Gizmo
-      if (action !== 'select' && AppState.transformControls) {
+      // Khi chuyển sang action khác Select và Shape: Tháo rời và tắt hoàn toàn Gizmo
+      if (action !== 'select' && action !== 'shape' && AppState.transformControls) {
           AppState.transformControls.detach();
           AppState.transformControls.enabled = false;
           AppState.transformControls.visible = false;
@@ -10118,7 +11092,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
       }
 
       document.querySelectorAll('.mv-action-btn').forEach(btn => {
-          btn.classList.remove('active', 'active-erase', 'active-select', 'active-pick', 'active-draw');
+          btn.classList.remove('active', 'active-erase', 'active-select', 'active-pick', 'active-draw', 'active-shape');
           if (btn.dataset.action === action) {
               if (action === 'erase') {
                   btn.classList.add('active-erase');
@@ -10128,6 +11102,8 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
                   btn.classList.add('active-pick');
               } else if (action === 'draw') {
                   btn.classList.add('active-draw');
+              } else if (action === 'shape') {
+                  btn.classList.add('active-shape');
               } else {
                   btn.classList.add('active');
               }
@@ -10138,18 +11114,45 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
       const btnBox = document.getElementById('btn-shape-box');
       const btnFace = document.getElementById('btn-shape-face');
       const btnWand = document.getElementById('btn-shape-wand');
+      const btnRect = document.getElementById('btn-shape-rect');
       const btnBucket = document.getElementById('btn-shape-bucket');
       const btnFree = document.getElementById('btn-shape-free');
       const btnCircle = document.getElementById('btn-shape-circle');
       const btnSquare = document.getElementById('btn-shape-square');
+      const genShapeBtns = [
+          document.getElementById('btn-shape-ellipsoid'),
+          document.getElementById('btn-shape-cylinder'),
+          document.getElementById('btn-shape-pyramid'),
+          document.getElementById('btn-shape-cone'),
+          document.getElementById('btn-shape-maze'),
+          document.getElementById('btn-shape-perlin'),
+          document.getElementById('btn-shape-fractal')
+      ];
       const shapeContainer = document.getElementById('brush-shape-container');
       const shapeShortcuts = document.getElementById('brush-shape-shortcuts');
 
-      if (action === 'draw') {
+      if (action === 'shape') {
           if (btnBox) btnBox.classList.add('hidden');
           if (btnFace) btnFace.classList.add('hidden');
           if (btnWand) btnWand.classList.add('hidden');
+          if (btnRect) btnRect.classList.add('hidden');
           if (btnBucket) btnBucket.classList.add('hidden');
+          if (btnFree) btnFree.classList.add('hidden');
+          if (btnCircle) btnCircle.classList.add('hidden');
+          if (btnSquare) btnSquare.classList.add('hidden');
+          genShapeBtns.forEach(b => { if (b) b.classList.remove('hidden'); });
+          if (shapeContainer) shapeContainer.className = "grid grid-cols-2 gap-1.5";
+          if (shapeShortcuts) shapeShortcuts.textContent = '[HOLD & DRAG]';
+          setBrushShape(AppState.lastGenShape || 'pyramid');
+          setSelectionMode('transform');
+          document.getElementById('btn-gizmo-scale')?.click();
+      } else if (action === 'draw') {
+          if (btnBox) btnBox.classList.add('hidden');
+          if (btnFace) btnFace.classList.add('hidden');
+          if (btnWand) btnWand.classList.add('hidden');
+          if (btnRect) btnRect.classList.add('hidden');
+          if (btnBucket) btnBucket.classList.add('hidden');
+          genShapeBtns.forEach(b => { if (b) b.classList.add('hidden'); });
           if (btnFree) btnFree.classList.remove('hidden');
           if (btnCircle) btnCircle.classList.remove('hidden');
           if (btnSquare) btnSquare.classList.remove('hidden');
@@ -10162,19 +11165,23 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
           if (btnFree) btnFree.classList.add('hidden');
           if (btnCircle) btnCircle.classList.add('hidden');
           if (btnSquare) btnSquare.classList.add('hidden');
+          genShapeBtns.forEach(b => { if (b) b.classList.add('hidden'); });
 
           if (action === 'select') {
               if (btnWand) btnWand.classList.remove('hidden');
+              if (btnRect) btnRect.classList.remove('hidden');
               if (btnBucket) btnBucket.classList.add('hidden');
-              if (shapeContainer) shapeContainer.className = "grid grid-cols-3 gap-1";
-              if (shapeShortcuts) shapeShortcuts.textContent = '[B / F / W]';
+              if (shapeContainer) shapeContainer.className = "grid grid-cols-2 gap-1.5";
+              if (shapeShortcuts) shapeShortcuts.textContent = '[B / F / W / M]';
           } else if (action === 'paint') {
               if (btnWand) btnWand.classList.add('hidden');
+              if (btnRect) btnRect.classList.add('hidden');
               if (btnBucket) btnBucket.classList.remove('hidden');
               if (shapeContainer) shapeContainer.className = "grid grid-cols-3 gap-1";
               if (shapeShortcuts) shapeShortcuts.textContent = '[B / F / G]';
           } else {
               if (btnWand) btnWand.classList.add('hidden');
+              if (btnRect) btnRect.classList.add('hidden');
               if (btnBucket) btnBucket.classList.add('hidden');
               if (shapeContainer) shapeContainer.className = "grid grid-cols-2 gap-1.5";
               if (shapeShortcuts) shapeShortcuts.textContent = '[B / F]';
@@ -10197,11 +11204,26 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
       }
 
       const selPanel = document.getElementById('selection-ops-panel');
+      const selTitle = document.getElementById('selection-ops-title');
+      const tabSelBtn = document.getElementById('tab-sel-mode');
+      const tabsBar = document.getElementById('selection-ops-tabs-bar');
       if (selPanel) {
-          // Chỉ hiển thị khung Selection & Transform khi action là 'select', ẩn hoàn toàn ở các action khác
-          selPanel.style.display = (action === 'select') ? 'flex' : 'none';
+          // Hiển thị khung Transform khi action là 'select' hoặc 'shape'
+          selPanel.style.display = (action === 'select' || action === 'shape') ? 'flex' : 'none';
+          if (action === 'shape') {
+              // Trong Shape: Bỏ hoàn toàn tab SELECT và công cụ Selection, chỉ để lại TRANSFORM
+              if (selTitle) selTitle.textContent = '📐 Shape Transform';
+              if (tabSelBtn) tabSelBtn.classList.add('hidden');
+              if (tabsBar) tabsBar.classList.add('hidden');
+              setSelectionMode('transform');
+          } else {
+              if (selTitle) selTitle.textContent = '📦 Selection & Transform';
+              if (tabSelBtn) tabSelBtn.classList.remove('hidden');
+              if (tabsBar) tabsBar.classList.remove('hidden');
+          }
       }
       updateDrawSizeUIVisibility();
+	  
       updateMirrorUIVisibility();
       updateControlsConfiguration();
       if (AppState.renderMode === 'preview') {
