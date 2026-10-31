@@ -558,12 +558,23 @@
                 </div>
 
                 <!-- Tùy chọn tick Rotate / Pan khi đang ở chế độ Rect Select -->
+                <!-- Tùy chọn tick Rotate / Pan khi đang ở chế độ Rect Select -->
                 <div id="rect-rotate-pan-row" class="hidden pt-1.5 mt-0.5 border-t border-gray-700/70">
                     <label class="flex items-center justify-between bg-[#14141c] hover:bg-[#1c1c26] px-2 py-1 rounded border border-gray-700/80 cursor-pointer w-full select-none transition-colors" title="Khi bật: Cho phép Rotate / Pan camera, tạm ngắt kéo chọn Rect Select và bấm ra ngoài để Deselect">
                         <span class="text-[9px] font-bold text-purple-300 flex items-center gap-1">
                             <span>🔄</span> Rotate / Pan
                         </span>
                         <input type="checkbox" id="chk-rect-rotate-pan" class="rounded bg-gray-800 border-gray-600 text-purple-500 focus:ring-0 w-3.5 h-3.5 cursor-pointer">
+                    </label>
+                </div>
+
+                <!-- Tùy chọn tick All Same-Colored khi đang ở chế độ Select -> Wand (-W-) -->
+                <div id="wand-all-same-color-row" class="hidden pt-1.5 mt-0.5 border-t border-gray-700/70">
+                    <label class="flex items-center justify-between bg-[#14141c] hover:bg-[#1c1c26] px-2 py-1 rounded border border-gray-700/80 cursor-pointer w-full select-none transition-colors" title="Khi bật: Chọn tất cả các khối Voxel cùng màu trên Scene (kể cả các khối tách rời). Khi tắt: Chỉ chọn các khối cùng màu liền kề.">
+                        <span class="text-[9px] font-bold text-purple-300 flex items-center gap-1">
+                            <span>🎨</span> All Same-Colored
+                        </span>
+                        <input type="checkbox" id="chk-wand-all-same-color" class="rounded bg-gray-800 border-gray-600 text-purple-500 focus:ring-0 w-3.5 h-3.5 cursor-pointer">
                     </label>
                 </div>
               
@@ -1348,6 +1359,7 @@
         rectSelectCurrent: new THREE.Vector2(),
         rectSelectInitialSet: new Set(),
         rectSelectRotatePan: false,
+        wandAllSameColor: false,
 		
         gizmoMode: 'translate',
         arraySubMode: 'scale', // 'scale' (kéo giãn vùng lặp) hoặc 'translate' (di chuyển vùng lặp)
@@ -3752,6 +3764,14 @@ function setupSkyControls() {
             const chk = document.getElementById('chk-rect-rotate-pan');
             if (chk) chk.checked = !!AppState.rectSelectRotatePan;
         }
+
+        const wandSameColorRow = document.getElementById('wand-all-same-color-row');
+        if (wandSameColorRow) {
+            const showWandOpt = (AppState.action === 'select') && (AppState.brushShape === 'wand');
+            wandSameColorRow.classList.toggle('hidden', !showWandOpt);
+            const chkWand = document.getElementById('chk-wand-all-same-color');
+            if (chkWand) chkWand.checked = !!AppState.wandAllSameColor;
+        }
     }
 
     function setupBrushShapeButtons() {
@@ -3774,6 +3794,21 @@ function setupSkyControls() {
                     AppState.rectSelectRotatePan
                         ? "Rotate / Pan ON (Rect Select disabled)"
                         : "Rotate / Pan OFF (Drag to Rect Select)",
+                    "success",
+                    true
+                );
+            });
+        }
+
+        const chkWandAllSameColor = document.getElementById('chk-wand-all-same-color');
+        if (chkWandAllSameColor) {
+            chkWandAllSameColor.checked = !!AppState.wandAllSameColor;
+            chkWandAllSameColor.addEventListener('change', (e) => {
+                AppState.wandAllSameColor = e.target.checked;
+                showToast(
+                    AppState.wandAllSameColor
+                        ? "Wand: Select ALL same-colored voxels ON"
+                        : "Wand: Select connected voxels only (Default)",
                     "success",
                     true
                 );
@@ -8136,6 +8171,7 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
 
 	function executeMagicWandSelection(targetVoxel, isAdd = false) {
         if (!AppState.model || !targetVoxel) return;
+        const snapshotBefore = captureStateSnapshot();
         commitPastedVoxels();
 
         const targetColor = targetVoxel.i;
@@ -8145,50 +8181,66 @@ function bindUndoableInput(element, onInputCallback, onCommitCallback = null) {
         }
 
         const vMap = getVoxelMap();
-        const startKey = `${targetVoxel.x},${targetVoxel.y},${targetVoxel.z}`;
 
-        const queue = [targetVoxel];
-        const visited = new Set();
-        visited.add(startKey);
+        if (AppState.wandAllSameColor) {
+            // Khi tick chọn "All Same-Colored": Chọn toàn bộ các khối Voxel có cùng màu trên Scene (kể cả các khối tách rời)
+            for (const [key, v] of vMap.entries()) {
+                if (v.i === targetColor && isVoxelVisible(v)) {
+                    AppState.selectedVoxels.add(key);
+                }
+            }
+        } else {
+            // Khi không tick: Giữ nguyên chức năng Magic Wand cũ (chỉ chọn các khối cùng màu liền kề nhau)
+            const startKey = `${targetVoxel.x},${targetVoxel.y},${targetVoxel.z}`;
+            const queue = [targetVoxel];
+            const visited = new Set();
+            visited.add(startKey);
 
-        const neighbors = [
-            { dx: 1, dy: 0, dz: 0 },
-            { dx: -1, dy: 0, dz: 0 },
-            { dx: 0, dy: 1, dz: 0 },
-            { dx: 0, dy: -1, dz: 0 },
-            { dx: 0, dy: 0, dz: 1 },
-            { dx: 0, dy: 0, dz: -1 }
-        ];
+            const neighbors = [
+                { dx: 1, dy: 0, dz: 0 },
+                { dx: -1, dy: 0, dz: 0 },
+                { dx: 0, dy: 1, dz: 0 },
+                { dx: 0, dy: -1, dz: 0 },
+                { dx: 0, dy: 0, dz: 1 },
+                { dx: 0, dy: 0, dz: -1 }
+            ];
 
-        while (queue.length > 0) {
-            const curr = queue.shift();
-            const key = `${curr.x},${curr.y},${curr.z}`;
-            AppState.selectedVoxels.add(key);
+            while (queue.length > 0) {
+                const curr = queue.shift();
+                const key = `${curr.x},${curr.y},${curr.z}`;
+                AppState.selectedVoxels.add(key);
 
-            for (const offset of neighbors) {
-                const nx = curr.x + offset.dx;
-                const ny = curr.y + offset.dy;
-                const nz = curr.z + offset.dz;
-                const neighborKey = `${nx},${ny},${nz}`;
+                for (const offset of neighbors) {
+                    const nx = curr.x + offset.dx;
+                    const ny = curr.y + offset.dy;
+                    const nz = curr.z + offset.dz;
+                    const neighborKey = `${nx},${ny},${nz}`;
 
-                if (!visited.has(neighborKey) && vMap.has(neighborKey)) {
-                    const neighborVox = vMap.get(neighborKey);
-                    if (neighborVox.i === targetColor) {
-                        visited.add(neighborKey);
-                        queue.push(neighborVox);
+                    if (!visited.has(neighborKey) && vMap.has(neighborKey)) {
+                        const neighborVox = vMap.get(neighborKey);
+                        if (neighborVox.i === targetColor) {
+                            visited.add(neighborKey);
+                            queue.push(neighborVox);
+                        }
                     }
                 }
             }
         }
 
         recalculateSelectionBoundsFromSet();
+        recordUndoStep(snapshotBefore);
 
         if (AppState.action !== 'select') {
             setMagicaAction('select');
         }
 
         updateSelectionBoxVisual();
-        showToast(`Magic Wand: Selected ${AppState.selectedVoxels.size} voxels!`, "success");
+        showToast(
+            AppState.wandAllSameColor
+                ? `Magic Wand (All Same-Colored): Selected ${AppState.selectedVoxels.size} voxels!`
+                : `Magic Wand: Selected ${AppState.selectedVoxels.size} voxels!`,
+            "success"
+        );
     }
 
     function executeSelectionBox(v1, v2) {
